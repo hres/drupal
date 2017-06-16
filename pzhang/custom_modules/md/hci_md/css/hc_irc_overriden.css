@@ -1,0 +1,12 @@
+
+table td > div.form-type-checkbox {
+  text-align: left;
+}
+
+tr.odd .form-item {
+  white-space: normal;
+}
+
+tr.even .form-item {
+  white-space: normal;
+}

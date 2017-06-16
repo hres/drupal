@@ -1,0 +1,61 @@
+.hc-report-card
+    {
+	display: block;
+	border: solid;
+	border-width: medium;
+	border-color: rgb(54, 72, 109);
+	box-shadow:10px 10px 7px black;	
+	width: 100%;
+  }
+.hc-report-card-table
+    {
+	display: table;
+	width: 100%;
+	padding-left: 5px;
+	padding-right: 5px;
+	padding-top: 10px;
+	padding-bottom: 20px;
+       
+  }
+ .hc-report-card-table-title
+    {
+	display: table-caption;
+	text-align: center;
+	font-weight: bold;
+	font-size: x-large;
+  }
+  .hc-report-card-table-subtitle
+    {
+	display: block;
+	text-align: center;
+	font-weight: bold;
+	font-size: larger;
+  }
+.hc-report-card-table-heading
+    {
+	display: table-row;
+	font-weight: bold;
+	text-align: center;
+	background-color: rgb(204, 204, 224);
+  }
+.hc-report-card-table-row
+    {
+	display: table-row;
+  }
+.hc-report-card-table-cell
+    {
+	display: table-cell;
+	border: solid;
+	border-width: thin;
+	padding-left: 5px;
+	padding-right: 5px;
+  }
+.hc-report-card-hidden
+{
+	display:none;
+}
+.hc-report-card-visible
+{
+	display:block;
+}
+

@@ -1,0 +1,133 @@
+<?php
+// $Id$
+function hci_md_data_importer_init(){
+	error_reporting(E_ALL);
+	ini_set('display_errors', TRUE);
+	ini_set('display_startup_errors', TRUE);
+	#ini_set('memory_limit', '2000M');
+}
+
+// Implementation of hook_permission
+function hci_md_data_importer_permission() {
+    return array(
+    'import hci data' => array(
+      'title' => t('Import HC MD Data'),
+      'description' => t(''),
+      ),
+    );
+} 
+/***
+ * hook_menu
+ */ 
+function hci_md_data_importer_menu() {
+
+  $items = array();
+  
+  $root = 'admin/hc_inspection/hci_md_data_importer';
+   $items['admin/hc_inspection'] = array(
+    'title' => 'HC Inspection',
+    'description' => 'Administer HC Inspection.',
+    'weight' => 0,
+    'page callback' => 'system_admin_menu_block_page',
+    'access arguments' => array('administer hc inspection'),
+    'file' => 'system.admin.inc',
+    'file path' => drupal_get_path('module', 'system'),
+  );
+ 
+	$items[$root] = array(
+    'title' => 'MD Data Importer',
+    'description' => 'Imports large dataset to the system',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('hci_md_data_importer_form', 'establishment', 'IRS_DATA_SOURCE'),
+    'access arguments' => array('import hci data'),
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'forms.inc',
+	'file path' => drupal_get_path('module','hci_md_data_importer'),
+   );
+ /*
+   $items[$root . '/regulation'] = array(
+    'title' => 'Regulation',
+    'weight' => -6,
+    'access arguments' => array('import hci data'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('hci_md_data_importer_form', 'regulation', 'Regulations'),
+    'file' => 'forms.inc',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  $items[$root . '/regulation_group'] = array(
+    'title' => 'Regulation group',
+    'weight' => -6,
+    'access arguments' => array('import hci data'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('hci_md_data_importer_form', 'regulation_group', 'IID Lines'),
+    'file' => 'forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  */
+  $items[$root . '/establishment'] = array(
+    'title' => 'Establishment',
+    'weight' => -5,
+    'access arguments' => array('import hci data'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('hci_md_data_importer_form', 'establishment', 'IRS_DATA_SOURCE'),
+    'file' => 'forms.inc',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+	'file path' => drupal_get_path('module','hci_md_data_importer'),
+  );
+  
+  
+  
+  return $items;
+}
+/**
+ * Helper function; Load node by title
+ */
+
+ function hci_md_data_importer_node_load_by_title($title, $node_type) {
+  $query = new EntityFieldQuery();
+  $entities = $query->entityCondition('entity_type', 'node')
+    ->propertyCondition('type', $node_type)
+    ->propertyCondition('title', $title)
+    ->propertyCondition('status', 1)
+    ->range(0,1)
+    ->execute();
+	//drupal_set_message(hci_md_dump($entities, 'red', TRUE));
+  if(!empty($entities)) {
+    $nids = array_keys($entities['node']);
+	$nid = array_shift($nids);
+	return $nid ? node_load($nid) : null;
+  }
+}
+function country_is_a_valid_country($country){
+	$country_list = location_get_iso3166_list(); //from module location
+	foreach ($country_list as $country_code => $a_country){
+		if (strtoupper($country)==strtoupper($a_country)){
+			return $country_code;
+		}
+	}
+	return NULL;
+}
+function province_is_a_valid_province($province, $country_code){
+	/*
+	$province_list = location_get_provinces($country_code)); //from module location
+	foreach ($province_list as $province_code => $a_province){
+		if (strtoupper($province)==strtoupper($a_province)){
+			return $province_code;
+		}
+	}
+	*/
+	return location_province_code($country_code, $province);
+}
+
+function hci_md_reset_node_titles($bundles=array()){
+	$query = new EntityFieldQuery();
+	$result = $query->entityCondition('entity_type', 'node')
+    ->propertyCondition('type', $bundles, 'IN')
+    ->execute();
+	$nids = array_keys($result['node']);
+	foreach($nids as $nid){
+		$node = node_load($nid);
+		auto_entitylabel_set_title($node, 'node');
+		node_save($node);
+	}
+}

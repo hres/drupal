@@ -1,0 +1,7 @@
+; $Id: hci_md_data_importer.info,  peijun zhang$
+name = HCI MD Data Importer
+description = A modules used to import large data sets
+core = 7.x
+package = HCIMD
+dependencies[] = hci_md
+version = "7.x-1.0-dev"

@@ -1,0 +1,708 @@
+{
+	"3824": {
+		"InitialInspections": {
+			"drupal_nid": "3824",
+			"insNumber": "3824",
+			"ordeID": null,
+			"subOrderID": null,
+			"iids": [{
+				"regulation_en": "MDR S.45 S.52\u2013S.56 \u0026 S.76 - Distribution Records",
+				"regulation_fr": "MDR S.45 S.52\u2013S.56 \u0026 S.76 - Registres de distribution",
+				"summary_en": ["Deficiencies were noted in the distribution records."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les registres de distribution."]
+			},
+			{
+				"regulation_en": "MDR S.44 - Establishment Licensing",
+				"regulation_fr": "MDR S.44 - Licence d\u0027\u00e9tablissement",
+				"summary_en": ["Deficiencies were noted in the establishment licences for medical devices being sold or imported."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les licences d\u2019\u00e9tablissement d\u2019instruments m\u00e9dicaux faisant l\u2019objet de vente ou d\u2019importation."]
+			},
+			{
+				"regulation_en": "MDR S.45 - Handling, Storage or Delivery",
+				"regulation_fr": "MDR S.45 - Manutention, entreposage et livraison",
+				"summary_en": ["Deficiencies were noted in the handling, storage, delivery, corrective action, servicing or installation procedures."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les proc\u00e9dures de manutention, d\u2019entreposage, de livraison, des mesures correctives, d\u2019entretien ou d\u2019installation."]
+			},
+			{
+				"regulation_en": "FDA S.20(1) - Misrepresentation",
+				"regulation_fr": "FDA S.20(1) - Pr\u00e9sentation trompeuse",
+				"summary_en": ["Deficiencies were noted in how medical devices or processes were represented."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant la mani\u00e8re dont on avait pr\u00e9sent\u00e9 les instruments m\u00e9dicaux ou les processus."]
+			},
+			{
+				"regulation_en": "MDR S.11 - Safety and Effectiveness",
+				"regulation_fr": "MDR S.11 - S\u00fbret\u00e9 et efficacit\u00e9",
+				"summary_en": ["Deficiencies were noted in the safety and effectiveness requirements being met."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant le respect des exigences en mati\u00e8re de s\u00fbret\u00e9 et d\u2019efficacit\u00e9."]
+			}]
+		},
+		"Inspections": {
+			"drupal_nid": "3824",
+			"insNumber": "3824",
+			"refNumber": "5753",
+			"estName": "Alphabiomedical Corp",
+			"preName": null,
+			"estType": null,
+			"licNumber": "5753",
+			"curLicenced": false,
+			"site": null,
+			"locationID": "638818",
+			"street": "2900 Argentia Road, Suite 5",
+			"city": "Mississauga",
+			"provinceEn": "Ontario",
+			"provinceFr": null,
+			"countryEn": "Canada",
+			"countryFr": null,
+			"poBox": null,
+			"postalCode": "",
+			"termsConditions": "No",
+			"activityEn": "Manufacturer",
+			"activityFr": "Fabricant",
+			"insTypeEn": "Domestic - Regular - Onsite",
+			"insTypeFr": "Domestique - R\u00e9guli\u00e8re - Sur place",
+			"insStartDate": "2015-10-20",
+			"insEndDate": "2015-10-28",
+			"ratingEn": "Inspection in progress",
+			"ratingFr": "Inspection en cours"
+		}
+	},
+	"3855": {
+		"InitialInspections": {
+			"drupal_nid": "3855",
+			"insNumber": "3855",
+			"ordeID": null,
+			"subOrderID": null,
+			"iids": [{
+				"regulation_en": "MDR S.57 \u0026 S.58 - Complaints",
+				"regulation_fr": "MDR S.57 \u0026 S.58 - Plaintes",
+				"summary_en": ["Deficiencies were noted in the procedure for handling complaints. ",
+				"Deficiencies were note in the records of complaints or the records of actions taken."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant la proc\u00e9dure de gestion des plaintes.",
+				"Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les registres des plaintes ou les registres des mesures prises."]
+			},
+			{
+				"regulation_en": "MDR S.58b, S.64 \u0026 S.65 - Recall Reporting",
+				"regulation_fr": "MDR S.58b, S.64 \u0026 S.65 - Rapports sur les rappels",
+				"summary_en": ["Deficiencies were noted in the procedure for recalls."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant la proc\u00e9dure relative aux rappels."]
+			},
+			{
+				"regulation_en": "FDA S.3, S.26 \u0026 S.27 - Sale or Advertising of Unauthorized Devices",
+				"regulation_fr": "FDA S.3, S.26 \u0026 S.27 - Vente ou publicit\u00e9 relatives \u00e0 des instruments non autoris\u00e9s",
+				"summary_en": ["Deficiencies were noted in the authorization of devices being advertised, sold, or imported."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant l\u2019autorisation d\u2019instruments faisant l\u2019objet de publicit\u00e9, de vente ou d\u2019importation."]
+			},
+			{
+				"regulation_en": "MDR S.21\u2014S.23 - Labelling",
+				"regulation_fr": "MDR S.21\u2014S.23 - \u00c9tiquetage",
+				"summary_en": ["Deficiencies were noted in the device labels."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les \u00e9tiquettes des instruments."]
+			},
+			{
+				"regulation_en": "MDR S.45 - tbd",
+				"regulation_fr": "MDR S.45 - tbd",
+				"summary_en": ["Deficiencies were noted in the written procedures.",
+				"Deficiencies were noted in the match of information found during the inspection with the information on the establishment licence."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les proc\u00e9dures \u00e9crites.",
+				"Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant la concordance entre des renseignements obtenus pendant l\u2019inspection et ceux de la licence d\u2019\u00e9tablissement."]
+			},
+			{
+				"regulation_en": "MDR S.45 S.52\u2013S.56 \u0026 S.76 - Distribution Records",
+				"regulation_fr": "MDR S.45 S.52\u2013S.56 \u0026 S.76 - Registres de distribution",
+				"summary_en": ["Deficiencies were noted in the distribution records."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les registres de distribution."]
+			}]
+		},
+		"Inspections": {
+			"drupal_nid": "3855",
+			"insNumber": "3855",
+			"refNumber": "3881",
+			"estName": "J.E. Hanger Ltd.",
+			"preName": null,
+			"estType": null,
+			"licNumber": "3881",
+			"curLicenced": true,
+			"site": null,
+			"locationID": "4E79EB18",
+			"street": "5545 St-Jacques Ouest",
+			"city": "Montreal",
+			"provinceEn": "Quebec",
+			"provinceFr": null,
+			"countryEn": "Canada",
+			"countryFr": null,
+			"poBox": null,
+			"postalCode": "",
+			"termsConditions": "No",
+			"activityEn": "Distributor",
+			"activityFr": "Distributeur",
+			"insTypeEn": "Domestic - Regular - Onsite",
+			"insTypeFr": "Domestique - R\u00e9guli\u00e8re - Sur place",
+			"insStartDate": "2012-10-03",
+			"insEndDate": "2012-11-06",
+			"ratingEn": "Inspection in progress",
+			"ratingFr": "Inspection en cours"
+		}
+	},
+	"3859": {
+		"InitialInspections": {
+			"drupal_nid": "3859",
+			"insNumber": "3859",
+			"ordeID": null,
+			"subOrderID": null,
+			"iids": [{
+				"regulation_en": "MDR S.21\u2014S.23 - Labelling",
+				"regulation_fr": "MDR S.21\u2014S.23 - \u00c9tiquetage",
+				"summary_en": ["Deficiencies were noted in the device labels."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les \u00e9tiquettes des instruments."]
+			},
+			{
+				"regulation_en": "MDR S.45 - tbd",
+				"regulation_fr": "MDR S.45 - tbd",
+				"summary_en": ["Deficiencies were noted in the match of information found during the inspection with the information on the establishment licence."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant la concordance entre des renseignements obtenus pendant l\u2019inspection et ceux de la licence d\u2019\u00e9tablissement."]
+			},
+			{
+				"regulation_en": "MDR S.45 S.52\u2013S.56 \u0026 S.76 - Distribution Records",
+				"regulation_fr": "MDR S.45 S.52\u2013S.56 \u0026 S.76 - Registres de distribution",
+				"summary_en": ["Deficiencies were noted in the procedure for distribution records.",
+				"Deficiencies were noted in the distribution records."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant la proc\u00e9dure relative aux registres de distribution.",
+				"Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les registres de distribution."]
+			},
+			{
+				"regulation_en": "MDR S.69 - Custom-Made Devices and Special Access",
+				"regulation_fr": "MDR S.69 - Instruments faits sur mesure et acc\u00e8s particulier",
+				"summary_en": ["Deficiencies were noted in the application to manufacture custom-made or special access devices."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant la demande de fabrication d\u2019instruments faits sur mesure ou \u00e0 acc\u00e8s sp\u00e9cial."]
+			},
+			{
+				"regulation_en": "MDR S.57 \u0026 S.58 - Complaints",
+				"regulation_fr": "MDR S.57 \u0026 S.58 - Plaintes",
+				"summary_en": ["Deficiencies were noted in the procedure for handling complaints. ",
+				"Deficiencies were note in the records of complaints or the records of actions taken."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant la proc\u00e9dure de gestion des plaintes.",
+				"Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les registres des plaintes ou les registres des mesures prises."]
+			},
+			{
+				"regulation_en": "MDR S.58b, S.64 \u0026 S.65 - Recall Reporting",
+				"regulation_fr": "MDR S.58b, S.64 \u0026 S.65 - Rapports sur les rappels",
+				"summary_en": ["Deficiencies were noted in the procedure for recalls."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant la proc\u00e9dure relative aux rappels."]
+			}]
+		},
+		"Inspections": {
+			"drupal_nid": "3859",
+			"insNumber": "3859",
+			"refNumber": "3881",
+			"estName": "J.E. Hanger Ltd.",
+			"preName": null,
+			"estType": null,
+			"licNumber": "3881",
+			"curLicenced": true,
+			"site": null,
+			"locationID": "4E79EB18",
+			"street": "5545 St-Jacques Ouest",
+			"city": "Montreal",
+			"provinceEn": "Quebec",
+			"provinceFr": null,
+			"countryEn": "Canada",
+			"countryFr": null,
+			"poBox": null,
+			"postalCode": "",
+			"termsConditions": "No",
+			"activityEn": "Distributor",
+			"activityFr": "Distributeur",
+			"insTypeEn": "Domestic - New - Onsite",
+			"insTypeFr": "Domestique - Nouvelle - Sur place",
+			"insStartDate": "2012-10-03",
+			"insEndDate": "2012-10-03",
+			"ratingEn": "Inspection in progress",
+			"ratingFr": "Inspection en cours"
+		}
+	},
+	"3868": {
+		"InitialInspections": {
+			"drupal_nid": "3868",
+			"insNumber": "3868",
+			"ordeID": null,
+			"subOrderID": null,
+			"iids": [{
+				"regulation_en": "MDR S.57 \u0026 S.58 - Complaints",
+				"regulation_fr": "MDR S.57 \u0026 S.58 - Plaintes",
+				"summary_en": ["Deficiencies were noted in the procedure for handling complaints. "],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant la proc\u00e9dure de gestion des plaintes."]
+			},
+			{
+				"regulation_en": "MDR S.58b, S.64 \u0026 S.65 - Recall Reporting",
+				"regulation_fr": "MDR S.58b, S.64 \u0026 S.65 - Rapports sur les rappels",
+				"summary_en": ["Deficiencies were noted in the recall reports that were submitted."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les rapports sur les rappels soumis."]
+			}]
+		},
+		"Inspections": {
+			"drupal_nid": "3868",
+			"insNumber": "3868",
+			"refNumber": "6137",
+			"estName": "9195-6292 Quebec Inc.",
+			"preName": null,
+			"estType": null,
+			"licNumber": "6137",
+			"curLicenced": false,
+			"site": null,
+			"locationID": "232E01D2",
+			"street": "4555 Boulevard De La Grande-Allee",
+			"city": "Boisbriand",
+			"provinceEn": "Quebec",
+			"provinceFr": null,
+			"countryEn": "Canada",
+			"countryFr": null,
+			"poBox": null,
+			"postalCode": "",
+			"termsConditions": "No",
+			"activityEn": "Importer",
+			"activityFr": "Importateur",
+			"insTypeEn": "Domestic - Regular - Onsite",
+			"insTypeFr": "Domestique - R\u00e9guli\u00e8re - Sur place",
+			"insStartDate": "2015-11-10",
+			"insEndDate": "2015-11-18",
+			"ratingEn": "Inspection in progress",
+			"ratingFr": "Inspection en cours"
+		}
+	},
+	"37": {
+		"InitialInspections": {
+			"drupal_nid": "37",
+			"insNumber": "37",
+			"ordeID": null,
+			"subOrderID": null,
+			"iids": [{
+				"regulation_en": "FDA S.19 - Hazardous Devices",
+				"regulation_fr": "FDA S.19 - Instruments dangereux",
+				"summary_en": ["Deficiencies were noted in hazardous devices being found available for sale."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant des instruments dangereux qui \u00e9taient de fait destin\u00e9s \u00e0 la vente."]
+			}]
+		},
+		"Inspections": {
+			"drupal_nid": "43",
+			"insNumber": "37",
+			"refNumber": "25",
+			"estName": "Keir Surgical Ltd.",
+			"preName": null,
+			"estType": null,
+			"licNumber": "25",
+			"curLicenced": true,
+			"site": null,
+			"locationID": "257AD37A",
+			"street": "126 - 408 East Kent Ave. South",
+			"city": "Vancouver",
+			"provinceEn": "British Columbia",
+			"provinceFr": null,
+			"countryEn": "Canada",
+			"countryFr": null,
+			"poBox": null,
+			"postalCode": "",
+			"termsConditions": "Yes",
+			"activityEn": "Manufacturer, Importer, Distributor",
+			"activityFr": "Fabricant, Importateur, Distributeur",
+			"insTypeEn": "Domestic - New - Onsite",
+			"insTypeFr": "Domestique - Nouvelle - Sur place",
+			"insStartDate": "2015-09-10",
+			"insEndDate": "2015-09-15",
+			"ratingEn": "Compliant",
+			"ratingFr": "Conforme"
+		},
+		"ReportSummaryInspection": {
+			"drupal_nid": "43",
+			"insNumber": "37",
+			"ordeID": null,
+			"subOrderID": null,
+			"observations": {
+				"1": [{
+					"regulation_en": "s.3(1) Act s.3(1) - No Schedule A Claims in Ads",
+					"regulation_fr": "s.3(1) Act s.3(1) - Aucune all\u00e9gation relative \u00e0 l\u2019annexe A dans les publicit\u00e9s",
+					"summary_en": ["Devices were advertised to treat a condition on the prohibited list (Schedule A) of the Food and Drugs Act."],
+					"summary_fr": ["Des instruments avaient \u00e9t\u00e9 annonc\u00e9s pour traiter une affection mentionn\u00e9e dans la liste des interdictions (annexe A) de la Loi sur les aliments et drogues."]
+				}]
+			}
+		}
+	},
+	"62": {
+		"InitialInspections": {
+			"drupal_nid": "62",
+			"insNumber": "62",
+			"ordeID": null,
+			"subOrderID": null,
+			"iids": [{
+				"regulation_en": "FDA S.20(1) - Misrepresentation",
+				"regulation_fr": "FDA S.20(1) - Pr\u00e9sentation trompeuse",
+				"summary_en": ["Deficiencies were noted in how medical devices or processes were represented."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant la mani\u00e8re dont on avait pr\u00e9sent\u00e9 les instruments m\u00e9dicaux ou les processus."]
+			},
+			{
+				"regulation_en": "FDA S.3 \u0026 20(2) - Labelling",
+				"regulation_fr": "FDA S.3 \u0026 20(2) - \u00c9tiquetage",
+				"summary_en": ["Deficiencies were noted in the labelling following accepted standards."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant le respect des normes reconnues relatives \u00e0 l\u2019\u00e9tiquetage."]
+			}]
+		},
+		"Inspections": {
+			"drupal_nid": "365",
+			"insNumber": "62",
+			"refNumber": "25",
+			"estName": "Keir Surgical Ltd.",
+			"preName": null,
+			"estType": null,
+			"licNumber": "25",
+			"curLicenced": true,
+			"site": null,
+			"locationID": "257AD37A",
+			"street": "126 - 408 East Kent Ave. South",
+			"city": "Vancouver",
+			"provinceEn": "British Columbia",
+			"provinceFr": null,
+			"countryEn": "Canada",
+			"countryFr": null,
+			"poBox": null,
+			"postalCode": "",
+			"termsConditions": "Yes",
+			"activityEn": "Manufacturer, Importer, Distributor",
+			"activityFr": "Fabricant, Importateur, Distributeur",
+			"insTypeEn": "Foreign",
+			"insTypeFr": "Foreign",
+			"insStartDate": "2015-09-25",
+			"insEndDate": "2015-09-30",
+			"ratingEn": "Compliant",
+			"ratingFr": "Conforme"
+		},
+		"ReportSummaryInspection": {
+			"drupal_nid": "365",
+			"insNumber": "62",
+			"ordeID": null,
+			"subOrderID": null,
+			"observations": {
+				"1": [{
+					"regulation_en": "MDR s.75(a)-(c) - Specific Labelling",
+					"regulation_fr": "MDR s.75(a)-(c) - \u00c9tiquetage explicite",
+					"summary_en": ["The company imported or sold devices without a label specifying the device was intended for special access use."],
+					"summary_fr": ["L\u2019entreprise avait import\u00e9 ou vendu des instruments sans joindre une \u00e9tiquette pr\u00e9cisant que l\u2019instrument \u00e9tait destin\u00e9 \u00e0 une utilisation aux fins d\u2019acc\u00e8s sp\u00e9cial."]
+				},
+				{
+					"regulation_en": "MDR s.27(b) - Catalogue Advertising of Devices",
+					"regulation_fr": "MDR s.27(b) - Publicit\u00e9 d\u2019instruments par catalogue",
+					"summary_en": ["The company\u2019s catalogue did not include a clear and visible warning that devices advertised may not have been licensed according to Canadian law."],
+					"summary_fr": ["Le catalogue de l\u2019entreprise ne comprenait aucune mise en garde claire et \u00e9vidente sp\u00e9cifiant que des instruments annonc\u00e9s pourraient ne pas avoir \u00e9t\u00e9 autoris\u00e9s en vertu de la l\u00e9gislation canadienne."]
+				},
+				{
+					"regulation_en": "MDR s.80(2) - Authorization and Records",
+					"regulation_fr": "MDR s.80(2) - Autorisation et registres",
+					"summary_en": ["The company sold a device for investigational testing without authorization from Health Canada."],
+					"summary_fr": ["L\u2019entreprise avait vendu un instrument pour des essais exp\u00e9rimentaux sans l\u2019autorisation de Sant\u00e9 Canada."]
+				},
+				{
+					"regulation_en": "MDR s. 44(1) - Sale or Import without Establishment Licence",
+					"regulation_fr": "MDR s. 44(1) - Vente ou importation sans licence d\u2019\u00e9tablissement",
+					"summary_en": ["The company imported and\/or sold medical devices without an Establishment Licence."],
+					"summary_fr": ["L\u2019entreprise avait import\u00e9 ou vendu des instruments m\u00e9dicaux sans licence d\u2019\u00e9tablissement."]
+				}]
+			}
+		}
+	},
+	"63": {
+		"InitialInspections": {
+			"drupal_nid": "63",
+			"insNumber": "63",
+			"ordeID": null,
+			"subOrderID": null,
+			"iids": [{
+				"regulation_en": "FDA S.19 - Hazardous Devices",
+				"regulation_fr": "FDA S.19 - Instruments dangereux",
+				"summary_en": ["Deficiencies were noted in hazardous devices being found available for sale."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant des instruments dangereux qui \u00e9taient de fait destin\u00e9s \u00e0 la vente."]
+			}]
+		},
+		"Inspections": {
+			"drupal_nid": "63",
+			"insNumber": "63",
+			"refNumber": "25",
+			"estName": "Keir Surgical Ltd.",
+			"preName": null,
+			"estType": null,
+			"licNumber": "25",
+			"curLicenced": true,
+			"site": null,
+			"locationID": "257AD37A",
+			"street": "126 - 408 East Kent Ave. South",
+			"city": "Vancouver",
+			"provinceEn": "British Columbia",
+			"provinceFr": null,
+			"countryEn": "Canada",
+			"countryFr": null,
+			"poBox": null,
+			"postalCode": "",
+			"termsConditions": "Yes",
+			"activityEn": "Manufacturer, Importer, Distributor",
+			"activityFr": "Fabricant, Importateur, Distributeur",
+			"insTypeEn": "Domestic - New - Onsite",
+			"insTypeFr": "Domestique - Nouvelle - Sur place",
+			"insStartDate": "2015-09-29",
+			"insEndDate": "2015-09-24",
+			"ratingEn": "Inspection in progress",
+			"ratingFr": "Inspection en cours"
+		}
+	},
+	"100": {
+		"InitialInspections": {
+			"drupal_nid": "100",
+			"insNumber": "100",
+			"ordeID": null,
+			"subOrderID": null,
+			"iids": [{
+				"regulation_en": "FDA S.21 - Prescribed Standards",
+				"regulation_fr": "FDA S.21 - Normes r\u00e9glementaires",
+				"summary_en": ["Deficiencies were noted in the acceptable standards being followed."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les normes acceptables suivies."]
+			}]
+		},
+		"Inspections": {
+			"drupal_nid": "364",
+			"insNumber": "100",
+			"refNumber": "25",
+			"estName": "Keir Surgical Ltd.",
+			"preName": null,
+			"estType": null,
+			"licNumber": "25",
+			"curLicenced": true,
+			"site": null,
+			"locationID": "257AD37A",
+			"street": "126 - 408 East Kent Ave. South",
+			"city": "Vancouver",
+			"provinceEn": "British Columbia",
+			"provinceFr": null,
+			"countryEn": "Canada",
+			"countryFr": null,
+			"poBox": null,
+			"postalCode": "",
+			"termsConditions": "Yes",
+			"activityEn": "Manufacturer, Importer, Distributor",
+			"activityFr": "Fabricant, Importateur, Distributeur",
+			"insTypeEn": "Foreign - Regular - Paper",
+			"insTypeFr": "\u00c9tranger - R\u00e9guli\u00e8re - Papier",
+			"insStartDate": "2015-10-06",
+			"ratingEn": "Compliant",
+			"ratingFr": "Conforme"
+		},
+		"ReportSummaryInspection": {
+			"drupal_nid": "364",
+			"insNumber": "100",
+			"ordeID": null,
+			"subOrderID": null,
+			"observations": {
+				"1": [{
+					"regulation_en": "MDR s.45(i) - Handling, Storage, Delivery, Etc.",
+					"regulation_fr": "MDR s.45(i) - Manutention, entreposage, livraison, etc.",
+					"summary_en": ["The company did not have written procedures for handling, storing, delivering, installing, or servicing medical devices, contrary to what was committed to on its establishment licence application."],
+					"summary_fr": ["L\u2019entreprise ne disposait d\u2019aucune proc\u00e9dure \u00e9crite sur la manutention, l\u2019entreposage, la livraison, l\u2019installation ou l\u2019entretien d\u2019instruments m\u00e9dicaux, contrairement \u00e0 ce qui \u00e9tait d\u00e9clar\u00e9 dans sa demande de licence d\u2019\u00e9tablissement."]
+				}]
+			}
+		}
+	},
+	"101": {
+		"InitialInspections": {
+			"drupal_nid": "101",
+			"insNumber": "101",
+			"ordeID": null,
+			"subOrderID": null,
+			"iids": [{
+				"regulation_en": "FDA S.21 - Prescribed Standards",
+				"regulation_fr": "FDA S.21 - Normes r\u00e9glementaires",
+				"summary_en": ["Deficiencies were noted in the acceptable standards being followed."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les normes acceptables suivies."]
+			},
+			{
+				"regulation_en": "FDA S.19 - Hazardous Devices",
+				"regulation_fr": "FDA S.19 - Instruments dangereux",
+				"summary_en": ["Deficiencies were noted in hazardous devices being found available for sale."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant des instruments dangereux qui \u00e9taient de fait destin\u00e9s \u00e0 la vente."]
+			}]
+		},
+		"Inspections": {
+			"drupal_nid": "101",
+			"insNumber": "101",
+			"refNumber": "3333",
+			"estName": "Patterson Medical Canada, Inc.",
+			"preName": null,
+			"estType": null,
+			"licNumber": "3333",
+			"curLicenced": true,
+			"site": null,
+			"locationID": "D4899C2D",
+			"street": "6675 Millcreek Drive, Unit 3",
+			"city": "Mississauga",
+			"provinceEn": "Ontario",
+			"provinceFr": null,
+			"countryEn": "Canada",
+			"countryFr": null,
+			"poBox": null,
+			"postalCode": "",
+			"termsConditions": "Yes",
+			"activityEn": "Importer, Distributor",
+			"activityFr": "Importateur, Distributeur",
+			"insTypeEn": "Foreign - Re-inspection - Paper",
+			"insTypeFr": "\u00c9tranger - R\u00e9-inspection - Papier",
+			"insStartDate": "2015-10-06",
+			"ratingEn": "Inspection in progress",
+			"ratingFr": "Inspection en cours"
+		}
+	},
+	"3825": {
+		"InitialInspections": {
+			"drupal_nid": "3825",
+			"insNumber": "3825",
+			"ordeID": null,
+			"subOrderID": null,
+			"iids": [{
+				"regulation_en": "MDR S.44 - Establishment Licensing",
+				"regulation_fr": "MDR S.44 - Licence d\u0027\u00e9tablissement",
+				"summary_en": ["Deficiencies were noted in the establishment licences for medical devices being sold or imported."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les licences d\u2019\u00e9tablissement d\u2019instruments m\u00e9dicaux faisant l\u2019objet de vente ou d\u2019importation."]
+			}]
+		},
+		"Inspections": {
+			"drupal_nid": "3825",
+			"insNumber": "3825",
+			"refNumber": "5753",
+			"estName": "Alphabiomedical Corp",
+			"preName": null,
+			"estType": null,
+			"licNumber": "5753",
+			"curLicenced": false,
+			"site": null,
+			"locationID": "638818",
+			"street": "2900 Argentia Road, Suite 5",
+			"city": "Mississauga",
+			"provinceEn": "Ontario",
+			"provinceFr": null,
+			"countryEn": "Canada",
+			"countryFr": null,
+			"poBox": null,
+			"postalCode": "",
+			"termsConditions": "No",
+			"activityEn": "Manufacturer",
+			"activityFr": "Fabricant",
+			"insTypeEn": "Regular",
+			"insTypeFr": "R\u00e9guli\u00e8re",
+			"insStartDate": "2015-10-21",
+			"ratingEn": "Inspection in progress",
+			"ratingFr": "Inspection en cours"
+		}
+	},
+	"3850": {
+		"InitialInspections": {
+			"drupal_nid": "3850",
+			"insNumber": "3850",
+			"ordeID": null,
+			"subOrderID": null,
+			"iids": [{
+				"regulation_en": "MDR S.57 \u0026 S.58 - Complaints",
+				"regulation_fr": "MDR S.57 \u0026 S.58 - Plaintes",
+				"summary_en": ["Deficiencies were noted in the procedure for handling complaints. "],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant la proc\u00e9dure de gestion des plaintes."]
+			},
+			{
+				"regulation_en": "MDR S.44 - Establishment Licensing",
+				"regulation_fr": "MDR S.44 - Licence d\u0027\u00e9tablissement",
+				"summary_en": ["Deficiencies were noted in the establishment licences for medical devices being sold or imported."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les licences d\u2019\u00e9tablissement d\u2019instruments m\u00e9dicaux faisant l\u2019objet de vente ou d\u2019importation."]
+			},
+			{
+				"regulation_en": "MDR S.45 - Handling, Storage or Delivery",
+				"regulation_fr": "MDR S.45 - Manutention, entreposage et livraison",
+				"summary_en": ["Deficiencies were noted in the handling, storage, delivery, corrective action, servicing or installation procedures."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les proc\u00e9dures de manutention, d\u2019entreposage, de livraison, des mesures correctives, d\u2019entretien ou d\u2019installation."]
+			},
+			{
+				"regulation_en": "MDR S.45, S.59\u2014S.61 \u0026 S.77 - Problem Reporting",
+				"regulation_fr": "MDR S.45, S.59\u2014S.61 \u0026 S.77 - D\u00e9claration des probl\u00e8mes",
+				"summary_en": ["Deficiencies were noted in the mandatory problem reporting procedures."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les proc\u00e9dures de d\u00e9claration obligatoire des incidents."]
+			}]
+		},
+		"Inspections": {
+			"drupal_nid": "3850",
+			"insNumber": "3850",
+			"refNumber": "3283",
+			"estName": "Advanced Orthotic Designs Inc.",
+			"preName": null,
+			"estType": null,
+			"licNumber": "3283",
+			"curLicenced": true,
+			"site": null,
+			"locationID": "31616F00",
+			"street": "3995 Sladeview Crescent, Suite 4",
+			"city": "Mississauga",
+			"provinceEn": "Ontario",
+			"provinceFr": null,
+			"countryEn": "Canada",
+			"countryFr": null,
+			"poBox": null,
+			"postalCode": "",
+			"termsConditions": "No",
+			"activityEn": "Manufacturer",
+			"activityFr": "Fabricant",
+			"insTypeEn": "Foreign - Regular - Paper",
+			"insTypeFr": "\u00c9tranger - R\u00e9guli\u00e8re - Papier",
+			"insStartDate": "2015-11-03",
+			"ratingEn": "Inspection in progress",
+			"ratingFr": "Inspection en cours"
+		}
+	},
+	"3852": {
+		"InitialInspections": {
+			"drupal_nid": "3852",
+			"insNumber": "3852",
+			"ordeID": null,
+			"subOrderID": null,
+			"iids": [{
+				"regulation_en": "MDR S.21\u2014S.23 - Labelling",
+				"regulation_fr": "MDR S.21\u2014S.23 - \u00c9tiquetage",
+				"summary_en": ["Deficiencies were noted in the device labels."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les \u00e9tiquettes des instruments."]
+			},
+			{
+				"regulation_en": "MDR S.44 - Establishment Licensing",
+				"regulation_fr": "MDR S.44 - Licence d\u0027\u00e9tablissement",
+				"summary_en": ["Deficiencies were noted in the establishment licences for medical devices being sold or imported."],
+				"summary_fr": ["Des lacunes avaient \u00e9t\u00e9 relev\u00e9es concernant les licences d\u2019\u00e9tablissement d\u2019instruments m\u00e9dicaux faisant l\u2019objet de vente ou d\u2019importation."]
+			}]
+		},
+		"Inspections": {
+			"drupal_nid": "3852",
+			"insNumber": "3852",
+			"refNumber": "883",
+			"estName": "595877 B.C. LTD. DBA Medichair Surrey",
+			"preName": null,
+			"estType": null,
+			"licNumber": "883",
+			"curLicenced": false,
+			"site": null,
+			"locationID": "A0B197E0",
+			"street": "Unit 139, 7536-130 Street",
+			"city": "Surrey",
+			"provinceEn": "British Columbia",
+			"provinceFr": null,
+			"countryEn": "Canada",
+			"countryFr": null,
+			"poBox": null,
+			"postalCode": "",
+			"termsConditions": "No",
+			"activityEn": "Importer, Distributor",
+			"activityFr": "Importateur, Distributeur",
+			"insTypeEn": "Domestic - Regular - Onsite",
+			"insTypeFr": "Domestique - R\u00e9guli\u00e8re - Sur place",
+			"insStartDate": "2015-11-03",
+			"insEndDate": "2015-11-03",
+			"ratingEn": "Inspection in progress",
+			"ratingFr": "Inspection en cours"
+		}
+	}
+}

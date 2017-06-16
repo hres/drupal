@@ -1,0 +1,74 @@
+<?php
+// $Id$
+
+/**
+* Install the hci_md_export module
+* @file
+*/
+
+/**
+* Implementation of hook_install()
+*/
+function hci_md_export_install() {
+    drupal_install_schema('hci_md_export');
+    db_query("DELETE FROM {cache}");
+}
+
+/**
+* Implementation of hook_uninstall()
+*/
+function hci_md_export_uninstall() {
+    drupal_uninstall_schema('hci_md_export');
+}
+
+/**
+* Implementation of hook_schema()
+* @return array of Schema API table definitions.
+*/
+function hci_md_export_schema() {
+		$schema=array();
+		$table_name='hci_md_export_log';
+		if(!db_table_exists($table_name)){
+		$schema[$table_name] = array(
+			  'description' => 'TODO: please describe this table!',
+			  'fields' => array(
+					
+					'export_date' => array(
+						'description' => 'Local time when exporting, Unix timestamp',
+						'type' => 'int',
+						'unsigned' => TRUE,
+						'not null' => TRUE,
+						),
+					'error' => array(
+						'description' => '1, error log; 0, other log',
+						'type' => 'int',
+						'unsigned' => TRUE,
+						'not null' => FALSE,
+						),
+					'inspection_nid' => array(
+						'description' => 'Inspection node nid',
+						'type' => 'int',
+						'unsigned' => TRUE,
+						'not null' => FALSE,
+						),
+					'inspection_type' => array(
+						'description' => 'Inspection type: iid or irc',
+						'type' => 'text',
+						'size' => 'tiny',
+						'not null' => FALSE,
+						),
+					'log' => array(
+						'description' => 'export log',
+						'type' => 'text',
+						'size' => 'medium',
+						'not null' => FALSE,
+						),
+					  ),
+				);
+
+		}
+    
+    
+    return $schema;
+}
+?>

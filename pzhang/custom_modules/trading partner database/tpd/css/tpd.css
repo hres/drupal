@@ -1,0 +1,65 @@
+
+/* field label */
+.tpd-table{
+  display:table;
+  width:auto;
+	align:left;
+}
+.tpd-table-row{
+  display:table-row;
+  width:auto;
+  clear:both;
+}
+.tpd-label-content{
+  display:table-row;
+  width:auto;
+  clear:both;
+}
+.tpd-label{
+  //background-color: #BAD6F2;
+	color: #660000;
+	float:left;/*fix for  buggy browsers*/
+  display:table-column;
+  width:250px;
+  font-weight:bold;
+}
+.tpd-label-plain{
+  //background-color: #BAD6F2;
+	color: #660000;
+  font-weight:bold;
+  margin-top:10px;
+	//margin-bottom:10px;
+}
+
+.tpd-label-class1{
+	font-size:200%;
+}
+.tpd-label-class2{
+	font-size:150%;
+}
+.tpd-label-class3{
+	font-size:120%;
+}
+.tpd-label-class4{
+	font-size:100%;
+}
+
+.tpd-content{
+	//color: #0066CC;
+  float:left;/*fix for  buggy browsers*/
+  display:table-column;
+  width:auto;
+}
+
+.tpd-content-class1{
+	font-size:200%;
+}
+.tpd-content-class2{
+	font-size:150%;
+}
+.tpd-content-class3{
+	font-size:120%;
+}
+.tpd-content-class4{
+	font-size:100%;
+}

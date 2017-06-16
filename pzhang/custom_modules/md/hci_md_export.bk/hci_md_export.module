@@ -1,0 +1,816 @@
+<?php
+// $Id$
+
+
+// Implementation of hook_cron
+function hci_md_export_cron(){
+	//hci_md_export_auto_export();
+}
+// Implementation of hook_permission
+function hci_md_export_permission() {
+    return array(
+    'export hci_md data' => array(
+      'title' => t('Export HC IRC Data'),
+      'description' => t(''),
+      ),
+	'export hci_md data setting' => array(
+      'title' => t('Export HC IRC Data Setting'),
+      'description' => t(''),
+      ),
+    );
+} 
+/***
+ * hook_menu
+ */ 
+function hci_md_export_menu() {
+
+  $items = array();
+  
+  $root = 'admin/hc_inspection/hci_md_export';
+	
+	$items[$root] = array(
+    'title' => 'MD Data Export',
+    'description' => 'Data export settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('hci_md_export_log_form'),
+    'access arguments' => array('export hci_md data setting'),
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'forms.inc',
+   );
+   
+   $items['export'] = array(
+    'title' => 'Export',
+    'weight' => -6,
+    //'access arguments' => array('export hci_md data'),
+	'access callback' => 'hci_md_export_login', 
+    'page callback' => 'hci_md_export_export_data',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+ /*
+  $items[$root . '/export_setting'] = array(
+    'title' => 'Export Setting',
+    'weight' => -5,
+    'access arguments' => array('export hci_md data setting'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('hci_md_export_setting_form'),
+    'file' => 'forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  */
+  $items[$root . '/export_log'] = array(
+    'title' => 'Export Log',
+    'weight' => -3,
+    'access arguments' => array('export hci_md data setting'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('hci_md_export_log_form'),
+    'file' => 'forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/export_log_clear'] = array(
+    'title' => 'Clear Log',
+    'weight' => -2,
+    'access arguments' => array('export hci_md data setting'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('hci_md_export_log_clear_form'),
+    'file' => 'forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/hc_inspection_variables'] = array(
+    'title' => 'HC Inspection Variables',
+    'description' => 'HC variables settings form.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('variable_group_form', 'hc_inspection'),
+    'access arguments' => array('export hci_md data setting'),
+	'type' => MENU_LOCAL_TASK,
+  );
+  
+  $main_root = 'hci_md_export';
+	
+	$items[$main_root] = array(
+    'title' => 'MD Data Export',
+    'description' => 'Data export settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('hci_md_export_log_form'),
+    'access arguments' => array('export hci_md data setting'),
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'forms.inc',
+	'menu_name' => 'main-menu',
+   );
+   
+  
+  $items[$main_root . '/export_log'] = array(
+    'title' => 'Export Log',
+    'weight' => -3,
+    'access arguments' => array('export hci_md data setting'),
+	
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('hci_md_export_log_form'),
+    'file' => 'forms.inc',
+    'type' => MENU_LOCAL_TASK,
+	'menu_name' => 'main-menu',
+  );
+ $items[$main_root . '/export_log_clear'] = array(
+    'title' => 'Clear Log',
+    'weight' => -2,
+    'access arguments' => array('export hci_md data setting'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('hci_md_export_log_clear_form'),
+    'file' => 'forms.inc',
+    'type' => MENU_LOCAL_TASK,
+	'menu_name' => 'main-menu',
+  );
+  return $items;
+}
+// implementation of hook_validatge
+
+function hci_md_export_node_validate($node, $form, &$form_state){
+	
+	//drupal_set_message(hci_md_dump($form_state, 'blue', TRUE));
+	
+	switch($node -> type){
+		case 'irc':
+			$wrapper = entity_metadata_wrapper('node', $node);
+			if ($wrapper -> field_gmp_iid){ // new IRC
+				return;
+			}
+			$sid_to_transit = $form_state['values']['field_workflow_irc']['und'][0]['value'];
+			$to_be_published_status_iid_sid = variable_get('hci_md_export_iid_publication_ready_state', '');
+			$to_be_published_status_irc_sid = variable_get('hci_md_export_irc_publication_ready_state', '');
+			$published_status_iid_sid = variable_get('hci_md_export_iid_publication_published_state', '');
+			$published_status_irc_sid = variable_get('hci_md_export_irc_publication_published_state', '');
+			
+			$iid_sid = $wrapper -> field_gmp_iid -> field_workflow_iid -> value();
+			$iid_nid = $wrapper -> field_gmp_iid -> nid -> value();
+			$iid_ready_to_publish_state = workflow_get_sid_label($to_be_published_status_iid_sid);
+			if (($sid_to_transit == $to_be_published_status_irc_sid || $sid_to_transit == $published_status_irc_sid) && ($iid_sid!= $to_be_published_status_iid_sid && $iid_sid!=$published_status_iid_sid)){
+				$msg = t('This IRC cannot be published since its corresponding IID has not been published yet or is not ready to publish. <br> Please change the workflow state of its !corresponding_iid to %iid_ready_state.', array('!corresponding_iid' => l('corresponding IID', "node/$iid_nid", array('attributes'=>array('target' =>'_blank', 'style' => 'color:red;'))), '%iid_ready_state' => $iid_ready_to_publish_state));
+				form_set_error('field_workflow_irc', $msg);
+			}
+			//drupal_set_message(hci_md_dump($sid_to_transit, 'blue', TRUE));
+			//drupal_set_message(hci_md_dump($iid_sid, 'blue', TRUE));
+		break;
+	}
+	
+}
+
+function hci_md_export_generate_export_data($inspection_node_nids=array()){
+	//drupal_set_message(hci_md_dump($inspection_node_nids, 'red', TRUE));
+	$data = array();
+	$inspection_number_start = 5000;
+	foreach($inspection_node_nids as $inspection_node_nid){
+		$log = '';
+		try{
+			$inspection_node = node_load($inspection_node_nid);
+			//drupal_set_message(hci_md_dump($inspection_node, 'red', TRUE));
+			if ($inspection_node->type != 'iid' && $inspection_node->type != 'irc'){
+				$log = t('!title is not IID nor IRC', array('!title' => $inspection_node->title));
+				hci_md_export_log($nid, $data_format, $post_type, $log, 1);
+				continue;
+			}
+			$wrapper=entity_metadata_wrapper('node', $inspection_node);
+			$inspection_number = $wrapper->field_inspection_number->raw();
+			if (!$inspection_number){
+				if ($inspection_node->type == 'iid' ){
+					$inspection_number = $wrapper->nid->raw();
+				}
+				else if ($inspection_node->type == 'iid' ){
+					$inspection_number = $wrapper->field_gmp_iid -> nid->raw();
+				}
+			}
+			$inspection_number = $inspection_number_start + $inspection_number;
+			//drupal_set_message(hci_md_dump($inspection_node, 'red', TRUE));
+			//IID
+			if ($inspection_node->type == 'iid' ){
+				$inspection = array();
+				$inspection['drupal_nid'] = $inspection_node_nid;
+				$inspection['insNumber'] = $inspection_number;
+				$inspection['ordeID'] = null;
+				$inspection['subOrderID'] = null;
+				$inspection['iids'] = array();
+				if($wrapper->__isset('field_initial_deficiency')){
+					$initial_deficiencies = $wrapper ->field_initial_deficiency;
+					//drupal_set_message(hci_md_dump($initial_deficiencies, 'red', TRUE));
+					$iids = array();
+					if ($initial_deficiencies->value()){
+						$regulations = array();
+						for($i = 0; $i < $initial_deficiencies->count(); $i ++){
+							$field_regulation = $initial_deficiencies[$i]->field_regulation -> value();
+							$field_category_en = $initial_deficiencies[$i]->field_category_english -> value();
+							$field_category_fr = $initial_deficiencies[$i]->field_category_french -> value();
+							$field_key_phrase_en = $initial_deficiencies[$i]->field_key_phrase_english -> value();
+							$field_key_phrase_fr = $initial_deficiencies[$i]->field_key_phrase_french -> value();
+							$regulations[$field_regulation][$field_category_en]['field_regulation'] = $field_regulation;
+							$regulations[$field_regulation][$field_category_en]['field_category_en'] = $field_category_en;
+							$regulations[$field_regulation][$field_category_en]['field_category_fr'] = $field_category_fr;
+							foreach($field_key_phrase_en as $field_key_phrase_en_item){
+								$regulations[$field_regulation][$field_category_en]['field_key_phrase_en'][] = $field_key_phrase_en_item;
+							}
+							foreach($field_key_phrase_fr as $field_key_phrase_fr_item){
+								$regulations[$field_regulation][$field_category_en]['field_key_phrase_fr'][] = $field_key_phrase_fr_item;
+							}
+							
+							
+						}
+						foreach($regulations as $regulation_by_regulation){
+							foreach($regulation_by_regulation as $regulation_by_category){
+								$iids[] = array('regulation_en' => $regulation_by_category['field_regulation'] . ' - ' . $regulation_by_category['field_category_en'],
+									'regulation_fr' => $regulation_by_category['field_regulation'] . ' - ' .$regulation_by_category['field_category_fr'],
+									'summary_en' => $regulation_by_category['field_key_phrase_en'],
+									'summary_fr' => $regulation_by_category['field_key_phrase_fr'],);
+							}
+						}
+					}
+					$inspection['iids']=$iids;
+					
+				}
+				$data[$inspection_number]['InitialInspections']=$inspection;
+			}
+			//IRC
+			else if ($inspection_node->type == 'irc' ){ 
+				$inspection = array();
+				$inspection['drupal_nid'] = $inspection_node_nid;
+				$inspection['insNumber'] = $inspection_number;
+				$inspection['ordeID'] = null;
+				$inspection['subOrderID'] = null;
+				if($wrapper->__isset('field_irc_observations')){
+					$observations_wrapper = $wrapper-> field_irc_observations;
+					$observations = array();
+					$regulations = array();
+					if ($observations_wrapper->value()){
+						
+						for($i = 0; $i < $observations_wrapper->count(); $i ++){
+							
+							$field_regulation_std_lns = $observations_wrapper[$i]->field_regulation_std_ln;
+							//$observation_number = $observations_wrapper[$i]->field_observation_number->value();
+							if ($field_regulation_std_lns->value()){
+								
+								foreach($field_regulation_std_lns as $field_regulation_std_ln){
+									$field_regulation = $field_regulation_std_ln->field_regulation -> value();
+									$field_category_en = $field_regulation_std_ln->field_category_english -> value();
+									$field_category_fr = $field_regulation_std_ln->field_category_french -> value();
+									$field_key_phrase_en = $field_regulation_std_ln->field_key_phrase_english -> value();
+									$field_key_phrase_fr = $field_regulation_std_ln->field_key_phrase_french -> value();
+									$regulations[$field_regulation][$field_category_en]['field_regulation'] = $field_regulation;
+									$regulations[$field_regulation][$field_category_en]['field_category_en'] = $field_category_en;
+									$regulations[$field_regulation][$field_category_en]['field_category_fr'] = $field_category_fr;
+									foreach($field_key_phrase_en as $field_key_phrase_en_item){
+										$regulations[$field_regulation][$field_category_en]['field_key_phrase_en'][] = $field_key_phrase_en_item;
+									}
+									foreach($field_key_phrase_fr as $field_key_phrase_fr_item){
+										$regulations[$field_regulation][$field_category_en]['field_key_phrase_fr'][] = $field_key_phrase_fr_item;
+									}
+								}
+							}
+						}
+						$observation_number = 0;
+						foreach($regulations as $regulation_by_regulation){
+							
+							foreach($regulation_by_regulation as $regulation_by_category){
+								$regulation_en = $regulation_by_category['field_regulation'] . ' - ' . $regulation_by_category['field_category_en'];
+								$regulation_fr = $regulation_by_category['field_regulation'] . ' - ' . $regulation_by_category['field_category_fr'];
+								$summary_en = $regulation_by_category['field_key_phrase_en'];
+								$summary_fr = $regulation_by_category['field_key_phrase_fr'];
+								$observation_number ++;
+								$observations[]=array('observation_no' => $observation_number,
+													'regulation_en' => $regulation_en,
+													'regulation_fr' => $regulation_fr,
+													'summary_en' => $summary_en,
+													'summary_fr' => $summary_fr
+													);
+								
+							}
+						}
+						
+					}
+					foreach($observations as &$observation_index){
+						$observation_index['summary_en'] = array_unique($observation_index['summary_en']);
+						$observation_index['summary_fr'] = array_unique($observation_index['summary_fr']);
+						$observation_index['summary_en'] = array_values($observation_index['summary_en']);
+						$observation_index['summary_fr'] = array_values($observation_index['summary_fr']);
+						/*
+						$observation_key = $observation_index;
+						$observation_index['summary_en'] = array();
+						$observation_index['summary_fr'] = array();
+						$observations_key = array();
+						for ($i = 0; $i < count($observation_index['summary_en']); $i++) {
+							$observation_key['summary_en'][(string)$i] = $observation_index['summary_en'][$i];
+						}
+						for ($i = 0; $i < count($observation_index['summary_fr']); $i++) {
+							$observation_key['summary_fr'][(string)$i] = $observation_index['summary_fr'][$i];
+						}
+						$observations_key[]=$observation_key;
+						$observation_index = $observation_key;
+						*/
+					}
+					$inspection['observations']=$observations;
+
+				}
+				
+				$inspection_outcomes = $wrapper->__isset('field_inspection_outcome') ? $wrapper ->field_inspection_outcome : array();
+			
+				foreach ($inspection_outcomes as $inspection_outcome){
+					$outcome_item = array();
+					$inspection_outcome_en = $inspection_outcome -> __isset('field_description_english') ? $inspection_outcome ->field_description_english ->value() : NULL;
+					$inspection_outcome_fr = $inspection_outcome ->__isset('field_description_french') ? $inspection_outcome ->field_description_french ->value() : NULL;
+
+					$outcome_item['inspection_outcome_en'] = $inspection_outcome_en;
+					$outcome_item['inspection_outcome_fr'] = $inspection_outcome_fr;
+					$inspection['inspection_outcome'][]=$outcome_item;
+				}
+				if (!isset($inspection['inspection_outcome'])){
+					$inspection['inspection_outcome']=array();
+				}
+				
+				$inspection_measures_takens = $wrapper->__isset('field_measures_taken') ? $wrapper ->field_measures_taken : array();
+				foreach ($inspection_measures_takens as $inspection_measures_taken){
+					$measure_item = array();
+					$inspection_measures_taken_en = $inspection_measures_taken -> __isset('field_description_english') ? $inspection_measures_taken ->field_description_english ->value() : NULL;
+					$inspection_measures_taken_fr = $inspection_measures_taken ->__isset('field_description_french') ? $inspection_measures_taken ->field_description_french ->value() : NULL;
+					$measure_item['measurestaken_en'] = $inspection_measures_taken_en;
+					$measure_item['measurestaken_fr'] = $inspection_measures_taken_fr;
+					$inspection['measurestaken'][]=$measure_item;
+
+				}
+				if (!isset($inspection['measurestaken'])){
+					$inspection['measurestaken']=array();
+				}
+				
+				$data[$inspection_number]['ReportSummaryInspection']=$inspection;
+
+			}
+			//Inspection
+			if ($inspection_node->type == 'iid' ){
+				$iid_wrapper = $wrapper;
+			}
+			else if ($inspection_node->type == 'irc' ){ 
+				$iid_wrapper = $wrapper->field_gmp_iid;
+			}
+			$inspection = array();
+			$inspection['drupal_nid'] = $inspection_node_nid;
+			$inspection['insNumber'] = $inspection_number;
+			$establishment = null;
+			if($iid_wrapper->__isset('field_establishment')){
+				$establishment=$iid_wrapper->field_establishment;
+				
+				$inspection['estName'] = $establishment->field_establishment_name->value();
+				
+				//$inspection['preName'] = null;
+				$inspection['estType'] = null;
+				$inspection['licNumber'] = $establishment->field_license_number->value();
+				$inspection['curLicenced'] = $establishment->field_currently_licensed->value();
+			}
+			if($establishment  && $establishment->__isset('field_sites')){
+				$inspection_site = $establishment->field_sites[0];
+				if ($inspection_site->value()){
+					//$inspection['site'] = null;
+					//$inspection['locationID'] = $inspection_site->field_site_number->value();
+					$inspection['refNumber'] = $inspection_site->field_site_number->value();
+					$location = $inspection_site->field_location->value();
+					$inspection['street'] = $location['street'];
+					$inspection['city'] = $location['city'];
+					$inspection['province'] = $location['province_name'];
+					//$inspection['provinceEn'] = $location['province_name'];
+					//$inspection['provinceFr'] = null;
+					$inspection['country'] = $location['country_name'];
+					//$inspection['countryEn'] = $location['country_name'];
+					//$inspection['countryFr'] = null;
+					$inspection['street'] = $location['street'];
+					$inspection['poBox'] = null;
+					$inspection['postalCode'] = $location['postal_code'];
+					$inspection['estType'] = strtolower($inspection['country']) == 'canada' ? 1 : 0;
+					$inspection['termsConditions'] = $inspection_site->field_terms_conditions_std_ln->count() > 0 ? TRUE : FALSE;
+					$activities = $inspection_site->field_activity_std_ln;
+					$activities_en = array();
+					$activities_fr = array();
+					//drupal_set_message(hci_md_dump($activities, 'red', TRUE));
+					for($i = 0; $i < $activities->count(); $i ++){
+						$activities_en[] = $inspection_site->field_activity_std_ln[$i]->field_description_english->value();
+						$activities_fr[] = $inspection_site->field_activity_std_ln[$i]->field_description_french->value();
+					}
+					$inspection['activityEn'] = implode(', ', $activities_en);
+					$inspection['activityFr'] = implode(', ', $activities_fr);
+					//terms and conditions
+					$tcs = $inspection_site->field_terms_conditions_std_ln;
+					if ($tcs->count() > 1){
+						$terms_conditions = array();
+						foreach($tcs as $tc){
+							$terms_condition = array();
+							$terms_condition['locationID'] = $inspection['locationID'];
+							$terms_condition['locationIDFS'] = null;
+							$terms_condition['estType'] = $inspection['estType'];
+							$terms_condition['orderID'] = $inspection['orderID'];
+							$terms_condition['subOrderID'] = $inspection['subOrderID'];
+							if ($location['contry_name'] == 'ca'){
+								$terms_condition['domesticEsName'] = $inspection['estName'];
+								$terms_condition['domesticAddressEn'] = $inspection['street'] . ', ' . $inspection['city'] . ', ' . $terms_condition['provinceEn'] . ', ' . $inspection['countryEn'];
+								$terms_condition['domesticAddressFr'] = $inspection['street'] . ', ' . $inspection['city'] . ', ' . $terms_condition['provinceFr'] . ', ' . $inspection['countryFr'];
+							}
+							else{
+								$terms_condition['ForeignEstName'] = $inspection['estName'];
+								$terms_condition['foreignAddressEn'] = $inspection['street'] . ', ' . $inspection['city'] . ', ' . $terms_condition['provinceEn'] . ', ' . $inspection['countryEn'];
+								$terms_condition['ForeignAddressFr'] = $inspection['street'] . ', ' . $inspection['city'] . ', ' . $terms_condition['provinceFr'] . ', ' . $inspection['countryFr'];
+							}
+							$terms_condition['termsConditionsEn'] = $tc -> field_description_english -> value();
+							$terms_condition['termsConditionsFr'] = $tc -> field_description_french -> value();
+							$terms_conditions[] = $terms_condition;
+						}
+						$inspection['terms_conditions_data'] = $terms_conditions;
+					}
+				}
+				
+			}
+			$inspection['insTypeEn'] = NULL;
+			$inspection['insTypeFr'] = NULL;
+			if($iid_wrapper->__isset('field_inspection_type')){
+				if ($iid_wrapper->field_inspection_type->value()){
+					$inspection['insTypeEn'] = $iid_wrapper->field_inspection_type->field_description_english->value();
+					$inspection['insTypeFr'] = $iid_wrapper->field_inspection_type->field_description_french->value();
+				}
+			}
+			$inspection['insStartDate'] = NULL;
+			if ($iid_wrapper->field_inspection_start_date->value()){
+				$inspection['insStartDate'] = format_date($iid_wrapper->field_inspection_start_date->value(), 'custom', 'Y-m-d');
+			}
+			$inspection['insEndDate'] = NULL;
+			if ($iid_wrapper->field_inspection_end_date->value()){
+				$inspection['insEndDate'] = format_date($iid_wrapper->field_inspection_end_date->value(), 'custom', 'Y-m-d');
+			}
+			// rating
+			/**
+			* If the IRC of this inspection has been published or ready to publish, uses the rating of the IRC.
+			* Otherwise, sets rating to 'Inspection in progress' (code: I).
+			**/
+			if ($inspection_node->type == 'irc' ){
+				if($wrapper->__isset('field_inspection_rating')){
+					if ($wrapper->field_inspection_rating->value()){
+						$inspection['ratingEn'] = $wrapper->field_inspection_rating->field_description_english->value();
+						$inspection['ratingFr'] = $wrapper->field_inspection_rating->field_description_french->value();
+						$inspection['rating'] = $wrapper->field_inspection_rating->field_code->value();
+					}
+				}
+			}
+			
+			elseif ($inspection_node->type == 'iid'){
+				$published_irc_nid = hci_md_published_irc($inspection_node_nid);
+				if (!$published_irc_nid){
+					$published_irc_nid = hci_md_ready_to_publish_irc($inspection_node_nid);
+				}
+				if ($published_irc_nid){
+					$irc_wrapper = entity_metadata_wrapper('node', node_load($published_irc_nid));
+					if($irc_wrapper->__isset('field_inspection_rating')){
+						if ($irc_wrapper->field_inspection_rating->value()){
+							$inspection['ratingEn'] = $irc_wrapper->field_inspection_rating->field_description_english->value();
+							$inspection['ratingFr'] = $irc_wrapper->field_inspection_rating->field_description_french->value();
+							$inspection['rating'] = $irc_wrapper->field_inspection_rating->field_code->value();
+						}
+					}
+				}
+				else{
+					$inspection['ratingEn'] = 'Inspection in progress';
+					$inspection['ratingFr'] = 'Inspection en cours';
+					$inspection['rating'] =  'I';
+				}
+				
+			}
+			
+			$data[$inspection_number]['Inspections']=$inspection;
+			// logging
+			$log = t('The inspection has been fetched by DHPID');
+			//hci_md_export_log($inspection_node_nid, $inspection_node->type, $log);
+		} catch (Exception $e) {
+			$log = t('The inspection has not been successfully fetched by DHPID (Error: !error)', array('!error' => $e->getMessage())) ;
+			hci_md_export_log($inspection_node_nid, $inspection_node->type, $log, 1);
+		}
+	}
+	return $data;
+}
+
+function hci_md_export_log($inspection_node_nid, $inspection_type, $log, $error=0){
+	$date = time();
+	$table = 'hci_md_export_log';
+	$record = array(
+		'inspection_nid' => $inspection_node_nid,
+		'export_date' => $date,
+		'inspection_type' => $inspection_type,
+		'log' => $log,
+		'error' =>$error,
+		);
+	//$rtn = drupal_write_record($table, $record);
+	//ddl($record, '$record');
+	db_insert($table) -> fields($record) -> execute();
+}
+
+function hci_md_export_get_inspections_to_publish($delta_only = FALSE){
+	$nids = array();
+	//new inspections
+	$type = 'iid';
+	$to_be_published_status_iid_sid = variable_get('hci_md_export_iid_publication_ready_state', '');
+	$nids = array_merge($nids,_hci_md_export_get_inspections($type, $to_be_published_status_iid_sid));
+	//drupal_set_message(hci_md_dump($nids, 'red', TRUE));
+	$type = 'irc';
+	$to_be_published_status_irc_sid = variable_get('hci_md_export_irc_publication_ready_state', '');
+	$nids = array_merge($nids, _hci_md_export_get_inspections($type, $to_be_published_status_irc_sid));
+	//drupal_set_message(hci_md_dump($nids, 'red', TRUE));
+	if (!$delta_only){
+		$type = 'iid';
+		$published_status_iid_sid = variable_get('hci_md_export_iid_publication_published_state', '');
+		$nids = array_merge($nids,_hci_md_export_get_inspections($type, $published_status_iid_sid));
+		//drupal_set_message(hci_md_dump($nids, 'red', TRUE));
+		$type = 'irc';
+		$published_status_irc_sid = variable_get('hci_md_export_irc_publication_published_state', '');
+		$nids = array_merge($nids, _hci_md_export_get_inspections($type, $published_status_irc_sid));
+		return $nids;
+	}
+	//updated inspections
+	$last_publication_time = variable_get('hci_md_export_last_publication_time', NULL);
+	if ($last_publication_time){
+		// IID, IRC. ToDo: Let inspectors change workflow state to publication ready state instead.
+		$type = 'iid';
+		$published_status_iid_sid = variable_get('hci_md_export_iid_publication_published_state', '');
+		$nids = array_merge($nids, _hci_md_export_get_inspections($type, $published_status_iid_sid, $last_publication_time));
+		//drupal_set_message(hci_md_dump($nids, 'red', TRUE));
+		$type = 'irc';
+		$published_status_iid_sid = variable_get('hci_md_export_irc_publication_published_state', '');
+		$nids = array_merge($nids, _hci_md_export_get_inspections($type, $published_status_iid_sid, $last_publication_time));
+	}
+	
+	//Other content types
+	
+	//$types_to_check = array('hci_establishment', 'hci_site', );
+	$query = new EntityFieldQuery();
+	$query->entityCondition('entity_type', 'node')
+		  ->entityCondition('bundle', 'hci_site')
+		  ->propertyCondition('status', NODE_PUBLISHED)
+		  ->propertyCondition('changed', $last_publication_time, '>');
+	$result = $query->execute();
+	$site_nids = array();
+	if (isset($result['node'])) {
+		foreach($result['node'] as $site){
+			$site_nids[] = $site->nid;
+		}
+	}
+	$establishment_nids = array();
+	// Gets establishments which site has been changed
+	if (!empty($site_nids)){
+		$query = new EntityFieldQuery();
+		$query->entityCondition('entity_type', 'node')
+			  ->entityCondition('bundle', 'hci_establishment')
+			  ->propertyCondition('status', NODE_PUBLISHED)
+			  ->fieldCondition('field_sites', 'target_id', $site_nids, 'IN');
+		$result = $query->execute();
+		if (isset($result['node'])) {
+			foreach($result['node'] as $establishment){
+				$establishment_nids[] = $establishment->nid;
+			}
+		}
+
+	}
+	// Gets establishments have been changed
+	$query = new EntityFieldQuery();
+	$query->entityCondition('entity_type', 'node')
+		  ->entityCondition('bundle', 'hci_establishment')
+		  ->propertyCondition('status', NODE_PUBLISHED)
+		  ->propertyCondition('changed', $last_publication_time, '>');
+	$result = $query->execute();
+	
+	if (isset($result['node'])) {
+		foreach($result['node'] as $establishment){
+			$establishment_nids[] = $establishment->nid;
+		}
+	}
+
+	// Get inspections which establishments have been changed
+	if (!empty($establishment_nids)){
+		$type = 'iid';
+		$published_status_iid_sid = variable_get('hci_md_export_iid_publication_published_state', '');
+		$updated_iids = _hci_md_export_get_inspections($type, $published_status_iid_sid, 0, array(), $establishment_nids);
+		
+		if (!empty($updated_iids)){
+			$nids = array_merge($nids, $updated_iids);
+			$type = 'irc';
+			$published_status_irc_sid = variable_get('hci_md_export_irc_publication_published_state', '');
+			$updated_ircs = _hci_md_export_get_inspections($type, $published_status_irc_sid, 0, array(), array(), $updated_iids);
+			$nids = array_merge($nids,$updated_ircs);
+		}
+	}
+	$nids = array_unique($nids);
+	return $nids;
+}
+
+function hci_md_export_set_inspection_workflow_state_to_published($inspection_nids=array()){
+	global $user;
+	$published_status_iid_sid = variable_get('hci_md_export_iid_publication_published_state', '');
+	$published_status_irc_sid = variable_get('hci_md_export_irc_publication_published_state', '');
+	$nodes = node_load_multiple($inspection_nids);
+	
+	foreach($nodes as $node){
+		//drupal_set_message(hci_md_dump($node, 'red', TRUE));
+		//$wrapper=entity_metadata_wrapper('node', $node);
+		$old_sid = null;
+		$new_sid = null;
+		$field = null;
+		
+		if ($node->type == 'iid'){
+			$field = 'field_workflow_iid';
+			$old_sid = workflow_node_current_state($node, 'node', $field);
+			$new_sid = $published_status_iid_sid;
+		}
+		if ($node->type == 'irc'){
+			$field = 'field_workflow_irc';
+			$old_sid = workflow_node_current_state($node, 'node', $field);
+			$new_sid = $published_status_irc_sid;
+		}
+		$myTransiton= new WorkflowTransition();
+		$myTransiton->setValues('node', $node, $field,$old_sid, $new_sid, $user->uid, time(), 'The content has been published to DHPID');
+		//drupal_set_message(hci_md_dump($myTransiton, 'red', TRUE));
+		//ddl($inspection_nids, '$inspection_nids');
+		//ddl($myTransiton, '$myTransiton');
+		workflow_execute_transition('node', $node, $field, $myTransiton, $force = TRUE);
+	}
+}
+
+function _hci_md_export_get_inspections($type, $workflow_sid, $last_publication_time = 0, $inspection_nids = array(), $establishment_nids=array(), $iid_nids=array()){
+	$inspection_nids = array();
+	if (!$workflow_sid || ($type != 'iid' && $type != 'irc')){
+		return $inspection_nids;
+	}
+	$workflow_field = 'field_workflow_' . $type;
+	$query = new EntityFieldQuery();
+	$query->entityCondition('entity_type', 'node')
+		  ->entityCondition('bundle', $type)
+		  ->propertyCondition('status', NODE_PUBLISHED)
+		  ->fieldCondition($workflow_field, 'value', $workflow_sid, '=');
+	if ($last_publication_time){
+		$query->propertyCondition('changed', $last_publication_time, '>');
+	}
+	if (!empty($inspection_nids)){
+		$query->propertyCondition('nid', $inspection_nids, 'IN');
+	}
+	if (!empty($iid_nids) && $type == 'irc'){
+		$query->fieldCondition('field_gmp_iid', 'target_id', $iid_nids, 'IN');
+	}
+	if (!empty($establishment_nids) && $type == 'iid'){
+		$query->fieldCondition('field_establishment', 'target_id', $establishment_nids, 'IN');
+	}
+	$result = $query->execute();
+	
+	if (isset($result['node'])) {
+		foreach($result['node'] as $inspection_nid){
+			$inspection_nids[] = $inspection_nid->nid;
+		}
+	}
+	
+	return $inspection_nids;
+}
+/***
+* Generates to-be published data in JSON or XML format
+* POST method only
+* Post fields:
+* name => user_id
+* paqssword => account password
+* data_format => json or xml. Default:json
+* update_workflow_state => 1 or 0. default: 0
+* nhpid_reponse => error message from DHPID. An associative array with drupal_nid as key and error messages as an array
+*/
+
+function hci_md_export_export_data(){
+	$dhpid_response = array();
+	$param = drupal_get_query_parameters();
+	//drupal_set_message(hci_md_dump($param, 'red', TRUE));
+	//ddl($_POST, '$_POST');
+	if (!empty($_POST)){
+		$name=$_POST['name'];
+		$password=$_POST['password'];
+		$data_format=isset($_POST['data_format']) ? $_POST['data_format'] : 'json';
+		$update_workflow_state=isset($_POST['update_workflow_state']) && $_POST['update_workflow_state'] == 1? TRUE: FALSE;
+		$dhpid_response = isset($_POST['dhpid_response']) ? drupal_json_decode($_POST['dhpid_response']) : array();
+	}
+	else if (!empty($_GET)){
+		$name=$_GET['name'];
+		$password=$_GET['password'];
+		$data_format=isset($_GET['data_format']) ? $_GET['data_format'] : 'json';
+		$update_workflow_state=isset($_GET['update_workflow_state']) && $_GET['update_workflow_state'] == 1? TRUE: FALSE;
+		$dhpid_response = isset($_GET['dhpid_response']) ? drupal_json_decode($_GET['dhpid_response']) : array();
+	}
+	//ddl($_GET, '$GET');
+	//drupal_set_message(hci_md_dump($update_workflow_state, 'red', TRUE));
+	//ddl ($name, '$name');
+	//ddl ($password, '$password');
+	$uid = user_authenticate($name, $password);
+	//ddl(user_load($uid), '$uid');
+	$countent = '';
+	$mime = 'text/json';
+	if (!$uid || !user_access('export hci_md data', user_load($uid))){
+		$content= 'You are not authorized to conduct this operation.';
+		$mime = 'text/plain';
+	}
+	else{
+		if (!empty($dhpid_response)){
+			// updating workflow state
+
+			$migration_is_perfect = TRUE;
+			
+			
+			foreach ($dhpid_response as $nid => $result){
+			
+				$log = '';
+				$error = 0;
+				if (empty($result)){
+					if ($update_workflow_state==TRUE){
+						hci_md_export_set_inspection_workflow_state_to_published(array($nid));
+					}
+					$log = t('The inspection is populated successfully at DHPID.');
+				}
+				
+				else{
+					$log = t('The inspection is not populated successfully at DHPID. <br> Error: !result', array('!result' => theme_item_list(array('items' => $result, 'title' => '', 'type' => 'ol', 'attributes' => array()))));
+					//$log = t('The inspection is not populated successfully at DHPID (Error: !result)');
+					$migration_is_perfect = FALSE;
+					$error = 1;
+				}
+				$node = node_load($nid);
+				if ($node) $type = $node -> type;
+				hci_md_export_log($nid, $type, $log, $error);
+				
+			}
+			
+			//
+			// sets last export_time
+			if ($migration_is_perfect && $update_workflow_state==TRUE){
+				variable_set('hci_md_export_last_publication_time', time());
+			}
+			$content='Response from DHPID is processed.';
+			$mime = 'text/plain';
+			
+		}
+		else{
+			$inspection_nids = hci_md_export_get_inspections_to_publish();
+			//drupal_set_message(hci_md_dump($inspection_nids, 'red', TRUE));
+			if (!empty($inspection_nids)){
+				$data = hci_md_export_generate_export_data($inspection_nids);
+				//drupal_set_message(hci_md_dump($data, 'red', TRUE));
+				//return $form;
+				$output='';
+				if ($data_format == 'json'){
+					$mime = 'text/json';
+				}
+				else if($data_format == 'xml' && function_exists('xmlrpc_encode')){
+					$mime = 'text/xml';
+				}
+				if ($mime == 'text/xml'){
+					$output = xmlrpc_encode($data);
+				}
+				else{
+					$output = drupal_json_encode($data);
+				}
+				$content=$output;
+				
+			}
+			else{
+				$content='No inspection data available';
+				$mime = 'text/plain';
+			}
+		}
+	}
+	header("Content-type: $mime");
+   //header("Content-Disposition: attachment; filename=savethis.txt");
+    print $content;
+}
+function hci_md_export_login(){
+	return TRUE;
+}
+/***
+* return IRC nid or null
+**/
+function hci_md_published_irc($iid_node_nid){
+	$published_status_irc_sid = variable_get('hci_md_export_irc_publication_published_state', '');
+	$query = new EntityFieldQuery();
+	$result = $query->entityCondition('entity_type', 'node')
+    ->propertyCondition('type', 'irc')
+	->fieldCondition('field_gmp_iid', 'target_id', $iid_node_nid, '=')
+	->fieldCondition('field_workflow_irc', 'value', $published_status_irc_sid, '=')
+    ->execute();
+	if (!isset($result['node'])) {
+		return FALSE;
+	}
+	return array_shift($result['node'])->nid;
+	
+}
+/***
+* return IRC nid or null
+**/
+function hci_md_ready_to_publish_irc($iid_node_nid){
+	$published_status_irc_sid = variable_get('hci_md_export_irc_publication_ready_state', '');
+	$query = new EntityFieldQuery();
+	$result = $query->entityCondition('entity_type', 'node')
+    ->propertyCondition('type', 'irc')
+	->fieldCondition('field_gmp_iid', 'target_id', $iid_node_nid, '=')
+	->fieldCondition('field_workflow_irc', 'value', $published_status_irc_sid, '=')
+    ->execute();
+	if (!isset($result['node'])) {
+		return FALSE;
+	}
+	return array_shift($result['node'])->nid;
+	
+}
+

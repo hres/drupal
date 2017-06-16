@@ -1,0 +1,727 @@
+<?php
+// $Id$
+
+
+/* hook_ctools_plugin_directory */
+function hci_md_ctools_plugin_directory($module, $plugin) {
+  if ($module == 'ctools') {
+    return 'plugins/' . $plugin;
+  }
+}
+
+// implementation of hook_node_access
+
+function hci_md_node_access($node, $op, $account){
+	global $user;
+	if (!$account){
+		$account = $user;
+	}
+	switch($op){
+		case 'update':
+		case 'delete':
+		case 'view':
+		if (is_object($node) && property_exists($node, 'field_inspection_team')){
+			if (user_access('access all inspection contents')){
+				return NODE_ACCESS_IGNORE;
+			}
+			else{
+				$wrapper = entity_metadata_wrapper('node', $node);
+				$team = $wrapper -> field_inspection_team ->raw();
+				$author = $wrapper -> author->raw();
+				$team[] = $author;
+				
+				if (!in_array($account->uid, $team)){
+					//drupal_set_message(hci_md_dump( $team_users, 'purple', TRUE));
+					// If this content belongs to a team and the user is not a member of the team
+					return NODE_ACCESS_DENY;
+				}
+				else{ // If the user is a team member
+					return NODE_ACCESS_IGNORE;
+				}
+			}
+		}
+		return NODE_ACCESS_IGNORE;
+		break;
+	}
+}
+
+
+// Implementation of hook_permission
+function hci_md_permission() {
+    return array(
+    'administer hc inspection' => array(
+      'title' => t('Administer HC Inspection'),
+      'description' => t(''),
+      ),
+    'access all inspection contents' => array(
+      'title' => t('Access all inspection contents'),
+      'description' => t(''),
+      ),
+	'access inspection report' => array(
+      'title' => t('Access inspection report'),
+      'description' => t(''),
+      ),
+    'access inspections of team' => array(
+      'title' => t('Access inspection of team'),
+      'description' => t(''),
+      ),
+    );
+} 
+
+// Implementation of hook_node_operations
+function hci_md_node_presave($node){
+
+	// calculates and sets posting_due_date
+	hci_md_posting_due_date($node);
+	//hci_md_set_inspection_calendar($node, $op='set');
+	// set team to IRC
+	if ($node->type =='irc'){
+		$wrapper = entity_metadata_wrapper('node', $node);
+		$wrapper -> field_inspection_team = $wrapper -> field_gmp_iid -> field_inspection_team -> raw();
+	}
+	// Sets inspection number, no such number available, set to iid nid temperately
+	if ($node->type =='iid'){
+		$wrapper = entity_metadata_wrapper('node', $node);
+		$wrapper -> field_inspection_number = $node ->nid;
+	}
+	if ($node->type =='irc'){
+		$wrapper = entity_metadata_wrapper('node', $node);
+		$wrapper -> field_inspection_number = $wrapper -> field_gmp_iid -> field_inspection_number -> raw();
+	}
+	
+	
+}
+
+function hci_md_node_delete($node){
+	//hci_md_set_inspection_calendar($node, $op='delete');
+	$bundle = $node ->type;
+	switch ($bundle){
+		case 'iid':
+			// Prevents IIDs from being deleted if they are hooked to IRCs.
+			$irc_nid = hci_md_is_irc_available($node->nid);
+			if ($irc_nid){
+				drupal_goto("node/" . $node->nid);
+				$link = l('IRC', "node/$irc_nid");
+				drupal_set_message("You cannot delete this IID since its corresponding $link exists.");
+			}
+		break;
+	}
+}
+
+
+function hci_md_node_validate($node, $form, &$form_state){
+	
+	//drupal_set_message(hci_md_dump($form, 'blue', TRUE));
+	switch($node -> type){
+		case 'iid':
+			$wrapper = entity_metadata_wrapper('node', $node);
+			if ($wrapper->field_inspection_end_date->raw() && $wrapper -> field_inspection_end_date -> raw() < $wrapper->field_inspection_start_date->raw()){
+				$msg = t('Inspection end date must be later than inspection start date.');
+				form_set_error('field_inspection_end_date', $msg);
+			}
+		break;
+	}
+}
+
+function hci_md_form_node_delete_confirm_alter(&$form, $form_state) {
+    //Check if we have a node id and stop if not
+
+    if(empty($form['nid']['#value'])) {
+        return;
+    }
+	$node = $form['#node'];
+	$bundle = $node ->type;
+	switch ($bundle){
+		case 'iid':
+			// Prevents IIDs from being deleted if they are hooked to IRCs.
+			$irc_nid = hci_md_is_irc_available($node->nid);
+			if ($irc_nid){
+				$link = l('IRC', "node/$irc_nid");
+				$message = "You cannot delete this IID since its corresponding $link exists.";
+				$form['irc_exists_warning']= array(
+					'#markup' => $message,
+					'#weight' => -10,
+				);
+				//Remove the 'This action cannot be undone' message
+				unset($form['description']);
+
+				//Remove the delete button
+				unset($form['actions']['submit']);
+			}
+		break;
+	}
+	
+}
+
+function hci_md_theme_registry_alter(&$theme_registry) {
+  $theme_registry['username']['preprocess functions'][] = '_untrim_username';
+}
+
+
+//*** Helper functions *****
+function _untrim_username(&$variables) {
+  $name = $variables['name_raw'];
+  $variables['name'] = check_plain($name);
+}
+
+function currentnode_nid(){
+    if (arg(0)=='node' && is_numeric(arg(1)))
+        return arg(1);
+    else
+        return 0;
+}
+
+function hci_md_dump($data, $color='blue', $return = FALSE, $show_caller = TRUE, $use_devel = TRUE) {
+  
+  $out = "<div style='color:$color;'>";
+	if ($use_devel && module_exists('devel') && user_access('access devel information')){
+     $out = $out . kprint_r($data, TRUE);
+     $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+     $out = $out . "--File: " . $backtrace[0]['file'] . "\n";
+	 $out = $out . "--Line: " . $backtrace[0]['line'] . "\n";
+	}
+	else{
+		$out = $out . "<pre>";
+	  //print var_name($data);
+	  $out =  $out . print_r($data, TRUE);
+		if ($show_caller){
+			$backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+	    $out = $out . "\nCaller:\n";
+	    //$out = $out . "--Function: " . $backtrace[0]['function'] . "\n";
+	    $out = $out . "--File: " . $backtrace[0]['file'] . "\n";
+	    $out = $out . "--Line: " . $backtrace[0]['line'] . "\n";
+		}
+	  $out = $out . "</pre>";
+	}
+  $out = $out . "</div>";
+  if ($return) {
+    return $out;
+  }
+  print $out;
+}
+
+
+function hci_md_posting_due_date(&$node){
+	//drupal_set_message(hci_md_dump($node, 'red', TRUE));
+	if ($node -> type != 'iid' && $node -> type != 'irc'){
+		return null;
+	}
+	//posting waiting time rules here
+	
+	$final_post_due_days = 30;
+	$iid_post_due_days = 3;
+	$meeting_notice_due_days = 17;
+	$issuance_notice_due_days = 27;
+	$field_language = field_language('node', $node, 'field_inspection_end_date');
+	$wrapper = entity_metadata_wrapper('node', $node);
+	if ($node -> type == 'iid'){
+		$inspection_end_date = $wrapper -> field_inspection_end_date -> value();
+	}
+	elseif ($node -> type == 'irc'){
+		$inspection_end_date = $wrapper -> field_gmp_iid -> field_inspection_end_date -> value();
+	}
+		
+	
+	if ($inspection_end_date){
+		$final_post_date = $inspection_end_date + $final_post_due_days * 24 * 3600;
+		$iid_post_due_date = $inspection_end_date + $iid_post_due_days * 24 * 3600;
+		$meeting_notice_due_date = $inspection_end_date + $meeting_notice_due_days * 24 * 3600;
+		$issuance_notice_due_date = $inspection_end_date + $issuance_notice_due_days * 24 * 3600;
+		if ($node -> type == 'gmp_iid'){
+			$wrapper  -> field_iid_post_due_date -> set($iid_post_due_date);
+		}
+		elseif ($node -> type == 'gmp_irc'){
+			$wrapper  -> field_final_post_due_date -> set($final_post_date);
+			$wrapper  -> field_meeting_notice_due_date -> set($meeting_notice_due_date);
+			$wrapper  -> field_issuance_notice_due_date -> set($issuance_notice_due_date);
+		}
+	}
+	//drupal_set_message(hci_md_dump($node, 'red', TRUE));
+}
+
+// returns an inspection (iid and irc regardless of the type of $node) in associative array
+// ToDO: modify
+function hci_md_irc_inpection_node_data($node){
+	
+	if ($node -> type != 'irc' && $node ->type != 'iid'){
+		return NULL;
+	}
+	$rtn = array();
+	$values = array();
+	$gmp_irc = null;
+	$gmp_iid = null;
+	$node_wrapper = entity_metadata_wrapper('node', $node);
+	if ($node -> type == 'iid'){
+		$gmp_iid = $node_wrapper;
+		$query = new EntityFieldQuery();
+		$query->entityCondition('entity_type', 'node')
+		->entityCondition('bundle', 'irc')
+		->propertyCondition('status', NODE_PUBLISHED)
+		->fieldCondition('field_gmp_iid', 'target_id', $node->nid, '=');
+		$result = $query->execute();
+		//drupal_set_message(hci_md_dump( $result, 'purple', TRUE));
+		//drupal_set_message(hci_md_dump( $entity_wrapper -> field_country -> value(), 'purple', TRUE));
+		
+		if (isset($result['node'])) {
+			$node_info = array_shift($result['node']);
+			$gmp_irc = entity_metadata_wrapper('node', node_load($node_info->nid));
+			$gmp_iid = $gmp_irc -> field_gmp_iid;
+		}
+		else{
+			$gmp_iid = $node_wrapper;
+		}
+	}
+	else{
+		$gmp_irc = entity_metadata_wrapper('node', $node);
+		$gmp_iid = $gmp_irc -> field_gmp_iid;
+	}
+			
+	$title = $node_wrapper -> title -> value();
+	$values['title'] = $title;
+
+	$values['nid'] = $node_wrapper -> nid -> value();
+	
+	$author = $node_wrapper -> author -> value();
+	$values['author'] = $author -> realname ? $author -> realname : $author -> name;
+	if ($node_wrapper-> __isset('field_team') && $node_wrapper->field_team->value()){
+		$values['team'] = $node_wrapper->field_team->title->value();
+	}
+	// IID
+	if ($gmp_iid){	
+		if($gmp_iid->__isset('field_establishment')){
+			$establishment = $gmp_iid -> field_establishment;
+			if ($establishment->value()){
+				$establishment_name = $establishment -> __isset('field_establishment_name') ? $establishment -> field_establishment_name -> value() : NULL;
+				$values['establishment_name'] = $establishment_name;
+				$reference_number = $establishment -> __isset('field_license_number') ? $establishment -> field_license_number -> value() : NULL;
+				$values['establishment_license_number'] = $reference_number;
+				if ( $establishment -> __isset('field_license_expiry_date') && $establishment -> field_license_expiry_date -> value()){
+					$values['license_expiry_date'] = format_date($establishment -> field_license_expiry_date -> value(), 'custom', 'F j, Y');
+					$values['license_expiry_date_yyyy-mm-dd'] = format_date($establishment -> field_license_expiry_date -> value(), 'custom', 'Y-m-d');
+					$values['license_expiry_date_timestamp'] = $establishment -> field_license_expiry_date -> raw();
+				}
+			}
+		}
+		if($gmp_iid->__isset('field_inspection_date')){
+			$inspection_start_date = $gmp_iid -> field_inspection_date;
+			if ($inspection_start_date ->value()){
+				$values['inspection_start_date'] = format_date($inspection_start_date -> value(), 'custom', 'F j, Y');
+				$values['inspection_start_date_yyyy-mm-dd'] = format_date($inspection_start_date -> value(), 'custom', 'Y-m-d');
+				$values['inspection_start_date_timestamp'] = $inspection_start_date -> raw();
+			}
+		}
+		if($gmp_iid->__isset('field_inspection_end_date')){
+			$inspection_end_date = $gmp_iid -> field_inspection_end_date;
+			if ($inspection_end_date ->value()){
+				$values['inspection_end_date'] = format_date($inspection_end_date -> value(), 'custom', 'F j, Y');
+				$values['inspection_end_date_yyyy-mm-dd'] = format_date($inspection_end_date -> value(), 'custom', 'Y-m-d');
+				$values['inspection_end_date_timestamp'] = $inspection_end_date -> raw();
+			}
+		}
+		if($gmp_iid->__isset('field_iid_post_due_date')){
+			$iid_post_due_date = $gmp_iid -> field_iid_post_due_date;
+			if ($iid_post_due_date ->value()){
+				$values['iid_post_due_date'] = format_date($iid_post_due_date -> value(), 'custom', 'F j, Y');
+				$values['iid_post_due_date_yyyy-mm-dd'] = format_date($iid_post_due_date -> value(), 'custom', 'Y-m-d');
+				$values['iid_post_due_date_timestamp'] = $iid_post_due_date -> raw();
+			}
+		}
+		if($gmp_iid->__isset('field_initial_deficiency')){
+			$initial_deficiencies = $gmp_iid ->field_initial_deficiency;
+			$iids = array();
+			if ($initial_deficiencies->value()){
+				for($i = 0; $i < $initial_deficiencies->count(); $i ++){
+			
+					$regulation_en = $initial_deficiencies[$i]->field_category_english -> value();
+					$regulation_fr = $initial_deficiencies[$i]->field_category_french -> value();
+					$regulation_finding_observed_en = $initial_deficiencies[$i] -> field_key_phrase_english -> value();
+					$regulation_finding_observed_fr = $initial_deficiencies[$i] -> field_key_phrase_french -> value();
+					$code = $initial_deficiencies[$i]->field_code -> value();
+					$regulation = $initial_deficiencies[$i]->field_regulation -> value();
+					$iids[$i] = array('regulation_en' => $regulation_en,
+												'regulation_fr' => $regulation_fr,
+												'regulation_finding_observed_en' => $regulation_finding_observed_en,
+												'regulation_finding_observed_fr' => $regulation_finding_observed_fr,
+												'regulation' =>$regulation,
+												'code' => $code,);
+				}
+
+				$values['initial_deficiencies'] = $iids;
+				//drupal_set_message(hci_md_dump($observations, 'purple', TRUE));
+
+			}
+		}
+		if($gmp_iid->__isset('field_inspection_site')){
+			$site = $gmp_iid -> field_inspection_site;
+			if ($site->value()){
+				$location = $site->field_location->value();
+				$values['establishment_site'] = array('street' => $location['street'],
+													'city' => $location['city'],
+													'postal_code' => $location['postal_code'],
+													'country' => $location['country_name'],
+													'province' => $location['province_name'],
+													'site_number' => $site -> field_site_number -> value(),
+													'no_inspections_in_3_years' => $site -> field_no_inspections_in_3_years -> value(),
+													
+				);
+				
+				$activities = $site -> field_activity_std_ln;
+				for ($i = 0; $i < $activities->count(); $i++){
+					$activity = $activities[$i];
+					$activity_en = $activity -> field_description_english -> value();
+					$activity_fr = $activity -> field_description_french -> value();
+					$code = $activity -> field_code -> value();
+					$values['establishment_site']['activities'][] = array('code' => $code, 'activity_en' => $activity_en, 'activity_fr' =>$activity_fr );
+				}
+				
+				if($site->__isset('field_terms_conditions_std_ln')){
+					$t_c_stdln = $site -> field_terms_conditions_std_ln;
+					if ($t_c_stdln->value()){
+						for($i = 0; $i < $t_c_stdln->count(); $i ++){
+							$inspection_t_c[] = array('inspection_t_c_en' => $t_c_stdln[$i] -> field_description_english -> value(),
+														'inspection_t_c_fr' =>$t_c_stdln[$i] -> field_description_french -> value(),
+														'code' =>$t_c_stdln[$i] -> field_code -> value());
+						}
+					}
+				}
+				$values['establishment_site']['inspection_t_c'] = $inspection_t_c;
+			}
+		}
+		if($gmp_iid->__isset('field_irc_inspection_category')){
+			$inspection_cat = $gmp_iid -> field_irc_inspection_category;
+			if ($inspection_cat->value()){
+				$inspection_cat_en = $inspection_cat -> field_description_english -> value();
+				$inspection_cat_fr = $inspection_cat -> field_description_french -> value();
+				$code = $inspection_cat -> field_code -> value();
+				$values['inspection_category'] = array('code' => $code, 'inspection_category_en' => $inspection_cat_en, 'inspection_category_fr' =>$inspection_cat_fr);
+			}
+		}
+		if($gmp_iid->__isset('field_inspection_type')){
+			$inspection_type = $gmp_iid -> field_inspection_type;
+			//return $values;
+			//drupal_set_message(hci_md_dump($inspection_type->value(), 'purple', TRUE));
+			if ($inspection_type->value()){
+				$inspection_type_en = $inspection_type -> field_description_english -> value();
+				$inspection_type_fr = $inspection_type -> field_description_french -> value();
+				$code = $inspection_type -> field_code -> value();
+				$values['inspection_type'] = array('code' => $code, 'inspection_type_en' => $inspection_type_en, 'inspection_type_fr' =>$inspection_type_fr);
+			}
+		}
+		
+	}
+	
+	//final report
+	if ($gmp_irc){
+		if($gmp_irc->__isset('field_final_post_due_date')){
+			$final_post_due_date = $gmp_irc -> field_final_post_due_date;
+			if ($final_post_due_date ->value()){
+				$values['final_post_due_date'] = format_date($final_post_due_date -> value(), 'custom', 'F j, Y');
+				$values['final_post_due_date_yyyy-mm-dd'] = format_date($final_post_due_date -> value(), 'custom', 'Y-m-d');
+				$values['final_post_due_date_timestamp'] = $final_post_due_date -> raw();
+			}
+		}
+		if($gmp_irc->__isset('field_meeting_notice_due_date')){
+			$meeting_notice_due_date = $gmp_irc -> field_meeting_notice_due_date;
+			if ($meeting_notice_due_date ->value()){
+				$values['meeting_notice_due_date'] = format_date($meeting_notice_due_date -> value(), 'custom', 'F j, Y');
+				$values['meeting_notice_due_date_yyyy-mm-dd'] = format_date($meeting_notice_due_date -> value(), 'custom', 'Y-m-d');
+				$values['meeting_notice_due_date_timestamp'] = $meeting_notice_due_date -> raw();
+			}
+		}
+		if($gmp_irc->__isset('field_issuance_notice_due_date')){
+			$issuance_notice_due_date = $gmp_irc -> field_issuance_notice_due_date;
+			if ($issuance_notice_due_date ->value()){
+				$values['issuance_notice_due_date'] = format_date($issuance_notice_due_date -> value(), 'custom', 'F j, Y');
+				$values['issuance_notice_due_date_yyyy-mm-dd'] = format_date($issuance_notice_due_date -> value(), 'custom', 'Y-m-d');
+				$values['issuance_notice_due_date_timestamp'] = $issuance_notice_due_date -> raw();
+			}
+		}
+		$values['final_report'] = array();
+		$values['final_report']['observations'] = array();
+		if($gmp_irc->__isset('field_inspection_rating')){
+			$inspection_rating = $gmp_irc -> field_inspection_rating;
+			if ($inspection_rating->value()){
+				$inspection_rating_en = $inspection_rating -> field_description_english -> value();
+				$inspection_rating_fr = $inspection_rating -> field_description_french -> value();
+				$code = $inspection_rating -> field_code -> value();
+				$values['final_report']['inspection_rating'] = array('code' => $code, 'inspection_rating_en' => $inspection_rating_en, 'inspection_rating_fr' =>$inspection_rating_fr);
+			}
+		}
+	
+		$inspection_outcome = $gmp_irc->__isset('field_inspection_outcome') ? $gmp_irc ->field_inspection_outcome : NULL;
+		if ($inspection_outcome){
+			if ($inspection_outcome ->field_inspection_outcome_std_ln){
+				$inspection_outcome_en = $inspection_outcome -> __isset('field_description_english') ? $inspection_outcome ->field_description_english ->value() : NULL;
+				$inspection_outcome_fr = $inspection_outcome ->__isset('field_description_french') ? $inspection_outcome ->field_description_french ->value() : NULL;
+
+			}
+			
+			$values['final_report']['inspection_outcome']['inspection_outcome_en'] = $inspection_outcome_en;
+			$values['final_report']['inspection_outcome']['inspection_outcome_fr'] = $inspection_outcome_fr;
+		}
+		$inspection_measures_taken = $gmp_irc->__isset('field_inspection_measures_taken') ? $gmp_irc ->field_inspection_measures_taken : NULL;
+		if ($inspection_measures_taken){
+			if ($inspection_measures_taken ->field_inspection_measure_tkstdln){
+				$inspection_measures_taken_en = $inspection_measures -> __isset('field_description_english') ? $inspection_measures_taken ->field_description_english ->value() : NULL;
+				$inspection_measures_taken_fr = $inspection_measures ->__isset('field_description_french') ? $inspection_measures_taken ->field_description_french ->value() : NULL;
+
+			}
+			
+			$values['final_report']['inspection_measure']['inspection_measure_en'] = $inspection_measures_taken_en;
+			$values['final_report']['inspection_measure']['inspection_measure_fr'] = $inspection_measures_taken_fr;
+			//return $values;
+		}
+		
+		if($gmp_irc->__isset('field_irc_observations')){
+			$observations = $gmp_irc-> field_irc_observations;
+			
+			for ($i = 0; $i < $observations->count(); $i++){
+				$observation= $observations[$i];
+				$observation_number = $observation -> field_observation_number -> value();
+				$irc_regulations = array();
+				if($observation->__isset('field_regulation_phrases_f_t')){
+					$irc_regulation_frees = $observation -> field_regulation_phrases_f_t;
+					for($j = 0; $j < $irc_regulation_frees->count(); $j++){
+						$irc_regulation_free = $irc_regulation_frees[$j];
+						
+						$irc_regulations[] = array('irc_phrase_en' => $irc_regulation_free -> field_phrase_english_ft -> value(),
+													'irc_phrase_fr' =>$irc_regulation_free -> field_phrase_french_ft -> value(),
+													'guideline_category_en' =>'',
+													'guideline_category_fr' =>'',
+													'guideline_subcategory' =>'',
+													'category_subccategory_activities' =>'',
+													'regulation' =>'',
+													'code' => '',);
+						
+					}
+				}
+				if($observation->__isset('field_regulation_std_ln')){
+					$irc_regulation_stdlns = $observation -> field_regulation_std_ln;
+					for($j = 0; $j < $irc_regulation_stdlns->count(); $j++){
+						$irc_regulation_stdln = $irc_regulation_stdlns[$j];
+						
+						$irc_regulations[] = array('irc_phrase_en' => $irc_regulation_stdln -> field_key_phrase_english -> value(),
+													'irc_phrase_fr' =>$irc_regulation_stdln -> field_key_phrase_french -> value(),
+													'guideline_category_en' =>$irc_regulation_stdln -> field_guideline_category -> value(),
+													'guideline_category_fr' =>$irc_regulation_stdln -> field_guideline_category_fr -> value(),
+													'guideline_subcategory' =>$irc_regulation_stdln -> field_guideline_subcategory -> value(),
+													'category_subccategory_activities' =>$irc_regulation_stdln -> field_cat_subcat_activities -> value(),
+													'regulation' =>$irc_regulation_stdln -> field_regulation -> value(),
+													'code' =>$irc_regulation_stdln -> field_code -> value(),);
+			
+					}
+				}
+				$values['final_report']['observations'][] = array('observation_number' => $observation_number, 'irc_regulations' =>$irc_regulations);
+			}
+			
+		}
+	}
+	//$values['workflow']=hci_md_inspection_workflow_status($node);
+	//drupal_set_message(hci_md_dump($values, 'purple', TRUE));
+	return $values;
+}
+
+
+
+/*
+ * Utility to change the max length of a text field
+ */
+function hci_md_change_text_field_max_length($field_name, $new_length) {
+  $field_table = 'field_data_' . $field_name;
+  $field_revision_table = 'field_revision_' . $field_name;
+  $field_column = $field_name . '_value';
+ 
+  // Alter value field length in fields table
+  db_query("ALTER TABLE `{$field_table}` CHANGE `{$field_column}` `{$field_column}` VARCHAR( {$new_length} )");
+  // Alter value field length in fields revision table
+  db_query("ALTER TABLE `{$field_revision_table}` CHANGE `{$field_column}` `{$field_column}` VARCHAR( {$new_length} )");
+ 
+  // Update field config with new max length
+  $result = db_query("SELECT CAST(`data` AS CHAR(10000) CHARACTER SET utf8) FROM `field_config` WHERE field_name = '{$field_name}'");
+  $config = $result->fetchField();
+  $config_array = unserialize($config);
+  $config_array['settings']['max_length'] = $new_length;
+  $config = serialize($config_array);
+  db_update('field_config')
+    ->fields(array('data' => $config))
+    ->condition('field_name', $field_name)
+    ->execute();
+}
+
+/*
+ * Utility to set inspection calendar, section title: IRC Calendar, space title: IRC Inspection Data
+ * $op: set, delete
+ */
+function hci_md_set_inspection_calendar($node, $op='set'){
+	if ($node -> type != 'gmp_iid' && $node -> type != 'gmp_irc'){
+		return null;
+	}
+	$space_title = 'GMP Inspection Data';
+	$section_title = 'IRC Calendar';
+	$inspection_nid = $node ->nid;
+	//drupal_set_message(hci_md_dump($inspection_nid, 'purple', TRUE));
+	//return;
+	//delete all events related to the inspection, so updated events can be correctly set.
+	$query = new EntityFieldQuery();
+
+	$query->entityCondition('entity_type', 'node')
+		->entityCondition('bundle', 'oa_event')
+		->propertyCondition('status', NODE_PUBLISHED)
+		->fieldCondition('field_irc_inspection', 'target_id', $inspection_nid, '=');
+	$result = $query->execute();
+
+	if (isset($result['node'])) {
+		$oa_event_nids = array_keys($result['node']);
+		foreach($oa_event_nids as $oa_event_nid){
+			node_delete($oa_event_nid);
+		}
+		
+	}
+	switch($op){
+		case 'set':
+			$inspection_wrapper = entity_metadata_wrapper('node', $node);
+			$space_result = db_select('node', 'n')
+			->fields('n')
+			->condition('title', $space_title,'=')
+			->condition('type', 'oa_space','=')
+			->execute()
+			->fetchObject();
+			$space_nid = $space_result ->nid;
+			$section_result = db_select('node', 'n')
+			->fields('n')
+			->condition('title', $section_title,'=')
+			->condition('type', 'oa_section','=')
+			->execute()
+			->fetchObject();
+			$section_nid = $section_result ->nid;
+			
+			$field = hci_md_WORKFLOW_FIELD;
+			$workflow = $inspection_wrapper -> $field;
+			$worflow_status = null;
+			$time = null;
+			$title = null;
+			$description = null;
+			$inspection_date_field = null;
+			if ($workflow->value()){
+				//drupal_set_message(hci_md_dump($workflow->value(), 'purple', TRUE));
+				$worflow_status= $workflow->value();
+			}
+			//dpm($worflow_status);
+			$setting = variable_get(hci_md_WORKFLOW_TRANSITION, array());
+			$setting_due_date_pre_statuses = $setting['due_date_pre_statuses'];
+			foreach($setting_due_date_pre_statuses as $field_name => $setting_due_date_pre_status){
+				if (in_array($worflow_status, $setting_due_date_pre_status['allowed_statuses'])){
+					
+					if ($inspection_wrapper ->__isset($field_name)){
+						$time = $inspection_wrapper -> $field_name ->value();
+						
+						switch($field_name){
+							case 'field_iid_post_due_date':
+								$description = 'IID post is due';
+							break;
+							case 'field_meeting_notice_due_date':
+								$description = 'Exit meeting is due';
+							break;
+							case 'field_issuance_notice_due_date':
+								$description = 'Exit notice is due';
+							break;
+							case 'field_final_post_due_date':
+								$description = 'Final post is due';
+							break;
+						}
+						$title = $inspection_wrapper -> title ->value() . ": $description";
+						
+					}
+				}
+			}
+			/*
+			switch($worflow_status){
+				case 'in progress':
+				case 'draft':
+				case 'ready for iid post':
+					$time = $inspection_wrapper -> field_iid_post_due_date ->value();
+					$title = $inspection_wrapper -> title ->value() . ': IID post due';
+					$description = 'IID post due';
+					$inspection_date_field = 'field_iid_post_due_date';
+				break;
+				case 'iid posted':
+					$time = $inspection_wrapper -> field_meeting_notice_due_date ->value();
+					$title = $inspection_wrapper -> title ->value() . ': meeting notice due';
+					$description = 'Meeting notice due';
+					$inspection_date_field = 'field_meeting_notice_due_date';
+				break;
+				case 'meeting notice exited':
+					$time = $inspection_wrapper -> field_issuance_notice_due_date ->value();
+					$title = $inspection_wrapper -> title ->value() . ': issuance notice due';
+					$description = 'Issuance notice due';
+					$inspection_date_field = 'field_issuance_notice_due_dat';
+				break;
+				case 'issuance notice exited':
+				case 'ready for approval':
+				case 'approved':
+					$time = $inspection_wrapper -> field_final_post_due_date ->value();
+					$title = $inspection_wrapper -> title ->value() . ': final post due';
+					$description = 'Final post due';
+					$inspection_date_field = 'field_final_post_due_date';
+				break;
+			}
+			*/
+			if ($title && $time && $description){
+				hci_md_save_inspection_event($inspection_nid, $time, $inspection_date_field, $space_nid, $section_nid, $title, $description);
+			}
+			
+		break;
+	}
+}
+
+function hci_md_save_inspection_event($inspection_nid, $time, $inspection_date_field, $space_nid, $section_nid, $title, $description){
+	global $user;
+	//dpm("$inspection_nid, $time, $inspection_date_field, $space_nid, $section_nid, $title, $description");
+	//return;
+	$oa_event_node =  entity_create('node', array('type' => 'oa_event'));
+	//dpm($oa_event_node);
+	$oa_event_wrapper = entity_metadata_wrapper('node', $oa_event_node);
+	$oa_event_wrapper -> title = $title;
+	$oa_event_wrapper -> body = array('value' => $description, 'text_processing' => 1, 'format' => 'plain_text');
+	$oa_event_wrapper -> status = 1;
+	$oa_event_wrapper -> field_irc_inspection_date_field = $inspection_date_field;
+	$oa_event_wrapper -> field_irc_inspection = $inspection_nid;
+	$oa_event_wrapper -> field_oa_date[0] ->set(array('value' =>$time, 'value2' => $time));
+	$oa_event_wrapper -> og_group_ref = $space_nid;
+	$oa_event_wrapper -> oa_section_ref = $section_nid;
+	//$oa_event_wrapper ->
+	$author_id = $user -> uid;
+	if ($author_id){
+		$oa_event_wrapper -> author = $author_id;
+	}
+	//dpm($time);
+	//dpm((array)$oa_event_wrapper);
+	$oa_event_wrapper -> save();
+}
+function hci_md_set_workflow_status(&$node, $new_status, $old_status = null){
+	$node_wrapper = entity_metadata_wrapper('node', $node);
+	$workflow_field = hci_md_WORKFLOW_FIELD;
+	$node_wrapper->$workflow_field=$new_status;
+	$node_wrapper -> save();
+}
+function hci_md_get_inspection_team($node){
+	$node_wrapper = entity_metadata_wrapper('node', $node);
+	$team = array();
+	if ($node_wrapper-> __isset('field_team') && $node_wrapper->field_team->value()){
+		$team_members = $node_wrapper->field_team->value();
+		$team['team_members']=$team_members;
+	}
+	return $team;
+}
+function hci_md_is_irc_available($iid_node_nid){
+	$query = new EntityFieldQuery();
+	$result = $query->entityCondition('entity_type', 'node')
+    ->propertyCondition('type', 'irc')
+	->fieldCondition('field_gmp_iid', 'target_id', $iid_node_nid, '=')
+    ->execute();
+	if (!isset($result['node'])) {
+		return FALSE;
+	}
+
+	return array_shift($result['node'])->nid;
+}

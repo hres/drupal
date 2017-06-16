@@ -1,0 +1,6 @@
+; $Id: hci_md.info,v 1.0.0  peijun zhang$
+name = HCI MD
+description = A modules for HC Inspectorate Inspection Report Card project
+core = 7.x
+package = HCIMD
+version = "7.x-1.0-dev"

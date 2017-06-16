@@ -1,0 +1,7 @@
+; $Id: hci_md_export.info,  peijun zhang$
+name = HCI MD Export
+description = A modules used to export data from HC Inspectorate Inspection Report Card Data Management System
+core = 7.x
+package = HCIMD
+dependencies[] = hci_md
+version = "7.x-1.1"

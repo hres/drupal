@@ -1,0 +1,8 @@
+; $Id: tpd.info,v 1.0.0  peijun zhang$
+name = TPD
+description = A modules for managing TPD Data entry package.
+dependencies[] = nhpid_api
+core = 7.x
+package = NHPID
+
+version = "7.x-1.0-dev"

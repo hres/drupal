@@ -1,0 +1,1205 @@
+<?php
+// $Id$
+define('NHPID_AUTO_WORKFLOW_MSG', 'Changed based on the NHPID dependency rule automatically by Drupal');
+define('BODY_DEFAULT', "You do not need to input anything. I'll generate a proper text later. If you change it to anything else, I will accept it.");
+define('TITLE_DEFAULT', "I will generate a meaningful title later. Whatever you enter here will be ignored.");
+define("SYSTEM_LOCK_VARIABLE", 'nhpiddms_system_lock');
+include_once('InFlect.php');
+include_once 'sites/all/libraries/Colors/RandomColor.php';
+use \Colors\RandomColor;
+
+/* hook_ctools_plugin_directory */
+function tpd_ctools_plugin_directory($module, $plugin) {
+  if ($module == 'ctools') {
+    return 'plugins/' . $plugin;
+  }
+}
+
+function tpd_cron(){
+ //delete older files in public folder
+ $folder = drupal_realpath("public://");
+ $files = nhpid_api_delete_older_files($folder, 5);
+ if ($files) watchdog('cron', 'The public file system has been cleaned up. The following files have been deleted: @files', array('@files' => implode(", ", $files) ));
+
+ // update calculated field values
+ nhpid_api_save_all_calculated_field_values(array(), true);
+ watchdog('cron', 'The calculated field values have been updated.');
+}
+function tpd_init(){
+	$path = drupal_get_path('module', 'tpd');
+	drupal_add_css($path .'/css/tpd.css');
+	//drupal_add_js($path .'/nhpid.js');
+	global $user;
+	if (!tpd_system_lock_access()){
+	  drupal_set_message("Data exporting is in progress or the system is persistently locked. You are not allowed to edit contents nor to add new contents at this moment.", 'warning', false);
+	}
+  $locker_uid = variable_get(SYSTEM_LOCK_VARIABLE, null);
+	if ($locker_uid != 0){
+	  $email_link = null;
+    $release_link = null;
+	  if ($user->uid != $locker_uid){
+			$locker = user_load($locker_uid);
+			$locker_name = $locker -> name;
+	    if (user_access('access nhpid email') and $locker-> uid != $user -> uid) $email_link = l("Ask info", "nhpid_email/$locker_uid", array('attributes' => array('target' => '_blank')));
+	  }
+		else{
+	    $locker_name = 'you';
+		}
+    if (user_access('administer nhpid')){
+      $release_link = l("Release.", "admin/rule_management/lock_system", array('attributes' => array('target' => '_blank')));
+		}
+    drupal_set_message("<em>The system is locked persistently by $locker_name.</em></span> $email_link $release_link", 'warning', false);
+	}
+	###// Detects user's browser
+	$javascript_browser_name = 'if (navigator.appName.indexOf("Internet Explorer") != -1) {alert("I find that your browser is Microsoft Insternet Explorer, which may not be compatible to the settings of some Drupal themes. If you find that the content cannot be properly displayed, please change your theme or your browser, such as Chrome or Firefox.")};  ';
+
+	//if (!$user -> uid or (isset($user-> login) and isset($user -> timestamp) and $user-> login >= $user -> timestamp)) {
+	if (!$user -> uid){
+	  drupal_add_js($javascript_browser_name, 'inline');
+	}
+}
+function tpd_node_view_alter(&$build){
+  //drupal_set_message(nhpid_api_dump($build, 'green', TRUE));
+	// alter create new child list
+	$bundle = $build['#bundle'];
+  $links = get_add_node_links();
+	$link_str = null;
+	if(nhpid_api_is_a_nhpid_data_node_type($bundle) and is_array($links)){
+	  foreach ($links as $link) {
+	    $link_str = $link_str . l($link['link_text'], $link['link_url'], array('html' => true, 'attributes' => array('target' => '_blank'))) . ' ';
+	  }
+	}
+	$build['nodehierarchy_children_links']=$link_str? array(array('#children' => $link_str)): null;
+}
+
+function tpd_chart_definition_alter(&$definition, $chart, $chart_id) {
+  dpm($definition);
+  dpm($chart);
+  //dpm($chart_id);
+  switch($chart_id){
+	 case 'tp_amendment_status':
+	 case 'tp_status':
+		 if ($chart['#chart_library'] == 'highcharts'){
+			$definition['plotOptions']['series']['allowPointSelect'] = true; //change the distance
+			$definition['plotOptions']['pie']['dataLabels']['distance'] = 20; //change the distance
+			$definition['plotOptions']['series']['dataLabels']['enabled']= TRUE;
+			$definition['plotOptions']['series']['dataLabels']['format']=  '<b>{point.name}</b>:{point.percentage:.2f}%';
+			$definition['plotOptions']['series']['dataLabels']['style'] = 'color: "Highcharts.theme && Highcharts.theme.contrastTextColor)"';//change color of labels
+			$definition['legend']['align'] = 'center';
+			$definition['legend']['verticalAlign'] = 'bottom';
+			$definition['legend']['layout'] = 'vertical';
+			
+			//$definition['series'][0]['data'][]=array('test', 10000);
+			// changes colors
+			$num_points = count($definition['series'][0]['data']);
+			if ($num_points > count($definition['colors'])){
+				$colors = RandomColor::many($num_points); 
+				$definition['colors'] = $colors;
+			}
+		 }
+		 else{
+			 $definition['options']['legend']['alignment'] = 'center';
+			 $definition['options']['legend']['position'] = 'top';
+			 $definition['options']['legend']['maxLines'] = count($definition['data']) + 2;
+			 $definition['options']['tooltip']['trigger'] = 'focus';
+			 // changes colors
+			$num_points = count($definition['data']);
+			if ($num_points > count($definition['colors'])){
+				$colors = RandomColor::many($num_points); 
+				$definition['colors'] = $colors;
+			}
+		 }
+		break;
+  }
+  dpm($definition);
+  dpm($chart);
+}
+function tpd_permission() {
+    return array(
+    'administer tpd' => array(
+      'title' => t('Administer tpd'),
+      'description' => t(''),
+      ),
+    'access tpd content' => array(
+      'title' => t('Access tpd content'),
+      'description' => t(''),
+      ),
+		'access tpd report' => array(
+      'title' => t('Access tpd report'),
+      'description' => t(''),
+      ),
+    
+    );
+} 
+
+function tpd_menu_alter(&$items){
+  //drupal_set_message(nhpid_api_dump(&$items, 'red', TRUE));
+  //$items['node/%node/edit']['access callback']='_nhpid_node_access_callback';
+  //$items['node/%node/edit']['access arguments'] = array(1,'edit');
+ 
+  //$items['node/%node/revisions']['access callback']='_nhpid_node_access_callback';
+  //$items['node/%node/revisions']['access arguments'] = array(1,'revisions');
+   /* not working
+  $items['node/%node/revisions/%/delete']['access callback']='_nhpid_node_access_callback';
+  $items['node/%node/revisions/%/delete']['access arguments'] = array(1,'revisions');
+  $items['node/%node/revisions/%/revert']['access callback']='_nhpid_node_access_callback';
+  $items['node/%node/revisions/%/revert']['access arguments'] = array(1,'revisions');
+  */
+  //$items['node/%node/children']['access callback']='_nhpid_node_access_callback';
+  //$items['node/%node/children']['access arguments'] = array(1,'children');
+  //$items['node/%node/workflow']['access callback']='_tpd_node_access_callback';
+  //$items['node/%node/workflow']['access arguments'] = array(1,'workflow');
+  //drupal_set_message(nhpid_api_dump(&$items, 'green', TRUE));
+
+}
+function tpd_form_alter(&$form, &$form_state, $form_id) {
+  global $user;
+  $node_type = isset($form['#node'])? $form['#node']->type : '';
+  $form_id = $form['form_id']['#id'];
+  $pattern = '/edit\-(.+)\-node\-form/';
+  //drupal_set_message(nhpid_api_dump($form, 'green', TRUE));
+	// add place holder to title
+	if (nhpid_is_a_data_node_type($node_type)){
+		$form['title']['#attributes']['placeholder'] = TITLE_DEFAULT;
+		$form['title']['#required'] = FALSE;
+	}
+	//delete any types which are not nhpid data types from type options
+	if ($form_id == 'edit-views-exposed-form'){
+		if ($form_state['view']-> name == 'workflow_summary' or $form_state['view']-> name == 'work_summary'){
+			$nhpid_data_types = get_all_nhpid_data_node_types();
+			$new_options = array();
+			$new_options['All'] = $form['type']['#options']['All'];
+			$new_options = array_merge($new_options, $nhpid_data_types);
+
+			$form['type']['#options']=$new_options;
+
+		}
+	}
+
+}
+
+
+/**
+* "After build" callback for node forms. Register the fields to alter.
+*/
+function tpd_node_form_after_build($form_element, &$form_state) {
+
+  $node_type = $form_element['#node'] -> type;
+  $fields = get_node_type_field_name_title_mapping($node_type);
+  //drupal_set_message(nhpid_api_dump($form_element, 'green', TRUE));
+  foreach ($fields as $key => $value) {
+    tpd_node_form_element_alter_register($form_element, $key, $node_type);
+    //tpd_node_form_element_description_alter($form_element, $key, $node_type);
+  }
+  //drupal_set_message(nhpid_api_dump($form_element, 'green', TRUE));
+  return $form_element;
+}
+
+
+
+/**
+* Implementation of hook_node_form_element_alter().
+*/
+function tpd_node_form_element_alter($name, &$element,  $node_type) {
+  /*** set rquired fields ***
+   * 'required' attribute is set globally by drupal. NHPID shared fields can be both required or non-required with different node types.
+   * this function sets the required attribute os node form dynamically based on variables 'nhpid_NODE TYPE_FIELD NAME_is_required', 
+   * which are manged by NHPID MAN     
+   */     
+		//drupal_set_message(nhpid_api_dump($name, 'green', TRUE));
+    //drupal_set_message(nhpid_api_dump($element, 'green', TRUE));
+		//drupal_set_message(nhpid_api_dump($node_type, 'green', TRUE));
+	     
+  
+}
+
+function tpd_node_form_element_description_alter( $name, &$elements, $node_type) {
+  /*** conditionally rquired field descriptions
+   */
+
+  $rules = nhpid_get_field_conditionally_requireness_fields($node_type);
+  $list = array();
+  if ($rules){
+    foreach($rules as $rule){
+      if(in_array($name, array_keys($rule['fields']))){
+        $list[] = $rule['label'] . ' returns true.';
+      }
+    }
+  }
+  
+  //drupal_set_message(nhpid_api_dump($list, 'green', TRUE));
+        
+  if ($list){
+    
+    $des = "This field is conditionally required. It follows the following rules: " . theme_item_list($list);
+    $elements['#description'] = $des;
+    $field_info = content_fields($name, $noce_type);
+    if (!$field_info['multiple']) $elements[0]['value']['#description'] = $des;
+  }
+	// pluralize field label if it has multiple values
+  //drupal_set_message(nhpid_api_dump($elements, 'green', TRUE));
+
+}
+/**
+* Register a node form element for alteration by modules implementing the
+* hook_node_form_element_alter() hook.
+*/
+function tpd_node_form_element_alter_register(&$elements, $name, $node_type) {
+  foreach (element_children($elements) as $key) {
+    if (isset($elements[$key]) && ((isset($elements[$key]['#name']) && $elements[$key]['#name'] == $name) || (isset($elements[$key]['#field_name']) && $elements[$key]['#field_name'] == $name) || (isset($elements[$key]['#group_name']) && $elements[$key]['#group_name'] == $name))) {
+      //drupal_set_message(nhpid_api_dump($elements[$key]['#name'], 'red', TRUE));
+      //drupal_set_message(nhpid_api_dump($key, 'red', TRUE));
+      //drupal_set_message(nhpid_api_dump($name, 'red', TRUE));
+      //drupal_set_message(nhpid_api_dump($elements[$key], 'green', TRUE));
+			foreach (module_implements('node_form_element_alter') as $module) {
+        //call_user_func_array($module .'_node_form_element_alter', array($name, &$elements[$key],  $node_type));
+        //call_user_func_array($module .'_node_form_element_description_alter', array($name, &$elements[$key],  $node_type));
+      }
+    }
+    else {
+      tpd_node_form_element_alter_register($elements[$key], $name, $node_type);
+    }
+  }
+}
+function tpd_node_form_element_alter_register_(&$elements, $name, $node_type) {
+  foreach (element_children($elements) as $key) {
+    if (isset($elements[$key]) && ((isset($elements[$key]['#name']) && $elements[$key]['#name'] == $name) || (isset($elements[$key]['#field_name']) && $elements[$key]['#field_name'] == $name))) {
+
+			foreach (module_implements('node_form_element_alter') as $module) {
+        call_user_func_array($module .'_node_form_element_alter', array($name, &$elements[$key],  $node_type));
+        call_user_func_array($module .'_node_form_element_description_alter', array($name, &$elements[$key],  $node_type));
+      }
+    }
+    else {
+      tpd_node_form_element_alter_register($elements[$key], $name, $node_type);
+    }
+  }
+}
+/**
+ * Implementation of hook_form_FORM_ID_alter
+ */
+function tpd_form_node_form_alter(&$form, &$form_state, $form_id){
+  //drupal_set_message(nhpid_api_dump($user, 'green', TRUE));
+	//drupal_set_message(nhpid_api_dump($form, 'green', TRUE));
+  // *** Add javascript alert to remind user to update workflow state ****
+	if (isset($form['#node']->workflow_wid)){
+  	$form['actions']['submit']['#attributes'] = array('onclick' => 'return(confirm("I bet you did not forget to update workflow state. Continue?"))');
+	}
+	$form['revision_information']['#collapsed']=FALSE;
+  $form['revision_information']['#weight']=-100;
+	if (!user_access('bypass node access') && nhpid_api_is_a_nhpid_data_node_type($form['#node']->type)){
+		/*hide($form['menu']);
+    hide($form['comment_settings']);
+    hide($form['author']);
+    hide($form['options']);
+    hide($form['options']);
+    hide($form['body']);
+    hide($form['title']);
+    $form['title']['#printed']=TRUE;*/
+    $form['options']['#access']=false;
+    $form['author']['#access']=false;
+    $form['comment_settings']['#access']=false;
+    $form['title']['#access']=false;
+    $form['path']['#access']=false;
+    $form['nodehierarchy']['#access']=false;
+	}
+  //drupal_set_message(nhpid_api_dump($form, 'green', TRUE));
+}
+function tpd_preprocess_field(&$vars) {
+  //drupal_set_message(nhpid_api_dump($vars, 'green', TRUE));
+	if (count($vars['items']) > 1) {
+			$inflect = new InFlect;
+      //drupal_set_message(nhpid_api_dump($vars['label'], 'green', TRUE));
+      
+			$vars['label'] = $inflect->pluralize($vars['label']);
+      $vars['element']['#title'] = $inflect->pluralize($vars['label']);
+      //drupal_set_message(nhpid_api_dump($vars['label'], 'red', TRUE));
+  }
+}
+
+
+function tpd_node_access($node, $op, $account){
+  $node_access = node_node_access($node, $op, $account);
+	switch($op){
+		case 'update':
+    case 'create':
+			return tpd_system_lock_access($account)? $node_access: NODE_ACCESS_DENY;
+		break;
+		default:
+		return NODE_ACCESS_IGNORE;
+	}
+}
+
+function tpd_node_view($node,  $view_mode, $langcode){
+  
+  if (is_nhpid_data_node_type($node -> type)) {
+		//** redirect node view to the view trading_partner_detail if the user is obersers
+		global $user;
+		if (sizeof($user->roles) <= 2 and in_array ('observer', $user->roles)){
+			drupal_goto('trading_partner_detail/' . $node -> nid);
+		}
+		//*** Add node name to title to let users identify the node type easier. The added node name will not be saved.
+		$node_name = get_node_name($node -> type) . ' (' . $node -> type .')';
+    $workflow=workflow_get_workflow_states_by_sid(workflow_node_current_state($node))->state;
+    $node->content['workflow'] = array(
+      '#theme' => 'field',
+      '#weight' => -1,
+			'#field_type' =>'text',
+      '#title' => 'Current Workflow State',
+      '#label_display' => 'above',
+      '#formatter' => 'text_default',
+			'#items'=>array(array('value'=>$workflow, 'format'=>null, 'safe_value'=>$workflow)),
+			0=>array('#markup' =>$workflow),
+    );
+    $node->content['node_type'] = array(
+      '#theme' => 'field',
+      '#weight' => -2,
+			'#field_type' =>'text',
+      '#title' => 'Node Type',
+      '#label_display' => 'above',
+      '#formatter' => 'text_default',
+			'#items'=>array(array('value'=>$node_name, 'format'=>null, 'safe_value'=>$node_name)),
+			0=>array('#markup' =>$node_name),
+    );
+    //drupal_set_message(nhpid_api_dump($node->content, 'red', TRUE));
+  }
+  
+}
+function tpd_node_prepare($node){
+  //drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));
+	global $user;
+  if (!is_nhpid_data_node_type($node -> type)) return;
+  #### force creating revisiion
+  $node -> revision = 1;           
+  /***
+   * If node is new (no title and body yet), set default title and body
+   */                 
+  //if (!(bool)(trim($node -> title)) and nhpid_is_a_data_node_type($node -> type)) $node -> title = TITLE_DEFAULT;
+  if (!$node -> body or !(bool)(trim(strip_tags($node -> body[$node->language][0]['value'])))) $node -> body[$node->language][0]['value'] = BODY_DEFAULT;
+
+  ## blocks edting nhpid menu struture nodes by users other than admin
+  $nhpid_menu_node_types = array("nhpid_data_entry", "list_records", "nhpid_data_form","nhpid_data_form_group", "fields_house");
+  
+  if (in_array($node -> type, $nhpid_menu_node_types) and $user -> uid != 1) {
+    if (!empty($_SESSION['messages']['status'])) {
+      foreach ($_SESSION['messages']['status'] as $key => $message) {
+        if (stristr($message, t('This document is now locked against simultaneous editing'))){
+          unset ($_SESSION['messages']['status'][$key]);
+        }
+      } 
+      if(module_exists('checkout')) checkout_release($node -> nid, $user -> uid);
+    }
+    drupal_set_message("You do not have permissions to edit this node nor to add a new node of this type.", 'error');
+    drupal_goto($_SERVER['HTTP_REFERER']);
+  }
+  
+  ## if exporting function locks the system, prevent to edit or add node
+
+  if (property_exists($node, 'batch_upload') && $node->batch_upload == false){
+    if (!tpd_system_lock_access()){
+      if (!empty($_SESSION['messages']['status'])) {
+        foreach ($_SESSION['messages']['status'] as $key => $message) {
+          if (stristr($message, t('This document is now locked against simultaneous editing'))){
+            unset ($_SESSION['messages']['status'][$key]);
+          }
+        }
+        if(module_exists('checkout')) checkout_release($node -> nid, $user -> uid);
+      }
+      drupal_set_message("Data exporting is in progress. The system is locked to prevent data from being changed. Please try it again a few moments later.", 'error');
+      drupal_goto( $_SERVER['HTTP_REFERER'] );
+    }
+	}
+}
+
+function tpd_node_presave($node){
+ //*** generate title and body if not available
+ //drupal_set_message(nhpid_api_dump($node , 'brown', TRUE));
+ // set parent
+ //nodehierarchy_prepare_node($node);
+ $type = $node -> type;
+  if (nhpid_is_a_data_node_type($type)) {
+    $title = nhpid_api_generate_node_title($node, 'nhpid');
+    if ($title) {
+      $node -> title = $title;
+    }
+
+    if (!isset($node -> body[$node->language][0]['value']) or $node -> body[$node->language][0]['value'] == BODY_DEFAULT) {
+      $node -> body[$node->language][0]['value'] = nhpid_api_generate_node_body($node, 'nhpid');
+    }
+    //drupal_set_message(nhpid_api_dump($title , 'brown', TRUE));
+  }
+  //drupal_set_message(nhpid_api_dump($node , 'brown', TRUE));
+  ### list all duplicates
+  $duplicate_nids = nhpid_fetch_duplicate_node_nids ($node);
+  //drupal_set_message(nhpid_api_dump($duplicate_nids, 'red', TRUE));
+  $nid_links = array();
+  foreach ($duplicate_nids as $nid){
+    $nid_links[] = l($nid -> nid . '( ' . $nid -> type . ': ' . $nid -> title . ")",  "node/" . $nid -> nid, array('attributes' => array('target' => '_blank'), 'html' => array('html' => 'TRUE')));
+  }
+  if ($nid_links) drupal_set_message("There are " . count($nid_links) . " partially duplicate nodes to node you just edited (node type: " . $node -> type . ", node title: " . $node -> title . "). You may want to check/edit them. <br>" . theme_item_list($nid_links), $type = 'status', $repeat = FALSE);
+}
+
+function tpd_node_insert($node){
+  if (!is_nhpid_data_node_type($node -> type)) return;
+  ### build_depended_node_relation
+  //nhpid_build_depended_node_relationship($node);
+  ### index the node
+  //drupal_set_message(nhpid_api_dump("ara: " . arg(0) . '-' .  arg(1) , 'brown', TRUE));
+  //$arg = arg(0) . '-' .  arg(1);
+  //if ($arg == 'node-add') nhpid_api_index_node($node); // do index only for manually added node. skip indexing for batch data loading.
+}
+function tpd_node_delete($node){
+  if (!is_nhpid_data_node_type($node -> type)) return;
+  ## delete depended node relationships
+  //nhpid_delete_depended_node_relationship($node);
+	## delete saved calculated field values
+  nhpid_api_delete_calculated_field_values($node->nid);
+
+}
+
+function tpd_node_update($node){
+  if (!is_nhpid_data_node_type($node -> type)) return;
+  
+   //if ($links) drupal_set_message("Data you just edited (node type: " . $node -> type . ", node title: " . $node -> title . ") affects the following fields. I have tried to update them. Please check if the updated nodes are correct and <strong>EDIT</strong> ones not updated successfully manually as soon as possible:<br>" . theme_item_list($links), $type = 'status', $repeat = FALSE);
+   //if ($warning_links) drupal_set_message("The workflow state of the node(node type: " . $node -> type . ", node title: " . $node -> title . ") you just edited has been changed from <em>$old_depended_node_workflow_state</em> to <em>$new_depended_node_workflow_state</em>. The following nodes are depending on this node. Please update their workflow states if required. <br> " . theme_item_list($warning_links), $type = 'status', $repeat = FALSE);
+  // re-index the node
+  //nhpid_api_index_node($node);
+   ### rebuild_depended_node_relation
+  //nhpid_build_depended_node_relationship($node);
+  ### save field_collection calcualted value
+  //hpid_api_get_calculated_field_values($node);
+}
+
+function tpd_node_validate($node, $form, &$form_state){
+
+	//drupal_set_message(nhpid_api_dump($form_state['values'], 'red', TRUE));
+  ## skip non-nhpid node types
+	if (!nhpid_api_is_a_nhpid_data_node_type($node -> type)) return;
+  $old_errors = form_get_errors();
+	if (!empty($old_errors)){
+		return; // If there are errors detected by other modules, skip error checking
+	}
+	$node = (object)$form_state['values'];
+
+  ## get all field names
+  $field_names = array_keys(get_node_type_field_name_title_mapping($node->type));
+  foreach($field_names as $field_name) {
+    //drupal_set_message(nhpid_api_dump($field_name, 'red', TRUE));
+    $field_type = nhpid_api_get_field_type($field_name);
+		if ($field_type == 'field_reference'){
+	    $items = nhpid_api_field_get_items($node, $field_name);
+			foreach($items as $delta=>$item){
+				if ($item['field_key'] and preg_match('/node:\d+$/', $item['field_key'])){
+					$items[$delta] = field_reference_key_read($item['field_key']);
+				}
+				else{
+          unset($items[$delta]);
+				}
+			}
+			$node ->{$field_name}[$node-> language]=$items;
+    }
+		else if ($field_type == 'field_collection'){
+      $fc_fields = field_info_instances('field_collection_item', $field_name);
+      $items = nhpid_api_field_get_items($node, $field_name);
+      //drupal_set_message(nhpid_api_dump($items, 'purple', TRUE));
+			foreach($items as $delta=>$item){
+				foreach($fc_fields as $fc_field_name => $fc_field_info){
+	        $fc_field_type = nhpid_api_get_field_type($fc_field_name);
+	        if ($fc_field_type == 'field_reference'){
+          	//drupal_set_message(nhpid_api_dump($item['entity'] -> $fc_field_name, 'purple', TRUE));
+            //drupal_set_message(nhpid_api_dump($fc_field_name, 'purple', TRUE));
+				    $fc_items = nhpid_api_field_get_items($item['entity'], $fc_field_name,'field_collection_item');
+
+						foreach($fc_items as $fc_delta=>$fc_item){
+							if ($fc_item['field_key'] and preg_match('/node:\d+$/', $fc_item['field_key'])){
+			        	//drupal_set_message(nhpid_api_dump($fc_item, 'purple', TRUE));
+								$fc_items[$fc_delta] = field_reference_key_read($fc_item['field_key']);
+							}
+              else{
+			          unset($fc_items[$fc_delta]);
+							}
+						}
+	          $node ->{$field_name}[$node-> language][$delta][$fc_field_name][$node-> language]=$fc_items;
+
+	    		}
+				}
+			}
+		}
+	}
+
+
+        ### If data is exporting, lock system to prevent data from changed
+        global $user;
+        if (!tpd_system_lock_access()){
+          form_set_error('', "Data exporting is in progress. The system is locked to prevent data from being changed. Please try it again a few moments later.");
+        }
+        /***
+         * The following validations are added to altered:
+         *  1. Node title generation. 
+         *      NHPID automattically generates a title (and body) for nodes. For generation title, drupal uses one or two fields of the node.
+         *      The title fields and boby field are administered through the admin panel.
+         *      If drupal cannot generate a title for a node. An error is evoked.
+         *               
+         *   2. Unique title, fields and node. 
+         *      Drupal checkes if a node tilte is duplicated and unique fields are duplicated for nodes set to unique.
+         *      Drupal checkes if a node is totally duplicated (all field except computed fields are duplicated) for all nodes. 
+         *      
+         *   3. Requiredness.
+         *      Drupal re-checkes the requiredness of fields due to the original requiredness validattion function fails to check flexifields.
+         *      
+         *   4. Length of fields.
+         *      Druapl checkes the length of all fields based on settings in the admin panel, which are based on NHPID database tables definstions                                                                                                      
+         */                 
+        
+        /***
+         * $errors: holder of all new errors. 
+         */                 
+        $errors = array();
+        $type = $node -> type;
+        /***
+         * Node title generation checking
+         */
+				$title = nhpid_api_generate_node_title($node, 'nhpid');
+
+        if (strlen($title) <= 0  and nhpid_is_a_data_node_type($node -> type)) {
+          $node_title_body_fields = variable_get("nhpid_title_body_fields_" . $node -> type, '');
+  				$title_field1= $node_title_body_fields['title_field1'];
+  				$title_field2= $node_title_body_fields['title_field2'];
+          $title_field1 = field_info_instance('node',$title_field1, $node -> type);
+          $title_field1_label = $title_field1['label'];
+          
+          $title_field_info = "Field $title_field1_label is used for the title. Please make sure it is filled.";
+          if ($title_field2) {
+            $title_field2 = field_info_instance('node',$title_field2, $node -> type);
+      			$title_field2_label = $title_field2['label'];
+            $title_field_info = "Fields  $title_field1_label and $title_field2_label are used for the title. Please make sure they are filled.";
+          }
+          $errors[] = array('field' => 'title', 'message' => t("Drupal cannot generate title for this node. $title_field_info" ));
+        }
+
+        /***
+         * Unique title and fields checking
+         */                 
+        if (nhpid_is_a_unique_node_type($type)) {
+          //$duplicate = db_result(db_query("SELECT nid FROM {node} WHERE type = '%s' AND title = '%s' AND nid <> %d LIMIT 1", $node->type, nhpid_api_generate_node_title($node), $node->nid));
+          $duplicate = db_query("SELECT nid FROM {node} WHERE type = :node_type AND title = :title AND nid <> :nid LIMIT 1", array(':node_type' => $node->type, ':title' => nhpid_api_generate_node_title($node, 'nhpid'), ':nid' => $node->nid)) -> fetchObject();
+
+          if ($duplicate) {
+            //*** since is most likely a duplicate, set an error so a duplicate isn't created
+            $errors[] = array('field' => 'title', 'message' => t('A duplicate title is found. This node must hava an unique title. This usually results from clicking the submit button more than once.' ));
+          }
+          
+          //*** unique fields
+          
+          foreach($field_names as $u_field) {
+			      if (nhpid_is_a_unique_field($u_field, $type)) {
+
+			        $field_value_field =  $u_field . '_value';
+			        //eval("\$u_field = \"$u_field\";");
+			        //drupal_set_message(nhpid_api_dump($node , 'brown', TRUE));
+			        if (property_exists($node, $u_field)){
+			          $field = $node -> $u_field;
+
+			          $value = isset($field[$node-> language][0]['value']) ? $field[$node-> language][0]['value'] : NULL;
+
+			          if ($value) {
+			            $sql = "SELECT entity_id FROM {field_data_$u_field} WHERE entity_type = 'node' AND bundle = :node_type And  language=:lang and field_data_$u_field.$field_value_field = :value AND entity_id != :nid LIMIT 1";
+			            $result = db_query($sql, array (':node_type' => $node->type,  ':lang' => $node -> language, ':value' => $value, ':nid' => $node->nid ? $node->nid: 0)) -> fetchObject();
+			            $duplicate = null;
+			            if ($result) $duplicate = $result -> entity_id;
+			            $field_info = field_info_instance('node', $u_field, $type);
+			            $field_label = $field_info['label'];
+
+			            if ($duplicate > 0) {
+			              $errors[] = array('field' => $u_field, 'message' => t("A duplicate <em>$field_label</em> is found. This field must be unique. This usually results from clicking the submit button more than once."));
+			            }
+			          }
+			        }
+
+			      }
+			    }
+        }
+				/***
+				 * field_amendment_status and field_signed_date: satus signed ust be with field_signed_date filled
+				 */
+				 if ($type == 'trading_partner'){
+						$amendment_status = nhpid_api_get_field_values($node, 'field_amendment_status', array(), NULL, TRUE, TRUE);
+            $signed_date = nhpid_api_get_field_values($node, 'field_signed_date', array(), NULL, TRUE, TRUE);
+						if (($amendment_status == 'Signed' and !$signed_date) or ($signed_date and $amendment_status != 'Signed')){
+               $errors[] = array('field' => 'field_amendment_status', 'message' => t("If the amendment status is 'Signed', a valid signed date must be entered."));
+						}
+            //drupal_set_message(nhpid_api_dump($amendment_status , 'brown', TRUE));
+            //drupal_set_message(nhpid_api_dump($signed_date , 'brown', TRUE));
+				 }
+         /***
+				 * field_epost_application and field_amendment_status: the value 'active' of field_epost_application is only applicable to the amendment status of 'signed' or Not Applicable/New TP
+				 */
+				 if ($type == 'trading_partner'){
+						$amendment_status = nhpid_api_get_field_values($node, 'field_amendment_status', array(), NULL, TRUE, TRUE);
+            $epost_application = nhpid_api_get_field_values($node, 'field_epost_application', array(), NULL, TRUE, TRUE);
+						if (($amendment_status != 'Signed' and $amendment_status != 'Not Applicable/New TP') and  $epost_application == 'Active'){
+               $errors[] = array('field' => 'field_epost_application', 'message' => t("The epost use status value 'active' is only applicable to the amendment status of 'signed' or Not Applicable/New TP"));
+						}
+            //drupal_set_message(nhpid_api_dump($amendment_status , 'brown', TRUE));
+            //drupal_set_message(nhpid_api_dump($epost_application , 'brown', TRUE));
+				 }
+       
+
+        /***
+         * Totally duplication node checking.
+         * A totally duplicated field is defined as a node contains duplicated title and all fields (except computed field).
+         * Compuated field's value is not assigned untill later stage, so they are should be excluded.                 
+         */
+				 /*
+        $nid = db_result(db_query("SELECT nid FROM {node} WHERE type = '%s' AND title = '%s' AND nid <> %d LIMIT 1", $node->type, nhpid_api_generate_node_title($node), $node->nid));
+  
+        $duplicated = TRUE;
+        
+        if ($nid) {
+          $existing_node = node_load(array(nid => $nid));
+          content_view($existing_node);
+          content_view($node);
+          //drupal_set_message(nhpid_api_dump($node, 'red', TRUE));
+          if (count($existing_node -> content) != count($node -> content)) {
+            $duplicated = FALSE;
+          }
+          else {
+            foreach ($existing_node -> content as $key => $value) {
+              $field = content_fields($value['field']['#field_name'], $value['field']['#type_name']);
+              if ($field['module'] != 'computed_field') {   // computed field's value is calculated at later stage
+                
+                $$existing_node_value = strip_tags(drupal_render($value));
+                $node_value = strip_tags(drupal_render($node -> content[$key]));
+                if ($$existing_node_value != $node_value) {
+                  $duplicated = FALSE;
+                  break;
+                  
+                }
+              }
+             }
+          }
+        }
+        else {
+          $duplicated = FALSE;
+        }
+        if ($duplicated) {
+          $errors[] = array('field' => '', 'message' => l("A duplicate node is found. ", "node/$nid", array('attributes' => array('target' => '_blank')), NULL, NULL, FALSE, TRUE) . "NHPID does not allow totally duplicated nodes. This usually results from clicking the submit button more than once.");
+        }*/
+        /***
+         * Field conditionally rquiredness checking
+         * The checking is based on nhpid business rule conditionally requiredness
+         *
+         *                           
+         */
+		
+        //tpd_get_field_conditionally_requireness_errors($node, $errors);
+		
+       
+        
+        
+        /***
+         * Field rquiredness checking
+         * NHPID drupal uses dynamic requiredness settings. The requiredness settings of original drupal function are global. This mskes setting required and not required for chared fields in different nodes not possible.
+         * The requiredness is re-set through hook_node_field_alter implemented in this module.
+         * Since the original rquiredness checking function cannot check fiexifields correctly. Re-checking requiredness must be re-done.
+         * Rules:
+         *  1.  For required simple fields, the fields must not be empty.
+         *  2.  For required compound fields (flexifields), the fields must not be empty and:
+         *    for _dependency fields, at least one sub field must not be empty,
+         *    for others fields, all sub fields must not be empty.
+         *  3. For not required compound fields which are not _dependency fields, all sub fields must be empty or filled.                                                                                
+         */  
+        //drupal_set_message(nhpid_api_dump($required_fields, 'red', TRUE));
+
+        $not_empty = array();
+        foreach($field_names as $u_field) {
+          //drupal_set_message(nhpid_api_dump( $u_field, 'purple', TRUE));
+          //$raw_values = nhpid_api_get_field_raw_values($node, $u_field);
+          //drupal_set_message(nhpid_api_dump( $raw_values, 'purple', TRUE));
+					$field = field_info_instance('node', $u_field, $type);
+          //drupal_set_message(nhpid_api_dump($field, 'red', TRUE));
+          $field_label = $field['label'];
+          if ($field['display']['default']['module'] != 'computed_field') {
+
+            /***
+             * Field length checking
+             * The max allowed length of nhpid node fields are set through the nhpid admin tool panel
+             * If no allowed length for the field found, generates an error.
+             * Otherwise, finds any field is too long and generates erors
+             * For compound and multi-valued field, the length checking is single-value and singel_item based.
+             * The ckecking can be changed to total length based by using function nhpid_get_field_item_length_too_long_errors($value, $u_field, $field_label, $errors, $allowed_len)                                                                          
+             */
+
+            //$allowed_len = tpd_get_nhpid_data_field_allowed_length($type, $u_field);
+            //drupal_set_message(nhpid_api_dump("$variable_name: $allowed_len", 'red', TRUE));
+            //if (empty($allowed_len)) {
+            //  $errors[] = array('field' => $u_field, 'message' => "No allowed max length for <em>$field_label</em> is found in NHPID Rules. Please report the issue to your head.");
+            //}
+            //tpd_get_field_item_length_too_long_errors($node, $u_field, $field_label, $errors, $allowed_len);
+            /***
+             * Field leading or ending space checking
+             * No leading or ending space (use trim() default charset) will be allowed.
+             */  
+						//drupal_set_message(nhpid_api_dump( render(node_view($node), 'purple', TRUE)));
+            tpd_get_field_item_leading_trailing_space_errors($node, $u_field, $field_label, $errors);
+          }
+
+        }
+
+        /***
+         *  Reseting form errors
+         *  first, copy old errors to a holder
+         *  then, delete form errors and error messages,
+         *  then, reset old errors which is not a not-empty field.
+         *  last, set new errors                                    
+         */                 
+       
+        foreach ($errors as $error) {
+          form_set_error($error['field'], $error['message']);
+        }
+  /* Enforce revision log message
+		check nhpid data nodes to be updated only
+	*/
+  //drupal_set_message(nhpid_api_dump($node, 'red', TRUE));
+	if (variable_get('nhpid_enforce_revision_log', 0)){
+    if ( (!$node->revision or empty($node->log)) and (property_exists($node, 'op') && $node->op == $node->submit) and $node->changed and nhpid_is_a_data_node_type($node -> type)) {
+      form_set_error('log', t(variable_get('nhpid_enforce_revision_log_log_warning_message', "Please enter the revision log message and check the 'Create new revision' checkbox.")));
+		}
+	}
+}
+
+/**
+ *  hook theme
+ *  
+*/  
+
+
+function tpd_theme() {
+  return array(
+    'tpd_auto_title_form' => array(
+      'render element' => 'form',
+      'file' => 'tpd_forms.inc',
+      ),
+  );
+}
+/***
+ * hook_menu
+ */ 
+function tpd_menu() {
+
+  $items = array();
+  
+  $root = 'admin/rule_management';
+  $items[$root] = array(
+    'title' => 'NHPID Rule Management',
+    'description' => 'Settings of NHPID Rules',
+    //'menu_name' => 'menu-nhpid-data-entry',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('tpd_rule_archive_form'),
+    'access arguments' => array('administer tpd'),
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'tpd_forms.inc',
+   );
+	 /*
+   $items[$root . '/archive'] = array(
+    'title' => 'Archive/restore rules',
+    'weight' => -11,
+    'access arguments' => array('administer tpd'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('tpd_rule_archive_form'),
+    //'file' => 'workflow.admin.inc',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'file' => 'tpd_forms.inc',
+  );
+	*/
+  $items[$root . '/required_fields'] = array(
+    'title' => 'Required fields',
+    'weight' => -10,
+    'access arguments' => array('administer tpd'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('tpd_required_field_form'),
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'tpd_forms.inc',
+  );
+
+
+  $items[$root . '/field_dependency'] = array(
+    'title' => 'Field dependency',
+    'weight' => -9,
+    'access arguments' => array('administer tpd'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('tpd_field_dependency_form'),
+    'file' => 'tpd_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  $items[$root . '/auto_title_body'] = array(
+    'title' => 'Automated node title and body',
+    'weight' => -7,
+    'access arguments' => array('administer tpd'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('tpd_auto_title_form'),
+    'file' => 'tpd_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+   $items[$root . '/unique_node_field'] = array(
+    'title' => 'Unique node types and fields',
+    'weight' => -6,
+    'access arguments' => array('administer tpd'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('tpd_unique_node_field_form'),
+    'file' => 'tpd_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/data_node'] = array(
+    'title' => 'NHPID data node types',
+    'weight' => -5,
+    'access arguments' => array('administer tpd'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('tpd_data_node_type_form'),
+    'file' => 'tpd_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  
+  $items[$root . '/lock_system'] = array(
+    'title' => 'Lock system',
+    'weight' => -3,
+    'access arguments' => array('administer tpd'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('tpd_lock_system_form'),
+    'file' => 'tpd_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/revision'] = array(
+    'title' => 'Enforce Revision Log',
+    'weight' => -2,
+    'access arguments' => array('administer tpd'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('tpd_enforce_revision_log_form'),
+    'file' => 'tpd_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+	/*
+	$items[$root . '/update_calculated_field_values'] = array(
+    'title' => 'Update calculated field values',
+    'weight' => -2,
+    'access arguments' => array('administer tpd'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('tpd_update_caculated_field_values_form'),
+    'file' => 'tpd_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+	*/
+	// report
+  $items['tpd_report'] = array(
+    'title' => 'TP Reports',
+    'menu_name' => 'menu-nhpdtpd',
+    'weight' => -2,
+    'access arguments' => array('access tpd report'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('tpd_report_form'),
+    'file' => 'tpd_forms.inc',
+    'type' => MENU_NORMAL_ITEM,
+		//'description' => "Get TP report",
+  );
+  return $items;
+}
+
+
+function tpd_validate_conditional_fields($form, &$form_state) {
+
+  $value = trim($form['#value']);
+    $new = explode("\n", str_replace("\r", '', $value));
+    array_walk($new, 'unique_code_trim');
+    $new = array_values(array_filter($new));
+    //*** check if every field exist
+    $fields_not_exist = "";
+    foreach ($new as $field) {
+      $sql = "select field_name from {content_node_field} where field_name = '%s'";
+      $result = db_query($sql, $field);
+      if (!(bool) db_fetch_array($result)) {
+        $fields_not_exist = $fields_not_exist . ", $field";
+      }
+    }
+    $fields_not_exist = trim($fields_not_exist, ',');
+    if ((bool) $fields_not_exist) {
+      form_set_error('nhpid_conditional_fields', t("Fields $fields_not_exist are not found from the NHPID Data Entry"));
+    }
+    else {
+      $form_state['values']['nhpid_conditional_fields'] = implode("\n", $new);
+    }
+ 
+}
+
+
+
+//*** Helper functions *****
+
+
+/*** 
+ * calculate the lenght of a field based on the format for data exporting
+ */ 
+function tpd_field_value_length($node, $field_name, &$length) {
+  
+  $display = array('settings' => array('format_type' => 'short_export_date'));
+	$items = nhpid_api_get_field_values($node, $field_name, $display, $node->language, FALSE, TRUE);
+  foreach ($items as $delta => $item) {
+    $length = $length + strlen($item);
+  }
+}
+function tpd_get_field_length_too_long_errors($node, $field_name, $field_label, &$errors, $length_limit) {
+  $length = 0;
+  $str = '';
+  tpd_field_value_length($node, $field_name, $length);
+  $exceed = $length - $length_limit;
+    if ($length_limit > 0 and $exceed > 0) {
+      $errors[] = array('field' => $field_name, 'message' => "The value of the field <em>$field_label</em> exceeds allowed lenght ($length_limit) by $exceed.");
+    }
+        
+}
+
+function tpd_get_field_item_length_too_long_errors($node, $field_name, $field_label, &$errors, $length_limit, $error_label = '') {
+  if (nhpid_field_is_empty($field_name, $node)) return;
+	
+  $lan = $node->language;
+  //drupal_set_message(nhpid_api_dump( $node, 'purple', TRUE));
+  //drupal_set_message(nhpid_api_dump( $field_name, 'purple', TRUE));
+  $display = array('settings' => array('format_type' => 'short_export_date'));
+	$items = nhpid_api_get_field_values($node, $field_name, $display, $node->language, FALSE, TRUE);
+  foreach ($items as $delta => $item) {
+    $length = strlen($item);
+    $exceed = $length - $length_limit;
+    if ($length_limit > 0 and $exceed > 0) {
+      $error_name = "$field_name][$lan][$delta][value";
+      $error_label = $field_label . '('. strval($delta+1) . ')';
+      $errors[] = array('field' => $error_name, 'message' => "The value of the field <em>$error_label ($length letters long) </em> exceeds allowed length ($length_limit) by $exceed.");
+    }
+  }
+}
+
+function tpd_get_field_item_leading_trailing_space_errors($node,  $field_name, $field_label, &$errors) {
+  if (nhpid_field_is_empty($field_name, $node)) return;
+	$lan = $node->language;
+	$items = nhpid_api_field_get_items($node, $field_name);
+  foreach ($items as $delta => $item) {
+		if (isset($item['value'])){
+      if (strlen($item['value']) !=  strlen(trim($item['value']))) {
+        $error_name = "$field_name][$lan][$delta][value";
+        $error_label = $field_label . '('. strval($index+1) . ')';
+        $errors[] = array('field' => $error_name, 'message' => "The value of the field <em>$error_label </em> contains leading or trailing spaces (space, tab, new line, carriage return, NUL-byte, or vertical bar).");
+      }
+		}
+
+    else if (isset($item['entity']) and gettype($item['entity']) == 'object' and get_class($item['entity']) == 'FieldCollectionItemEntity') {
+      $fc_fields = field_info_instances('field_collection_item', $field_name);
+      //drupal_set_message(nhpid_api_dump($fc_fields, 'purple', TRUE));
+			foreach ($fc_fields as $subkey => $subfield) {
+        $sub_type = $field_name;
+        if ($sub_type) {
+          $sub_field = field_info_instance('field_collection_item', $subkey, $sub_type);
+          $sub_field_label = $sub_field['label'];
+          $error_label = $field_label . '(' . strval($delta + 1) . ')' . $sub_field_label;
+          //drupal_set_message(nhpid_api_dump($sub_field, 'purple', TRUE));
+        }
+        $subitems = $item['entity']->{$subkey}[$lan];
+        //drupal_set_message(nhpid_api_dump($subitems, 'purple', TRUE));
+				foreach($subitems as $subdelta => $subitem){
+          if (isset($subitem['value'])){
+			      if (strlen($subitem['value']) !=  strlen(trim($subitem['value']))) {
+              $error_name = "$field_name][$lan][$delta][$subkey][$lan][$subdelta][value";
+			        $error_label = $field_label . '('. strval($delta+1) . '):' . $sub_field_label . '('. strval($subdelta+1) . ')';
+			        $errors[] = array('field' => $error_name, 'message' => "The value of the field <em>$error_label </em> contains leading or trailing spaces (space, tab, new line, carriage return, NUL-byte, or vertical bar).");
+			      }
+					}
+				}
+       }
+    }
+  }
+}
+
+
+
+function tpd_get_nhpid_data_field_allowed_length($node_type, $field_name){
+  $variable_name = 'nhpid_field_length_limits_' . $node_type;
+	$limits = variable_get($variable_name, array());
+  $allowed_len = $limits[$field_name];
+  return $allowed_len;
+}
+
+function _tpd_node_access_callback($node,$op, $account=null){
+  global $user;
+  if (!isset($account)){
+		$account=$user;
+	}
+  ## blocks edting nhpid menu struture nodes by users other than admin
+  $nhpid_menu_node_types = array("nhpidtpd", "tpd_data", "tpd_codes","tpd_data_nodes");
+  if (in_array($node -> type, $nhpid_menu_node_types)){
+		if($user -> uid == 1) {
+    	return TRUE;
+		}
+		else{
+			return false;
+		}
+  }
+  
+  switch($op){
+
+    case 'edit':
+    case 'revisions':
+    case 'workflow':
+    return node_access('update', $node, $account);
+    break;
+
+    case 'children':
+    if ($account -> uid != 1){
+      return false;
+    }
+    return true;
+    break;
+  }
+}
+
+function tpd_system_lock_access($account=null){
+	global $user;
+	if (!isset($account)){
+		$account=$user;
+	}
+	$system_locked = variable_get(SYSTEM_LOCK_VARIABLE, FALSE);
+  $exporting_data_temp_locked = variable_get(DATA_EXPORTING_LOCK_TEMP_VARIABLE, FALSE);
+	if ($exporting_data_temp_locked){
+		return FALSE;
+	}
+	if($system_locked){
+		if ($system_locked == $account->uid){
+			return TRUE;
+		}
+		else{
+			return FALSE;
+		}
+	}
+	return TRUE;
+}
+
+// query methods
+function tpd_get_code_entity_ids($code_node_type, $codes = array()){
+  $query = db_select('field_data_field_code', 'fd')
+	->fields('fd', array('entity_id', 'field_code_value'));
+	$query->condition('fd.bundle', $code_node_type, '=');
+	if (!empty($codes)){
+    $query->condition('fd.field_code_value', $codes, 'IN');
+	}
+	$result = $query->execute();
+	$code_entity_ids = array();
+  while($record = $result->fetchAssoc()) {
+    $code_entity_ids[$record['entity_id']] = $record['field_code_value'];
+	}
+	return $code_entity_ids;
+}
+function tpd_get_sid_by_state($state, $wid = 1 ){
+	$states = workflow_get_workflow_states_by_wid_state($wid, $state);
+	return $states[0]->sid;
+}
+function tpd_get_published_sid(){
+	return  tpd_get_sid_by_state('Published');
+}
+
+function tpd_get_user_entity_ids_by_user_type($user_type){
+	if (!in_array($user_type, array('primary_user', 'delegated_user', 'other_user'))) return NULL;
+	$user_field = 'field_' .$user_type;
+	$user_field_data_table = 'field_data_' . $user_field;
+	$user_field_value_field = $user_field . '_value';
+  $sid_published = tpd_get_published_sid();
+	$query = db_select($user_field_data_table, 'n')
+	->fields('n', array($user_field_value_field));
+	$query -> join('workflow_node', 'wn', "n.entity_id = wn.nid");
+	$query->condition('wn.sid', $sid_published, '=');
+	$result = $query->execute();
+	$entity_ids = array();
+	while($record = $result->fetchAssoc()) {
+	    $entity_ids[] = $record[$user_field_value_field];
+	}
+	return $entity_ids;
+}
+
+function tpd_get_user_count_by_user_type_tp_status($user_type, $tp_status){
+  if (!in_array($user_type, array('primary_user', 'delegated_user', 'other_user'))) return NULL;
+	$user_field = 'field_' .$user_type;
+	$user_entity_ids = tpd_get_user_entity_ids_by_user_type($user_type);
+  $code_node_type = 'code_tp_status';
+	$tp_status_entity_id = array_shift(array_keys(tpd_get_code_entity_ids($code_node_type, array($tp_status))));
+  $query = new EntityFieldQuery();
+	$query->entityCondition('entity_type', 'field_collection_item')
+	 ->entityCondition('bundle', $user_field);
+	$query  ->propertyCondition('item_id', $user_entity_ids, 'IN');
+	$query ->fieldCondition('field_current_tp_status', 'entity_id', $tp_status_entity_id, '=');
+	//if ($user_field == 'field_other_user') $query ->fieldCondition('field_user_type', 'value', 'Contact (Non-TP)', '=');
+	$query ->count();
+
+	$result = $query->execute();
+	return $result;
+}
+
+function tpd_get_company_count_by_amendment_status($amendment_status, $sids = array()){
+  //if (!in_array($user_type, array('primary_user', 'delegated_user', 'other_user'))) return NULL;
+  $nids_for_sids = tpd_get_nids_by_workflow_sids($sids);
+  if (empty($nids_for_sids)){
+		return 0;
+	}
+	$node_type = 'trading_partner';
+  $code_node_type = 'code_amendment_status';
+	$amendment_status_entity_id = array_shift(array_keys(tpd_get_code_entity_ids($code_node_type, array($amendment_status))));
+  $query = new EntityFieldQuery();
+	$query->entityCondition('entity_type', 'node')
+	 ->entityCondition('bundle', $node_type)
+	 ->entityCondition('entity_id', $nids_for_sids, 'IN');
+	$query ->fieldCondition('field_amendment_status', 'entity_id', $amendment_status_entity_id, '=');
+	//if ($user_field == 'field_other_user') $query ->fieldCondition('field_user_type', 'value', 'Contact (Non-TP)', '=');
+	$query ->count();
+
+	$result = $query->execute();
+	return $result;
+}
+function tpd_get_company_count_by_current_tp_status($tp_status, $sids = array()){
+  //if (!in_array($user_type, array('primary_user', 'delegated_user', 'other_user'))) return NULL;
+	$nids_for_sids = tpd_get_nids_by_workflow_sids($sids);
+	if (empty($nids_for_sids)){
+		return 0;
+	}
+  //$nids_for_sids = array(1,2);
+	$node_type = 'trading_partner';
+  $code_node_type = 'code_tp_status';
+	$tp_status_entity_id = array_shift(array_keys(tpd_get_code_entity_ids($code_node_type, array($tp_status))));
+  $query = new EntityFieldQuery();
+	$query->entityCondition('entity_type', 'node')
+	 ->entityCondition('bundle', $node_type)
+	 ->entityCondition('entity_id', $nids_for_sids, 'IN');
+	$query ->fieldCondition('field_current_tp_status', 'entity_id', $tp_status_entity_id, '=');
+	//if ($user_field == 'field_other_user') $query ->fieldCondition('field_user_type', 'value', 'Contact (Non-TP)', '=');
+	$query ->count();
+
+	$result = $query->execute();
+	return $result;
+}
+
+function tpd_get_nids_by_workflow_sids($sids = array()){
+ if (empty($sids)){
+		$sids = variable_get('nhpid_visible_wkf_states', array());
+	}
+	$query = db_select('workflow_node', 'wn');
+	$query -> fields('wn', array('nid'));
+	$query -> condition('wn.sid', $sids, 'IN');
+  $result = $query->execute();
+	$nids = array();
+	while($record = $result->fetchAssoc()) {
+	    $nids[] = $record['nid'];
+	}
+	return $nids;
+
+}
+function currentnode_nid(){
+    if (arg(0)=='node' && is_numeric(arg(1)))
+        return arg(1);
+    else
+        return 0;
+}
+
