@@ -1,0 +1,8 @@
+; $Id: nhpid_persistent_content_lock.info,v 1.0.0  peijun zhang $
+name = "NHPID Persistent Content Lock"
+description = "This module defines functions used to persistently lock contents"
+dependencies[] = nhpid_api
+core = "7.x"
+version = "7.x-1.0"
+
+package = NHPID

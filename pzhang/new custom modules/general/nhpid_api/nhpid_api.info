@@ -1,0 +1,7 @@
+; $Id: nhpid_api.info,v 1.0.0 2010/07/27 15:26:16 peijun zhang $
+name = "NHPID API"
+description = "This module defines helper functions for nhpid data entry"
+; Information added by drupal.org packaging script on 2010-05-18
+version = "7.x-1.0"
+core = "7.x"
+package = NHPID

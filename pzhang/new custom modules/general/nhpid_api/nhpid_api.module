@@ -1,0 +1,3016 @@
+<?php
+// $Id: nhpid_api.info,v 1.0.0 2010/07/27 15:26:16 peijun zhang $
+//include_once 'Date.php';
+global $user;
+define ('NHPID_DEPENDED_FIELD_CACHE_ID', 'NHPID_DEPENDED_FIELD_CACHE_' . $user -> uid);
+define ('NHPID_CURRENT_NODE_CACHE_ID', 'NHPID_CURRENT_NODE_CACHE_' . $user -> uid);
+define ('NHPID_FIELD_DEPENDENCY_VARIABLE_ID', 'NHPID_FIELD_DEPENDENCY');
+define ('NHPID_DEPENDED_FIELDS_VARIABLE_ID', 'NHPID_DEPENDED_FIELDS'  . $user -> uid);
+/***
+ * $code_node_type: node type
+ * $filter: string, node field used as filter
+ * $filter_value: value of the filter
+ * $value_field: node field whose valued used for option value (key))
+ * $text_field: node field whose valued used for option text  (value)
+ */ 
+ 
+
+function nhpid_api_get_field_unique_values($node_type, $node_field,  $workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  return nhpid_api_multi_code_field_allowed_values($node_type, NULL, NULL, $node_field, $node_field, $workflow_states);
+}
+
+function nhpid_api_depending_field_allowed_values($node_type, $filter=NULL, $filter_value=NULL, $value_field='field_code', $text_field='body',  $workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  return nhpid_api_multi_code_field_allowed_values($node_type, $filter, $filter_value, $value_field, $text_field, $workflow_states);
+}
+/***
+ * $code_node_type: node type
+ * $filter: string, node field used as filter
+ * $filter_value: value of the filter
+ * $value_field: node field whose valued used for option value (key))
+ * $text_field: node field whose valued used for option text  (value)
+ */ 
+function nhpid_api_multi_code_field_allowed_values($code_node_type, $filter=NULL, $filter_value=NULL, $value_field='field_code', $text_field='body',  $workflow_states = array(), $text_field_only = false) {
+  //drupal_set_message(nhpid_api_dump(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS), 'red', TRUE));
+	if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  try{
+    $nids = array();
+    if ($filter) {
+      $filter_values = array();
+      if (!is_array($filter_value)) {
+        $filter_values[] = $filter_value;
+      }
+      else {
+        $filter_values = $filter_value;
+      }
+      foreach ($filter_values as $filter_value) {
+        $nids = array_merge($nids, nhpid_api_get_nids_of_a_node_field_by_value($code_node_type, $filter, $filter_value, NULL, $workflow_states));
+      }
+      
+    }
+    else{
+      $sql = "SELECT nid FROM {node} WHERE type= :type";
+      $args = array();
+      $args[':type']= $code_node_type;
+      // workflow states
+      //$workflow_states_str = "'" . implode("','", $workflow_states) . "'";
+      if (!empty($workflow_states)){
+        $sql = $sql . " and nid in (select nid from {workflow_node} where sid in (select sid from {workflow_states}, {workflow_type_map} where workflow_states.wid=workflow_type_map.wid and sid in (:states) and type like :type2))";
+        $args[':states']= $workflow_states;
+      	$args[':type2']= $code_node_type;
+			}
+      $result = db_query($sql, $args);
+      //drupal_set_message(nhpid_api_dump($result, 'red', TRUE));
+      //drupal_set_message(nhpid_api_dump($workflow_states, 'red', TRUE));
+      $nids = $result -> fetchCol();
+ 
+    }
+    
+    //drupal_set_message(nhpid_api_dump($result->fetchAll(), 'red', TRUE));
+    $codes = Array();
+    foreach ($nids as $nid ) {
+      //drupal_set_message(nhpid_api_dump($nid, 'red', TRUE));
+			$key = get_value_of_a_field_by_nid($nid, $value_field, NULL);
+      $value = null;
+      
+      if ($text_field=='body') {
+        
+        $value = get_value_of_a_field_by_nid($nid, 'body');
+      }
+      else if ($text_field==$value_field){
+        $value = NULL;
+      }
+      else{
+        $value = get_value_of_a_field_by_nid($nid, $text_field);
+      }
+      
+      if ((bool)$value) {
+        if ($text_field_only){
+          $value = $value;
+        }
+        else {
+          $value = "$key: $value";
+        }
+        
+      } 
+      else {
+        $value = $key;
+      }
+      
+      $codes[$key] = $value;
+      //drupal_set_message(nhpid_api_dump($value, 'red', TRUE));
+    }
+    
+  }
+
+  catch (Exception $e) {
+    form_set_error('Data fetching failed', t('Cannot fetch nodes of type %node_type: %message', array('%node_type' => $code_node_type, '%message' => $e->getMessage() )));
+    $codes = Array();
+  }
+    //nhpid_api_dump($codes);
+  ksort($codes);
+  return $codes;
+
+}
+function nhpid_api_dropdown_yse_no_value() {
+  return nhpid_api_dropdown_yes_no_value();
+}
+function nhpid_api_dropdown_yes_no_value() {
+  return array('YES' => 'YES', 'NO' => 'NO', );
+}
+function nhpid_api_dropdown_y_n_value() {
+  return nhpid_api_dropdown_yes_no_value();
+}
+
+function nhpid_api_is_unique_node_type($node_type) {
+  return nhpid_is_unique_node_type($node_type);
+}
+
+function nhpid_api_dump($data, $color='blue', $return = FALSE, $show_caller = TRUE, $use_devel = TRUE) {
+  $out = "<div style='color:$color;'>";
+	if ($use_devel && module_exists('devel') && user_access('access devel information')){
+     $out = $out . kprint_r($data, TRUE);
+     $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+     $out = $out . "--File: " . $backtrace[0]['file'] . "\n";
+	   $out = $out . "--Line: " . $backtrace[0]['line'] . "\n";
+	}
+	else{
+		$out = $out . "<pre>";
+	  //print var_name($data);
+	  $out =  $out . print_r($data, TRUE);
+		if ($show_caller){
+			$backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+	    $out = $out . "\nCaller:\n";
+	    //$out = $out . "--Function: " . $backtrace[0]['function'] . "\n";
+	    $out = $out . "--File: " . $backtrace[0]['file'] . "\n";
+	    $out = $out . "--Line: " . $backtrace[0]['line'] . "\n";
+		}
+	  $out = $out . "</pre>";
+	}
+  $out = $out . "</div>";
+  if ($return) {
+    return $out;
+  }
+  print $out;
+}
+/*** Use to generate NHPID data node title ***
+ * For each NHPID data node, there are one variable ([node_type]_title_field1) which stores primary title field of the node,
+ * and may be the second variable ([node_type]_title_field2) for a additional title field
+ * ***** 
+ */
+function nhpid_api_generate_node_title($node, $variable_name_prefix = 'nhpid', $size_limit=255) {
+	$node_title_body_fields = variable_get($variable_name_prefix . "_title_body_fields_" . $node -> type, '');
+  $title_field1= $node_title_body_fields['title_field1'];
+  $title_field2= isset($node_title_body_fields['title_field2'])? $node_title_body_fields['title_field2']:NULL;
+  $title_field3= isset($node_title_body_fields['title_field3'])? $node_title_body_fields['title_field3']:NULL;
+	$title = isset($node -> $title_field1)? implode("_",nhpid_api_get_field_values($node, $title_field1, array(), $node->language, FALSE,TRUE)) : null;
+  $title2 = '';
+  if ($title_field2) {
+    $title2 = implode ('_',nhpid_api_get_field_values($node, $title_field2, array(),  $node->language, FALSE,TRUE));
+    if ($title2) $title = $title . '_' . $title2; 
+  }
+  $title2 = '';
+  if ($title_field3) {
+    $title3 = implode ('_',nhpid_api_get_field_values($node, $title_field3, array(),  $node->language, FALSE,TRUE));
+    if ($title3) $title = $title . '_' . $title3;
+  }
+	//if (strle($title) > $size_limit) $title = substr($title, 0, $size_limit);
+  $title = truncate_utf8($title, $size_limit, TRUE, TRUE);
+	return $title;
+}
+
+function nhpid_api_generate_node_body($node,  $variable_name_prefix = 'nhpid') {
+  $node_title_body_fields = variable_get($variable_name_prefix . "_title_body_fields_" . $node -> type, '');
+  $body_field= isset($node_title_body_fields['body_field']) ? $node_title_body_fields['body_field'] : null;
+  $body = '';
+  if ($body_field) {
+    $body = implode(";",nhpid_api_get_field_values($node, $body_field, array(),$node->language, FALSE,TRUE));
+  }
+  return $body;
+}
+
+/*** Used to generate "Add [node]" links ****/
+function get_add_node_links() {
+  $child_node_type;
+  $child_node_title;
+  $current_nid; 
+  if (arg(0) == 'node' && is_numeric(arg(1)) && ! arg(2)) {
+    $current_nid = arg(1);
+    //$sql ="select distinct nid from nodehierarchy where parent = $current_nid ";
+    //$child_nid = db_result(db_query($sql));
+    $children = array();
+    //drupal_set_message(nhpid_api_dump($current_nid, 'red', TRUE));
+    $sql = "select type from {node_type}";
+    $result = db_query($sql);
+    while ($type = $result -> fetchAssoc()) {
+      //drupal_set_message(nhpid_api_dump($type, 'red', TRUE));
+      if (variable_get('nh_defaultparent_'. $type['type'], 0) == $current_nid)  array_push($children, $type['type']);
+    }
+    
+    //drupal_set_message(nhpid_api_dump($children, 'red', TRUE));
+    $links = array();
+    foreach ($children as $child_node_type) {
+      if (node_access('create', $child_node_type)){
+        $child_node_title =  db_query("select name from {node_type where type} like :node_type", array(':node_type' => $child_node_type)) -> fetchColumn();
+        $child_node_link_type = "node/add/" . str_replace('_', '-', $child_node_type);
+        //drupal_set_message(nhpid_api_dump($child_node_title, 'red', TRUE));
+        $child_node_link_title = "Add New <em>$child_node_title</em>";
+        array_push($links, array('link_text'  => $child_node_link_title, 'link_url' => $child_node_link_type));
+      }
+    }
+    
+    return $links;
+  }
+}
+
+function print_add_node_links($mode = 'no_duplicated') {
+  $links = get_add_node_links();
+  switch ($mode) {
+    case 'no_duplicated':
+      if (count($links) == 1) print (l($links[0]['link_text'], $links[0]['link_url'], array('html' => true, 'attributes' => array('target' => '_blank'))));
+      break;
+    case "all":
+      if (is_array($links)) {
+        foreach ($links as $link) {
+          print(l($link['link_text'], $link['link_url'], array('html' => true, 'attributes' => array('target' => '_blank'))));
+        }
+      }
+      
+      break;
+    case "first":
+      if (count($links) > 0) print (l($links[0]['link_text'], $links[0]['link_url'], array('html' => true, 'attributes' => array('target' => '_blank'))));
+      break;
+  }
+}
+function get_all_nids_by_type($node_type){
+  $sql = "SELECT nid FROM {node} WHERE type=:type order by nid desc";
+  $result = db_query($sql, array(':type' => $node_type));
+  return $result->fetchCol();
+}
+/*** if $node_type is NULL, $sql must be a sql like 'select nid from node where ...' */
+/**
+ *$option associative array
+ *'field_names_array => array of field names',
+ *'date_type'=>Drupal date type, default short
+ *'date_format'=>PHP date format, effictive only when date_type == 'custom'
+ *'method'=>1: function nhpid_api_field_value, or 2: nhpid_api_field_vavlue2
+ *'force_update':TRUE, get data from node; FALSE:get data from cached field values
+ */
+
+function get_all_node_by_type($node_type, $sql = NULL, $args = array(), $options= array()) {
+  $field_names_array = isset($options['field_names_array'])? $options['field_names_array']: NULL;
+	$date_type = isset($options['date_type'])? $options['date_type']: 'short';
+	$date_format = isset($options['date_format'])? $options['date_format']: NULL;
+ 	$method=isset($options['method'])? $options['method']: 1;
+ 	$force_update=isset($options['force_update'])? $options['force_update']: FALSE;
+	$data = array();
+
+  //drupal_set_message(nhpid_api_dump($options, 'purple', TRUE));
+  if ($node_type) {
+    $sql = "SELECT nid FROM {node} WHERE type=:type order by nid desc";
+		$args=array(':type' => $node_type);
+  }
+  $result = db_query($sql, $args);
+  $count = 0;
+  $function = $method == 2 ? 'nhpid_api_get_field_values2' : 'nhpid_api_get_field_values';
+  $user_time_zone = drupal_get_user_timezone();
+  //drupal_set_message(nhpid_api_dump($function, 'green', TRUE));
+  while ($row = $result->fetchObject()) {
+		$count ++;
+		if (!$force_update) {
+			$cached = nhpid_api_get_calculated_field_values(array($row->nid));
+      //drupal_set_message(nhpid_api_dump($cached, 'purple', TRUE));
+      //drupal_set_message(nhpid_api_dump($row->nid, 'purple', TRUE));
+			$line = $cached[$row->nid];
+		}
+		if (!$line){
+      $node = node_load($row->nid);
+	    $line = array();
+	    $line['title'] = $node -> title;
+	    $line['nid'] = $node -> nid;
+      $line['changed'] = format_date($node->changed, 'short', '', $user_time_zone,  NULL);
+	    if (!$node_type) $node_type = $node -> type;
+	    $workflow_state = workflow_get_workflow_states_by_sid($node -> workflow);
+
+	    $line['workflow_state'] = (bool)$workflow_state ? $workflow_state -> state : '';
+			$fields = field_info_instances('node', $node_type);
+			foreach($fields as $field_name => $field_info){
+        $display = array();
+				switch (nhpid_api_get_field_type($field_name)){
+					case 'datestamp':
+          $display['settings'] = array('format_type' => $date_type);
+					break;
+					case "number_decimal":
+      		case "number_float":
+          $display['type']='number_unformatted';
+					break;
+				}
+				
+				$item_values = $function($node, $field_name, $display, $node ->langcode , FALSE, $force_update);
+	      if ($item_values) $line[$field_name] =  is_array($item_values)? implode(';', $item_values): $item_values;
+			}
+		  //drupal_set_message(nhpid_api_dump($line, 'green', TRUE));
+    }
+		foreach($line as $field_name => $value){
+			if (is_array($value)) $line[$field_name] = implode(';', $value);
+		}
+    $data[$row->nid]= $line;
+    //array_push($data, $line);
+  }
+  
+ return $data;
+}
+
+function get_all_node_objects_by_type ($node_type) {
+  
+  $nodes = array();
+  $nids = get_all_nids_by_type($node_type);
+  foreach ($nids as $nid)
+  {
+      $nodes[] = node_load($nid);
+  }
+  return $nodes;
+}
+
+/*** Get some selected mapping parameters for NHPID data node ****
+ * $node_type: name of the node type
+ * $bool2yesno: wheather convert boolean values (0 or 1) to 'yes no'
+ * **/ 
+function get_node_type_mapping($node_type, $bool2yesno=FALSE) {
+
+  $data = array();
+  $line = array();
+  $fields = get_all_fields_of_node_type($node_type);
+  foreach ($fields as $field) {
+
+    //$line['node_type'] = $row -> type_name;
+    $line['field_name'] = $field['field_name'];
+    $line['field_label'] = $field['label'];
+    $line['required'] = $field['required'];
+    $line['cardinality'] = $field['cardinality'];
+    $line['active'] = $field['active'];
+    $line['locked'] = $field['locked'];
+    $line['type'] = $field['type'];
+    $line['module'] = $field['module'];
+    $line['widget_type'] = $field['type'];
+    $line['allowed_values_php'] = $field['allowed_values_php'];
+    $line['allowed_values'] = $field['allowed_values'];
+    $line['allowed_values_function'] = $field['allowed_values_function'];
+    if ($bool2yesno) $line = array_map('bool2yesno', $line); // maps bool to yes/no.
+    $data[$line['field_name']] = $line;
+
+  }
+  return $data;
+
+}
+
+function get_node_type_field_name_title_mapping($node_type, $field_names_array = NULL, $label_only = False) {
+  $data = array();
+  $fields = get_all_fields_of_node_type($node_type);
+  if ($fields) {
+    foreach ($fields as $field) {
+      //drupal_set_message(nhpid_api_dump($field, 'purple', TRUE));
+      if (($field_names_array and in_array($field['field_name'], $field_names_array, TRUE)) or !($field_names_array)) {
+        if ($label_only){
+          $data[$field['field_name']] = $field['label'];
+        }
+        else{
+          $data[$field['field_name']] = $field['label'] . " (" . $field['field_name'] . ")";
+        }
+      }
+    }
+  }
+  return $data;
+}
+
+function get_all_nhpid_data_node_types() {
+  $types = node_type_get_types();
+  $rtn = array();
+  foreach ($types as $type => $obj) {
+    if (nhpid_is_a_data_node_type($type)) $rtn[$type] = $obj -> name . " ($type)";
+  }
+  return $rtn;
+}
+function get_all_nhpid_ingredient_data_node_types() {
+  $types = node_type_get_types();
+  $rtn = array();
+  foreach ($types as $type => $obj) {
+    if (nhpid_api_is_a_ingredient_data_node_type($type)) $rtn[$type] = $obj -> name . " ($type)";
+  }
+  return $rtn;
+}
+function get_all_nhpid_monograph_data_node_types() {
+  $types = node_type_get_types();
+  $rtn = array();
+  foreach ($types as $type => $obj) {
+    if (nhpid_api_is_a_monograph_data_node_type($type)) $rtn[$type] = $obj -> name . " ($type)";
+  }
+  return $rtn;
+}
+
+function get_all_assessment_central_data_node_types() {
+  $types = node_type_get_types();
+  $rtn = array();
+  foreach ($types as $type => $obj) {
+    if (is_assessment_central_data_node_type($type)) $rtn[$type] = $obj -> name . " ($type)";
+  }
+  return $rtn;
+}
+function is_assessment_central_data_node_type($type){
+  $types =  variable_get('assessment_central_data_node_types', array());
+  if (isset($types[$type]) and $types[$type]) {
+   return TRUE;
+  }
+  return FALSE;
+}
+function is_nhpid_data_node_type($type) {
+  return nhpid_is_a_data_node_type($type);
+}
+
+function nhpid_api_is_a_nhpid_data_node_type($type) {
+  return nhpid_is_a_data_node_type($type);
+}
+function nhpid_api_is_a_monograph_data_node_type($type) {
+  $types =  variable_get('nhpid_monograph_data_node_types', array());
+  if ($type && isset($types[$type]) && $types[$type]) {
+   return TRUE;
+  }
+  return FALSE;
+}
+function nhpid_api_is_a_ingredient_data_node_type($type) {
+  $types =  variable_get('nhpid_ingredient_data_node_types', array());
+  if ($type && isset($types[$type]) && $types[$type]) {
+   return TRUE;
+  }
+  return FALSE;
+}
+function get_workflow_state_obj($sid) {
+  //$sql = "select ws.* from {workflow_states} ws, {workflow_type_map} wp where  ws.wid = wp.wid and wp.type = '%s' and ws.sid = %d";
+  //drupal_set_message($sql);
+  //return db_query($sql, array($node_type, $sid));
+  return workflow_get_workflow_states_by_sid($sid);
+}
+function get_node_current_state_state($node){
+  //$sid = (workflow_node_current_state($node)); not working for nodes which have not been saved after creation or change.
+  $sid = property_exists($node, 'workflow')? $node -> workflow : null;
+  if ($sid) return workflow_get_workflow_states_by_sid($sid) -> state;
+}
+function get_node_original_state_state($node){
+  if (isset($node -> original)){
+    $sid = $node -> original -> workflow;
+    if ($sid)return workflow_get_workflow_states_by_sid($sid) -> state;
+  }
+}
+function get_current_workflow_state_sid($node = NULL, $nid = NULL) {
+  
+  if ($node) $nid = $node -> nid;
+  $sql = "select sid from {workflow_node} where workflow_node.nid = :nid";
+  $result = db_query($sql, array(':nid' => $nid));
+  if($result) {
+    return $result-> fetchColumn();
+  }
+  return null;
+}
+function get_current_workflow_node_history($node = NULL, $nid = NULL) {
+  if ($node) $nid = $node -> nid;
+  
+  return workflow_get_workflow_node_history_by_nid($nid);
+}
+
+function bool2yesno($item) {
+  if ($item != '0' and $item != '1') return $item;
+  return $item == '1'? 'Yes' : 'No';
+}
+/**
+ * Generate MS Excel file from $data
+ * @param $path Excel file path to save
+ * @param $data Data to be saved as Excel. Two dimensional associative array, in format:
+ *    Array
+ *    (
+ *      [0] => Array // sheet index, 0 based
+ *                (
+ *                  [sheet_name] => 'sheet name'
+ *                  [header] => array([code] => 'Code', [name_e] => 'English Name') 
+ *                  [data] = array
+ *                          (
+ *                            [0] => Array // data row index, 0 based
+ *                                  (
+ *                                      [code] => 'code1'
+ *                                      [name] => 'name_e'
+ *                                  ) 
+ *                          ) 
+ *                ) 
+ *    ) 
+ * @param $style Add style to the sheet or not, True or False
+ * @param $format Excel file format, eigher Excel5 or  Excel2007
+ */ 
+// faster version
+function generate_excel($path, $data, $style=TRUE, $drupal_mapping_rows = FALSE, $format = 'Excel5') {
+  //drupal_set_message(nhpid_api_dump($path, 'purple', TRUE));
+  require_once('PHPExcel/PHPExcel/IOFactory.php');
+  include_once 'PHPExcel/PHPExcel.php';
+  //$cacheMethod = PHPExcel_CachedObjectStorageFactory:: cache_to_phpTemp;
+  //$cacheMethod = PHPExcel_CachedObjectStorageFactory::cache_to_apc;
+  $cacheMethod = PHPExcel_CachedObjectStorageFactory::cache_in_memory_gzip;
+  $cacheSettings = array( 'memoryCacheSize' => '5GB', 'cacheTime' => 6000);
+  PHPExcel_Settings::setCacheStorageMethod($cacheMethod, $cacheSettings);
+  $excel = new PHPExcel();
+  $sheet_index = 0;
+
+  $header_mapping_style_array = array( 'alignment' => array('horizontal' => PHPExcel_Style_Alignment::HORIZONTAL_LEFT,),
+                                      'borders' => array('inside' => array(
+                                                                  			'style' => PHPExcel_Style_Border::BORDER_THIN,
+                                                                  			'color' => array('argb' => 'FF804000',),
+                                                                  		),
+                                                        'outline' => array(
+                                                                  			'style' => PHPExcel_Style_Border::BORDER_THIN,
+                                                                  			'color' => array('argb' => 'FF804000',),
+                                                                  		),
+
+                                                        ),
+                                      'fill' => array(
+                                                  		'type' => PHPExcel_Style_Fill::FILL_SOLID,
+                                                  		'startcolor' => array('argb' => 'FF98AFC7',),
+                                                  		'endcolor' => array('argb' => 'FF98AFC7',),
+                                                  	),
+                                      'font' => array('bold' => FALSE,
+                                                      'color' => array('argb' => 'FF804000',),
+	                                                   ),
+	                                  );
+
+$header_style_array = array( 'alignment' => array('horizontal' => PHPExcel_Style_Alignment::HORIZONTAL_CENTER,),
+                                      'borders' => array('inside' => array(
+                                                                  			'style' => PHPExcel_Style_Border::BORDER_THIN,
+                                                                  			'color' => array('argb' => 'FF804000',),
+                                                                  		),
+                                                        'outline' => array(
+                                                                  			'style' => PHPExcel_Style_Border::BORDER_THIN,
+                                                                  			'color' => array('argb' => 'FF804000',),
+                                                                  		),
+
+                                                        ),
+                                      'fill' => array(
+                                                  		'type' => PHPExcel_Style_Fill::FILL_SOLID,
+                                                  		'startcolor' => array('argb' => 'FFC0C0C0',),
+                                                  		'endcolor' => array('argb' => 'FFC0C0C0',),
+                                                  	),
+                                      'font' => array('bold' => TRUE,
+                                                      'color' => array('argb' => 'FF0000A0',),
+	                                                   ),
+	                                  );
+
+$data_style_array = array( 'alignment' => array('horizontal' => PHPExcel_Style_Alignment::HORIZONTAL_LEFT,),
+                                      'borders' => array('inside' => array(
+                                                                  			'style' => PHPExcel_Style_Border::BORDER_THIN,
+                                                                  			'color' => array('argb' => 'FF804000',),
+                                                                  		),
+                                                        'outline' => array(
+                                                                  			'style' => PHPExcel_Style_Border::BORDER_THIN,
+                                                                  			'color' => array('argb' => 'FF804000',),
+                                                                  		),
+
+                                                        ),
+
+	                                  );
+
+  //try{
+    //timer_start('nhpid_init');
+    foreach ($data as $sheet) {
+      
+			$row_index = 1;
+      if ($drupal_mapping_rows) $row_index = 4;
+      $active_sheet =  $excel->createSheet($sheet_index);
+      //$excel-> removeSheetByIndex($row_index + 1);
+      if (strlen($sheet['sheet_name']) > 31) { //max length of title for excel sheet
+        $replace = "($sheet_index)";
+        $sheet['sheet_name'] = substr_replace($sheet['sheet_name'], $replace, 31 - strlen($replace));
+      }
+      $active_sheet->setTitle($sheet['sheet_name']);
+      //drupal_set_message(nhpid_api_dump($active_sheet, 'green', TRUE));
+      $freeze_pane_cell = 'A2';
+      if ($drupal_mapping_rows) $freeze_pane_cell = 'A5';
+      $active_sheet->freezePane($freeze_pane_cell);
+      $active_sheet->getProtection()->setSheet(true);
+      $active_sheet->getProtection()->setPassword('NHPID');
+
+      $header = array();
+      if ($sheet['header']) {
+        foreach($sheet['header'] as $key => $col_header){
+          if (is_array($col_header) and isset($col_header['data'])){
+            $header[$key] = $col_header['data'];
+          }
+          else{
+            $header[$key] = $col_header;
+          }
+        }
+        //ksort($header);
+      }
+      else {
+        foreach (array_keys($sheet['data'][0]) as $key => $value) {
+          $header[] = array($key => $key);
+        }
+        //sort($header);
+      }
+
+      $col_index = 0;
+      //drupal_set_message(nhpid_api_dump($header, 'green', TRUE));
+      if ($drupal_mapping_rows) {
+
+        $mapping_header = $sheet['mapping_header'];
+        $col_index = 0;
+        foreach ($mapping_header['title'] as $value) {
+          $active_sheet->setCellValueByColumnAndRow($col_index, 1, $value);
+          if ($style) $active_sheet->getStyleByColumnAndRow($col_index, 1)->applyFromArray($header_mapping_style_array);
+          $col_index ++;
+        }
+        $col_index = 0;
+        foreach ($mapping_header['param'] as $value) {
+          $active_sheet->setCellValueByColumnAndRow($col_index, 2, $value);
+          if ($style) $active_sheet->getStyleByColumnAndRow($col_index, 2)->applyFromArray($header_mapping_style_array);
+          $col_index ++;
+        }
+        $col_index = 0;
+        foreach ($mapping_header['fields'] as $value) {
+          $active_sheet->setCellValueByColumnAndRow($col_index, 3, $value);
+          if ($style) $active_sheet->getStyleByColumnAndRow($col_index, 3)->applyFromArray($header_mapping_style_array);
+          $col_index ++;
+        }
+
+      }
+      $col_index = 0;
+      foreach ($header as $value) {
+        $active_sheet->setCellValueByColumnAndRow($col_index, $row_index, $value);
+        if ($style) $active_sheet->getStyleByColumnAndRow($col_index, $row_index)->applyFromArray($header_style_array);
+        $col_index ++;
+      }
+			// data cell coordainates
+			$first_cell_coord = 'A' . ($row_index + 1);
+			$last_cell_coord = PHPExcel_Cell::stringFromColumnIndex(count($header)-1) . ($row_index + count($sheet['data']));
+      //drupal_set_message(nhpid_api_dump($first_cell_coord, 'purple', TRUE));
+      //drupal_set_message(nhpid_api_dump($last_cell_coord, 'purple', TRUE));
+			//set cell data type and convert date strings to excel data number value
+			$sheet_data = array();
+			$percent_cells = array();
+      foreach ($sheet['data'] as $row) {
+        $row_index ++;
+        $col_index = 0;
+				$row_data = array();
+        foreach ($header as $key => $name) {
+          $value = $row[$key];
+          //drupal_set_message(nhpid_api_dump($value, 'purple', TRUE));
+          $datatype = PHPExcel_Cell_DataType::TYPE_STRING;
+          if (is_numeric($value)) {
+            $datatype = PHPExcel_Cell_DataType::TYPE_NUMERIC;
+          }
+          elseif (is_null($value)) {
+            $datatype = PHPExcel_Cell_DataType::TYPE_NULL;
+						$value = null;
+          }
+					## %, PHPExcel thinks '%' to be '0%' if set cell values by fromArray() or other non-explicit set methods
+					## We have to re-set the velue of those cell after fromArray();
+					if($value == '%'){
+						$percent_cells[]=array('col'=>$col_index, 'row'=>$row_index);
+					}
+  
+          ## date
+          $pattern = '/^\d{4}[\/-]\d{1,2}[\/-]\d{1,2}(\s*\d{2}:\d{2}(:\d{2})*)*$/';
+          if (preg_match($pattern, $value))
+          {
+            $active_sheet->getStyleByColumnAndRow($col_index, $row_index)->getNumberFormat()->setFormatCode(PHPExcel_Style_NumberFormat::FORMAT_DATE_YYYYMMDD2);
+						$value = PHPExcel_Shared_Date::stringToExcel($value);
+            $datatype = PHPExcel_Cell_DataType::TYPE_NUMERIC;
+          }
+          $pattern = '/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}(\s*\d{2}:\d{2}(:\d{2})*)*$/';
+          if (preg_match($pattern, $value))
+          {
+            //$active_sheet->getStyleByColumnAndRow($col_index, $row_index)->getNumberFormat()->setFormatCode(PHPExcel_Style_NumberFormat::FORMAT_DATE_DDMMYYYY);
+            $active_sheet->getStyleByColumnAndRow($col_index, $row_index)->getNumberFormat()->setFormatCode(PHPExcel_Style_NumberFormat::FORMAT_DATE_YYYYMMDD2);
+            $value = PHPExcel_Shared_Date::stringToExcel($value);
+            $datatype = PHPExcel_Cell_DataType::TYPE_NUMERIC;
+          }
+          $active_sheet->getCellByColumnAndRow($col_index, $row_index) -> setDataType($datatype);
+					$row_data[]=$value;
+          $col_index ++;
+        }
+				$sheet_data[]=$row_data;
+      }
+      if ($style) {
+        $active_sheet->getStyle("$first_cell_coord:$last_cell_coord")->applyFromArray($data_style_array);
+      }
+     
+      $active_sheet->getStyle("$first_cell_coord:$last_cell_coord")->getProtection()->setLocked(PHPExcel_Style_Protection::PROTECTION_UNPROTECTED);
+      $active_sheet->fromArray($sheet_data, NULL, $first_cell_coord, true);
+			foreach($percent_cells as $percent_cell){
+        $active_sheet->setCellValueExplicitByColumnAndRow($percent_cell['col'], $percent_cell['row'], '%', PHPExcel_Cell_DataType::TYPE_STRING);
+			}
+      //drupal_set_message(nhpid_api_dump($sheet_data, 'purple', TRUE));
+      //drupal_set_message(nhpid_api_dump($first_cell_coord, 'purple', TRUE));
+      
+      $sheet_index++;
+    }
+    //$time_used = "Total time in min: " . timer_read('nhpid_init')/(60*1000);
+    //drupal_set_message(nhpid_api_dump($time_used, 'purple', TRUE));
+    //drupal_set_message(nhpid_api_dump($excel, 'purple', TRUE));
+    $excelWriter = PHPExcel_IOFactory::createWriter($excel, $format);
+    //drupal_set_message(nhpid_api_dump($excelWriter, 'purple', TRUE));
+    if ($format == 'Excel5') {
+      $path = str_replace('.xlsx', '.xls', $path);
+    }
+    else {
+      $path = str_replace('.xls', '.xlsx', $path);
+    }
+    $excelWriter->save($path);
+    $excel->disconnectWorksheets();
+    unset($excel);
+  //}
+  //catch (Exception $e) {
+  //  return FALSE;
+  //}
+
+
+  return $path;
+}
+//old slow version
+function generate_excel__($path, $data, $style=TRUE, $drupal_mapping_rows = FALSE, $format = 'Excel5') {
+  //drupal_set_message(nhpid_api_dump($path, 'purple', TRUE));
+  require_once('PHPExcel/PHPExcel/IOFactory.php');
+  include_once 'PHPExcel/PHPExcel.php';
+  //$cacheMethod = PHPExcel_CachedObjectStorageFactory:: cache_to_phpTemp;
+  //$cacheMethod = PHPExcel_CachedObjectStorageFactory::cache_to_apc;
+  $cacheMethod = PHPExcel_CachedObjectStorageFactory::cache_in_memory_gzip;
+  $cacheSettings = array( 'memoryCacheSize' => '5GB', 'cacheTime' => 6000);
+  PHPExcel_Settings::setCacheStorageMethod($cacheMethod, $cacheSettings);
+  $excel = new PHPExcel();
+  $sheet_index = 0;
+  
+  $header_mapping_style_array = array( 'alignment' => array('horizontal' => PHPExcel_Style_Alignment::HORIZONTAL_LEFT,),
+                                      'borders' => array('inside' => array(
+                                                                  			'style' => PHPExcel_Style_Border::BORDER_THIN,
+                                                                  			'color' => array('argb' => 'FF804000',),
+                                                                  		),
+                                                        'outline' => array(
+                                                                  			'style' => PHPExcel_Style_Border::BORDER_THIN,
+                                                                  			'color' => array('argb' => 'FF804000',),
+                                                                  		),
+                                                        
+                                                        ),
+                                      'fill' => array(
+                                                  		'type' => PHPExcel_Style_Fill::FILL_SOLID,
+                                                  		'startcolor' => array('argb' => 'FF98AFC7',),
+                                                  		'endcolor' => array('argb' => 'FF98AFC7',),
+                                                  	),
+                                      'font' => array('bold' => FALSE,
+                                                      'color' => array('argb' => 'FF804000',),
+	                                                   ),
+	                                  );
+
+$header_style_array = array( 'alignment' => array('horizontal' => PHPExcel_Style_Alignment::HORIZONTAL_CENTER,),
+                                      'borders' => array('inside' => array(
+                                                                  			'style' => PHPExcel_Style_Border::BORDER_THIN,
+                                                                  			'color' => array('argb' => 'FF804000',),
+                                                                  		),
+                                                        'outline' => array(
+                                                                  			'style' => PHPExcel_Style_Border::BORDER_THIN,
+                                                                  			'color' => array('argb' => 'FF804000',),
+                                                                  		),
+                                                        
+                                                        ),
+                                      'fill' => array(
+                                                  		'type' => PHPExcel_Style_Fill::FILL_SOLID,
+                                                  		'startcolor' => array('argb' => 'FFC0C0C0',),
+                                                  		'endcolor' => array('argb' => 'FFC0C0C0',),
+                                                  	),
+                                      'font' => array('bold' => TRUE,
+                                                      'color' => array('argb' => 'FF0000A0',),
+	                                                   ),
+	                                  );
+
+$data_style_array = array( 'alignment' => array('horizontal' => PHPExcel_Style_Alignment::HORIZONTAL_LEFT,),
+                                      'borders' => array('inside' => array(
+                                                                  			'style' => PHPExcel_Style_Border::BORDER_THIN,
+                                                                  			'color' => array('argb' => 'FF804000',),
+                                                                  		),
+                                                        'outline' => array(
+                                                                  			'style' => PHPExcel_Style_Border::BORDER_THIN,
+                                                                  			'color' => array('argb' => 'FF804000',),
+                                                                  		),
+                                                        
+                                                        ),
+                                     
+	                                  );
+  
+  //try{
+    timer_start('nhpid_init');
+    foreach ($data as $sheet) {
+      $row_index = 1;
+      if ($drupal_mapping_rows) $row_index = 4;
+      $active_sheet =  $excel->createSheet($sheet_index);
+      //$excel-> removeSheetByIndex($row_index + 1);
+      if (strlen($sheet['sheet_name']) > 31) { //max length of title for excel sheet
+        $replace = "($sheet_index)";
+        $sheet['sheet_name'] = substr_replace($sheet['sheet_name'], $replace, 31 - strlen($replace));
+      }
+      $active_sheet->setTitle($sheet['sheet_name']);
+      //drupal_set_message(nhpid_api_dump($active_sheet, 'green', TRUE));
+      $freeze_pane_cell = 'A2';
+      if ($drupal_mapping_rows) $freeze_pane_cell = 'A5';
+      $active_sheet->freezePane($freeze_pane_cell);
+      $active_sheet->getProtection()->setSheet(true);
+      $active_sheet->getProtection()->setPassword('NHPID');
+
+      $header = array();
+      if ($sheet['header']) {
+        foreach($sheet['header'] as $key => $col_header){
+          if (is_array($col_header) and isset($col_header['data'])){
+            $header[$key] = $col_header['data'];
+          }
+          else{
+            $header[$key] = $col_header;
+          }
+        }
+        //ksort($header);
+      } 
+      else {
+        foreach (array_keys($sheet['data'][0]) as $key => $value) {
+          $header[] = array($key => $key);
+        }
+        //sort($header);
+      }
+      $border_color = '804000';
+      $border_style = PHPExcel_Style_Border::BORDER_THIN;
+         
+      $col_index = 0;
+      //drupal_set_message(nhpid_api_dump($header, 'green', TRUE));
+      if ($drupal_mapping_rows) {
+        
+        $mapping_header = $sheet['mapping_header'];
+        $col_index = 0;
+        foreach ($mapping_header['title'] as $value) {
+          $active_sheet->setCellValueByColumnAndRow($col_index, 1, $value);
+          if ($style) $active_sheet->getStyleByColumnAndRow($col_index, 1)->applyFromArray($header_mapping_style_array);
+          $col_index ++;
+        }
+        $col_index = 0;
+        foreach ($mapping_header['param'] as $value) {
+          $active_sheet->setCellValueByColumnAndRow($col_index, 2, $value);
+          if ($style) $active_sheet->getStyleByColumnAndRow($col_index, 2)->applyFromArray($header_mapping_style_array);
+          $col_index ++;
+        }
+        $col_index = 0;
+        foreach ($mapping_header['fields'] as $value) {
+          $active_sheet->setCellValueByColumnAndRow($col_index, 3, $value);
+          if ($style) $active_sheet->getStyleByColumnAndRow($col_index, 3)->applyFromArray($header_mapping_style_array);
+          $col_index ++;
+        }
+     
+      }
+      $col_index = 0;
+      foreach ($header as $value) {
+        $active_sheet->setCellValueByColumnAndRow($col_index, $row_index, $value);
+        if ($style) $active_sheet->getStyleByColumnAndRow($col_index, $row_index)->applyFromArray($header_style_array);
+        $col_index ++;
+      }
+      
+      foreach ($sheet['data'] as $row) {
+        $row_index ++;
+        //ksort($row);
+        //drupal_set_message(nhpid_api_dump($row, 'purple', TRUE));
+        $col_index = 0;
+        foreach ($header as $key => $name) {
+          $value = $row[$key];
+          //drupal_set_message(nhpid_api_dump($value, 'purple', TRUE));
+          $datatype = PHPExcel_Cell_DataType::TYPE_STRING;
+          if (is_numeric($value)) {
+            $datatype = PHPExcel_Cell_DataType::TYPE_NUMERIC;
+          }
+          elseif (is_null($value)) {
+            $datatype = PHPExcel_Cell_DataType::TYPE_NULL;
+          }
+          //drupal_set_message(nhpid_api_dump("$value:$datatype", 'purple', TRUE));
+          //$active_sheet->setcellvaluebycolumnandrow($col_index, $row_index, $value, $datatype);
+          ## date 
+          $pattern = '/^\d{4}[\/-]\d{1,2}[\/-]\d{1,2}(\s*\d{2}:\d{2}(:\d{2})*)*$/';
+          if (preg_match($pattern, $value))
+          {
+            $active_sheet->getStyleByColumnAndRow($col_index, $row_index)->getNumberFormat()->setFormatCode(PHPExcel_Style_NumberFormat::FORMAT_DATE_YYYYMMDD2);
+						$value = PHPExcel_Shared_Date::stringToExcel($value);
+            $datatype = PHPExcel_Cell_DataType::TYPE_NUMERIC;
+          }
+          $pattern = '/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}(\s*\d{2}:\d{2}(:\d{2})*)*$/';
+          if (preg_match($pattern, $value))
+          {
+            //$active_sheet->getStyleByColumnAndRow($col_index, $row_index)->getNumberFormat()->setFormatCode(PHPExcel_Style_NumberFormat::FORMAT_DATE_DDMMYYYY);
+            $active_sheet->getStyleByColumnAndRow($col_index, $row_index)->getNumberFormat()->setFormatCode(PHPExcel_Style_NumberFormat::FORMAT_DATE_YYYYMMDD2);
+            $value = PHPExcel_Shared_Date::stringToExcel($value);
+            $datatype = PHPExcel_Cell_DataType::TYPE_NUMERIC;
+          }
+          if ($style) {
+            $active_sheet->getStyleByColumnAndRow($col_index, $row_index)->applyFromArray($data_style_array);
+          }
+          $active_sheet->setCellValueExplicitByColumnAndRow($col_index, $row_index, $value, $datatype);
+          $active_sheet->getStyleByColumnAndRow($col_index, $row_index)->getProtection()->setLocked(PHPExcel_Style_Protection::PROTECTION_UNPROTECTED);
+
+          $col_index ++;
+        }
+        
+      }
+      $sheet_index++;
+    }
+    //$time_used = "Total time in min: " . timer_read('nhpid_init')/(60*1000);
+    //drupal_set_message(nhpid_api_dump($time_used, 'purple', TRUE));
+    //drupal_set_message(nhpid_api_dump($excel, 'purple', TRUE));
+    $excelWriter = PHPExcel_IOFactory::createWriter($excel, $format);
+    //drupal_set_message(nhpid_api_dump($excelWriter, 'purple', TRUE));
+    if ($format == 'Excel5') {
+      $path = str_replace('.xlsx', '.xls', $path);
+    }
+    else {
+      $path = str_replace('.xls', '.xlsx', $path);
+    }
+    $excelWriter->save($path);
+    $excel->disconnectWorksheets();
+    unset($excel);
+  //}
+  //catch (Exception $e) {
+  //  return FALSE;
+  //}
+  
+  
+  return $path;
+}
+
+function nhpid_api_get_field_type($field_name) {
+  $info = field_info_field($field_name);
+  if ($info) return $info['type'];
+}
+
+function nhpid_api_is_a_datestamp_field($field_name) {
+  if (nhpid_api_get_field_type($field_name) == 'datestamp') return TRUE;
+  return FALSE;
+}
+
+function nhpid_api_is_a_link_field($field_name) {
+  if (nhpid_api_get_field_type($field_name) == 'link') return TRUE;
+  return FALSE;
+}
+
+function nhpid_api_is_a_flexi_field($field_name) {
+  if (nhpid_api_get_field_type($field_name) == 'flexifield') return TRUE;
+  return FALSE;
+}
+
+/**
+* Custom formatter for a CCK 6.2 node field.
+*
+* @usage
+*   $event_date = custom_format_cck_date_value($node, 'field_event_date', 0, 'event');
+* @param $node
+*   The content item object.
+* @param $cck_name
+*   The CCK field name.
+* @param $delta
+*   The CCK delta item of interest.
+* @param $format
+*   The format, either 'short', 'medium', 'long', or the
+*   machine name of the custom date format.
+*
+*   This defaults to 'medium' if the format was not found.
+*
+* @return
+*   The formated string. An empty string is returned if
+*   the function could not parse the date.
+*/
+function custom_format_cck_date_value($node, $cck_name, $delta = 0, $type = 'custom', $format = 'Y-m-d') {
+  $field = $node->$cck_name;
+  if (isset($field[$delta])) {
+    $value = $field[$delta];
+    if ($date = date_make_date($value['value'], $value['timezone_db'], $value['date_type'])) {
+      //$format = date_formatter_format($format, $cck_name);
+      @date_timezone_set($date, timezone_open($value['timezone']));
+      //drupal_set_message(nhpid_api_dump(date_format_date($date, $type, $format), 'purple', TRUE)); 
+      return date_format_date($date, $type, $format);
+    }
+  }
+  return '';
+}
+
+function get_node_name($node_type) {
+  $sql = "select name from {node_type} where type like :node_type";
+  //drupal_set_message($sql);
+  $result = db_query($sql, array(':node_type' => $node_type));
+  $record = $result->fetchObject();
+  
+  if ($record) {
+    return $record -> name;
+  }
+}
+function ____get_ingredient_cat_mapping($node_type) {
+  $all = get_a_code_table_codes('code_ingredient_category');
+  
+  switch ($node_type) {
+    case 'herbal_hcn':
+      $cats = array('HCN');
+      break;
+    case 'naming_protein':
+      $cats = array('APN');
+      break;
+    case 'naming_chemical1':
+    case 'naming_chemical2':
+    case 'naming_chemical':
+      $cats = array('ACN');
+      break;
+    case 'nonnhp_organsim':
+      $cats = array('AHN');
+      break;
+    case 'nmi_org_substance':
+    case 'mi_org_substance':
+    case 'naming_org_substance':
+      $cats = array('ABS', 'AFN', 'AHS');
+      break;
+    case 'mi_chemical':
+    case 'nmi_chemical':
+    case 'nonnhp_chemical':
+      $cats = array('ACN', 'APN');
+      break;
+    case 'naming_organism':
+    case 'mi_organism':
+      $cats = array('ABN', 'AHN');
+      break;
+    default:
+      $cats = $all;
+  }
+  
+  $ret = array();
+  
+  foreach ($cats as $item) {
+    $ret[$item] = $item;
+  }
+  
+  return $ret;
+}
+
+
+
+function nhpid_api_get_ingredient_role_mapping($node_type) {
+   $all = Array(
+		    'C' => 'C: Component',
+		    'NN' => 'NN: Non NHP',
+		    'NMI' => "NMI: Non-medicinal Ingredient",
+		    'MI' => "MI: Medicinal Ingredient",
+		    'H-MI' => "H-MI: Homeopathic Medicinal Ingredient",
+		);
+   switch ($node_type) {
+    case 'herbal_hcn':
+      $cats = array('C');
+      break;
+    case 'nonnhp_chemical':
+    case 'nonnhp_organism':
+      $cats = array('NN');
+      break;
+    case 'nmi_org_substance':
+    case 'nmi_chemical':
+      $cats = array('NMI');
+      break;
+    case 'mi_chemical':
+    case 'mi_org_substance':
+    case 'mi_organism':
+      $cats = array('MI');
+      break;
+    default:
+      $cats = $all;
+  }
+  $ret = array();
+  
+  foreach ($cats as $item) {
+    $ret[$item] = $all[$item];
+  }
+  return $ret;
+}
+
+function nhpid_api_get_monograph_type_mapping($node_type) {
+   $all = get_a_code_table_codes('code_mono_type');
+   switch ($node_type) {
+    case 'als_als':
+      $cats = array('I', 'A');
+      break;
+    default:
+      $cats = $all;
+  }
+  $ret = array();
+  foreach ($cats as $item) {
+    $ret[$item] = $item;
+  }
+  return $ret;
+}
+function nhpid_api_get_monograph_status_mapping($node_type) {
+   $all = Array(
+    'G'=> "G: Generated monograph",
+		'E'=> "E: External monograph",
+		);
+   switch ($node_type) {
+    case 'als_als':
+      $cats = array('G');
+      break;
+    case 'mono_monograph':
+      $cats = array('E', 'G');
+      break;
+    default:
+      $cats = $all;
+  }
+  $ret = array();
+  foreach ($cats as $item) {
+    $ret[$item] = $all[$item];
+  }
+  return $ret;
+}
+function nhpid_api_get_mono_dependency_allowed_values_mapping() {
+  $types = array('SUBP', 'USE', 'DOSE', 'PREP', 'SRC', 'DF', 'OTHER');
+  $ret = array();
+  foreach ($types as $type) {
+    switch ($type) {
+      case 'SUBP':
+        $field_reference_field = 'field_subpopulation';
+				$field = field_read_field($field_reference_field);
+				$values = field_reference_potential_references($field);
+        break;
+      case 'USE':
+        $field_reference_field = 'field_mono_use';
+				$field = field_read_field($field_reference_field);
+				$values = field_reference_potential_references($field);
+        break;
+      case 'DOSE':
+        $field_reference_field = 'field_mono_doses';
+				$field = field_read_field($field_reference_field);
+				$values = field_reference_potential_references($field);
+        break;
+      case 'PREP':
+        $field_reference_field = 'field_preparation_mtd';
+				$field = field_read_field($field_reference_field);
+				$values = field_reference_potential_references($field);
+        break;
+      case 'SRC':
+        $field_reference_field = 'field_organism_part';
+				$field = field_read_field($field_reference_field);
+				$values = field_reference_potential_references($field);
+        break;
+			case 'DF':
+        $field_reference_field = 'field_dosage_forms_form_groups';
+				$field = field_read_field($field_reference_field);
+				$values = field_reference_potential_references($field);
+        break;
+      Default:
+        $values = array();
+        break;
+    }
+    //drupal_set_message(nhpid_api_dump($values, 'purple', TRUE));
+    foreach ($values as $key => $value) {
+			$node_type = '';
+			$code = '';
+			$nid = null;
+      $pattern = '/field_code node:(?P<nid>\d+)/';
+			$matches = array();
+      if (preg_match($pattern,$key, $matches)) {
+        $nid=$matches['nid'];
+			}
+      $key = $type . '-' . $nid;
+			/*
+      $pattern = '/^(?P<node_type>.*: Code) - (?P<code>.*)$/';
+			$matches = array();
+      if (preg_match($pattern,$value, $matches)) {
+        $node_type=$matches['node_type'];
+        $code=$matches['code'];
+			}
+      //$value = $type . '-' . "$code ($node_type)";
+			*/
+      $value = $type . '-' . $value;
+      $ret[$key] = $value;
+    }
+  }
+  
+  natsort($ret);
+  return $ret;
+}
+
+function ____get_allowed_values_mapping($node_type, $field_type) {
+  //drupal_set_message("$node_type, $field_type");
+  switch ($field_type) {
+    case 'field_ingredient_cat':
+      return get_ingredient_cat_mapping($node_type);
+      break;
+    case 'field_ingredient_role':
+      return get_ingredient_role_mapping($node_type);
+      break;
+    case 'field_monograph_type':
+      return get_monograph_type_mapping($node_type);
+      break;
+    case 'field_monograph_status':
+      return get_monograph_status_mapping($node_type);
+      break;
+    case 'field_ingredient_cat':
+      return get_ingredient_role_mapping($node_type);
+      break;
+    case 'field_duration_dependency':
+    case 'field_dose_dependency':
+    case 'field_use_dependency':
+    case 'field_for_use_dependency':
+    case 'field_risk_dependency':
+      return get_mono_dependency_allowed_values_mapping();
+      break;
+    case 'field_unit':
+      return get_unit_values_mapping($node_type);
+      break;
+    default:
+      return NULL;   
+  }
+}
+
+// Functional categories are derived from nmi_purpose, using the value of field_description_e
+function compute_computed_functional_cat_value($entity) {
+	if(!property_exists($entity, 'field_com_functional_cat')) return null;
+	$items = array();
+
+	foreach($entity->field_nmi_purposes[$entity->language] as $purpose_item){
+		$purpose_node_nid = $purpose_item['entity_id'];
+		$purpose_node = node_load($purpose_node_nid);
+    $items[] = nhpid_api_get_field_values($purpose_node,  'field_description_e', array(), null, true, true);
+	}
+  return implode(';', $items);
+}
+function get_a_code_table_codes($node_type, $field_type='field_code' ) {
+  $values = array();
+  $nodes = get_all_node_objects_by_type($node_type);
+  //drupal_set_message(nhpid_api_dump($nodes, 'red', TRUE));
+  if ((bool)$nodes) {
+    foreach ($nodes as $node) {
+      $values[] = $node->{$field_type}[$node->language][0]['value'];
+    }
+  }
+  
+  return $values;
+}
+
+function get_all_fields_of_node_type($node_type) {
+  //$info = _content_type_info();
+  $info = field_info_instances('node', $node_type);
+  unset($info['body']);
+  foreach ($info as $key => $item){
+    $field_global_info = field_info_field($key);
+    $info[$key]['active'] = $field_global_info['active'];
+    $info[$key]['type'] = $field_global_info['type'];
+    $info[$key]['module'] = $field_global_info['module'];
+    $info[$key]['locked'] = $field_global_info['locked'];
+    $info[$key]['cardinality'] = $field_global_info['cardinality'];
+    $info[$key]['allowed_values'] = isset($field_global_info['settings']['allowed_values']) ? $field_global_info['settings']['allowed_values'] : null;
+    $info[$key]['allowed_values_function'] = isset($field_global_info['settings']['allowed_values_function']) ? $field_global_info['settings']['allowed_values_function'] : null;
+    $info[$key]['allowed_values_php'] = isset($field_global_info['settings']['allowed_values_php']) ? $field_global_info['settings']['allowed_values_php']: null;
+  }
+  
+  return $info;
+  /*
+  if (isset($info['content types'][$node_type]['fields'])) {
+    return $info['content types'][$node_type]['fields'];
+  }
+  */
+
+  // If all else fails, return NULL.
+  return NULL;
+}
+
+function get_nhpid_visible_wkf_states() {
+  $visible_states = variable_get('nhpid_visible_wkf_states', array());
+	if (empty($visible_states)){
+		$workflow = workflow_get_workflows_by_name('NHPID Data Workflow');
+		$wid = $workflow -> wid;
+		$wkf_states = workflow_get_workflow_states_by_wid($wid);
+		foreach ($wkf_states as $wkf_state){
+      $visible_states[]=$wkf_state->sid;
+		}
+	}
+	return $visible_states;
+}
+/** $vid: default current vid
+ *
+*/ 
+
+function nhpid_api_get_nids_of_a_node_field_by_value($bundle, $field_name, $field_value, $workflow_states = array(), $entity_type = 'node', $vid = NULL) {
+  //if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+	$field_info = field_info_field($field_name);
+  //drupal_set_message(nhpid_api_dump($field_info), 'blue', TRUE);
+	$field_column = '';
+	if (isset($field_info['columns']['value'])){
+		$field_column = 'value';
+	}
+  elseif (isset($field_info['columns']['entity_id'])){
+		$field_column = 'entity_id';
+	}
+	else{
+		return null;
+	}
+
+	$query = new EntityFieldQuery();
+	$query->entityCondition('entity_type', $entity_type)
+        ->entityCondition('bundle', $bundle)
+				->fieldCondition($field_name, $field_column, $field_value, '=');
+	if($vid) $query->propertyCondition('vid', $vid, '=');
+  if(!empty($workflow_states)) {
+    $query->addTag('workflow');
+	}
+  $result = $query->execute();
+  //drupal_set_message(nhpid_api_dump($result, 'red', TRUE));
+	$nids=array_keys($result[$entity_type]);
+	return $nids;
+}
+function get_value_of_a_field_by_nid($nid, $field_name, $vid = NULL) {
+  $value = '';
+ 
+  $conent_field_table_name = 'field_data_' . $field_name;
+  $sql = "select type from {node} where nid = :nid";
+  $result = db_query($sql, array(':nid' => $nid))->fetchCol();
+  $node_type = $result? $result[0] : NULL;
+  $args = array();
+  $field_value_column_name = $field_name . '_value';
+  
+  $sql = "select delta, $field_value_column_name as value from $conent_field_table_name where entity_id = :nid and bundle=:node_type and deleted=0";
+
+  $args[':nid'] = $nid;
+  $args[':node_type'] = $node_type;
+  if ($vid) {
+    $sql_final = $sql . " and revision_id = :vid";
+    $args[':vid'] = $vid;
+    
+  }
+  else {
+    $sql_final = $sql . " and revision_id  in (select vid from node where nid = :nid2)";
+    $args[':nid2'] = $nid;
+  }
+  //drupal_set_message(nhpid_api_dump(placeholder_query_2_normal_query($sql_final,$args), 'blue', TRUE));
+   $result = db_query($sql_final, $args)->fetchAllKeyed(0,1);
+   if (count($result) == 1) {
+    return $result[0];
+   }
+   else {
+    return $result;
+   }
+  
+}
+
+function get_current_vid($nid) {
+  $sql = "select vid from {node} where nid = :nid order by vid desc";
+  return db_query($sql, array(':nid' => $nid)) ->fetchColumn(0);
+}
+/**
+ * It is much faster by sql than by node. 
+ * 
+ */  
+// ($code_node_type, $filter=NULL, $filter_value=NULL, $value_field='field_code', $text_field='body')
+function get_all_values_of_a_field_by_node_type($node_type, $field_name, $workflow_states = array('Published')) {
+  $values = array();
+  $conent_field_table_name = 'field_data_' . $field_name;
+  $field_value_column_name = $field_name . '_value';
+  $sql = "select nid, delta, $field_value_column_name as value from $conent_field_table_name, node where deleted=0 and bundle = :bundle";
+  $sql = $sql . " and revision_id = node.vid and entity_id = node.nid";
+  // workflow states
+  $workflow_states_str = implode("','", $workflow_states);
+  $sql = $sql . " and nid in (select nid from workflow_node where sid in (select sid from workflow_states, workflow_type_map where state in (:states) and type like :node_type))";
+  $args = array(':bundle'=>$node_type, ':states' => $workflow_states_str, ':node_type' => $node_type);
+     //drupal_set_message(nhpid_api_dump(placeholder_query_2_normal_query($sql,$args), 'red', TRUE));
+  $result = db_query($sql, $args );
+  while ($rc = $result->fetchObject()) {
+    $values[$rc -> nid][$rc -> delta] = $rc -> value;
+  }
+  return $values;
+}
+
+function ____get_all_organism_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type = 'naming_organism';
+  $field_name = 'field_ingredient_name';
+   
+  return get_all_values_of_a_field_by_node_type($node_type, $field_name, $workflow_states);
+}
+
+function ____get_all_english_organism_group_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type = 'naming_org_group';
+  $field_name = 'field_org_group_name_e';
+   
+  return get_all_values_of_a_field_by_node_type($node_type, $field_name, $workflow_states);
+}
+
+function ____get_all_french_organism_group_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type = 'naming_org_group';
+  $field_name = 'field_org_group_name_f';
+   
+  return get_all_values_of_a_field_by_node_type($node_type, $field_name, $workflow_states);
+}
+
+function ____get_all_organism_and_organism_group_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  return array_merge(get_all_organism_names($workflow_states), get_all_english_organism_group_names($workflow_states));
+}
+
+function ____get_all_english_chemical_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type1 = 'naming_chemical1';
+  $node_type2 = 'naming_chemical2';
+  $field_name = 'field_ingredient_name';
+   
+  return array_merge(get_all_values_of_a_field_by_node_type($node_type1, $field_name, $workflow_states), get_all_values_of_a_field_by_node_type($node_type2, $field_name, $workflow_states));
+}
+function ____get_all_french_chemical_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type1 = 'naming_chemical1';
+  $node_type2 = 'naming_chemical2';
+  $field_name = 'field_ingredient_name_f';
+   
+  return array_merge(get_all_values_of_a_field_by_node_type($node_type1, $field_name, $workflow_states), get_all_values_of_a_field_by_node_type($node_type2, $field_name, $workflow_states));
+}
+function ____get_all_english_protein_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type = 'naming_protein';
+  $field_name = 'field_ingredient_name';
+  return get_all_values_of_a_field_by_node_type($node_type, $field_name, $workflow_states); 
+}
+function ____get_all_french_protein_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type = 'naming_protein';
+  $field_name = 'field_ingredient_name_f';
+  return get_all_values_of_a_field_by_node_type($node_type, $field_name, $workflow_states); 
+}
+
+function ____get_all_english_organism_substance_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type = 'naming_org_substance';
+  $field_name = 'field_ingredient_name';
+  return get_all_values_of_a_field_by_node_type($node_type, $field_name, $workflow_states); 
+}
+function ____get_all_french_organism_substance_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type = 'naming_org_substance';
+  $field_name = 'field_ingredient_name_f';
+  return get_all_values_of_a_field_by_node_type($node_type, $field_name, $workflow_states); 
+}
+
+function ____get_all_english_herbal_hcn_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type = 'herbal_hcn';
+  $field_name = 'field_ingredient_name';
+  return get_all_values_of_a_field_by_node_type($node_type, $field_name, $workflow_states); 
+}
+
+function ___get_all_french_herbal_hcn_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type = 'herbal_hcn';
+  $field_name = 'field_ingredient_name_f';
+  return get_all_values_of_a_field_by_node_type($node_type, $field_name, $workflow_states); 
+}
+
+function ____get_all_english_nonnhp_chemical_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type = 'nonnhp_chemical';
+  $field_name = 'field_ingredient_name';
+  return get_all_values_of_a_field_by_node_type($node_type, $field_name, $workflow_states); 
+}
+
+function ____get_all_french_nonnhp_chemical_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type = 'nonnhp_chemical';
+  $field_name = 'field_ingredient_name_f';
+  return get_all_values_of_a_field_by_node_type($node_type, $field_name, $workflow_states); 
+}
+
+function ____get_all_english_nonnhp_organism_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type = 'nonnhp_organsim';
+  $field_name = 'field_ingredient_name';
+  return get_all_values_of_a_field_by_node_type($node_type, $field_name, $workflow_states); 
+}
+
+function ____get_all_french_nonnhp_organism_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type = 'nonnhp_organism';
+  $field_name = 'field_ingredient_name_f';
+  return get_all_values_of_a_field_by_node_type($node_type, $field_name, $workflow_states); 
+}
+
+function ____get_all_mi_organism_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $node_type = 'mi_organism';
+  $field_name = 'field_ingredient_name';
+  return get_all_values_of_a_field_by_node_type($node_type, $field_name, $workflow_states);
+}
+function ____get_all_approved_ingredient_names($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  return array_merge(get_all_english_chemical_names($workflow_states), get_all_english_organism_substance_names($workflow_states), get_all_english_organism_substance_names($workflow_states), get_all_english_herbal_hcn_names($workflow_states) );
+}
+
+function ____get_all_organism_or_organism_group_name_and_org_part($workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  $organim_orgniam_group_names = get_all_organism_and_organism_group_names($workflow_states);
+  $part_codes = get_all_values_of_a_field_by_node_type('code_organism_part', 'field_code', $workflow_states);
+  
+  $rtn = array();
+  foreach ($organim_orgniam_group_names as $org_name) {
+    foreach ($part_codes as $code) {
+      $rtn["$org_name" .'-' . $code] = "$org_name" .'-' . $code;
+    }
+  }
+  return $rtn;
+}
+
+function ____get_field_approved_ingredient_name_allowed_values($node_type, $workflow_states = array()) {
+  //drupal_set_message("node_type: $node_type");
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+ switch ($node_type) {
+    case 'mi_chemical':
+    case 'nmi_chemical':
+    case 'nonnhp_chemical':
+      return array_merge(get_all_english_chemical_names($workflow_states), get_all_english_protein_names($workflow_states));
+      break;
+    case 'mi_org_substance':
+    case 'nmi_org_substance':
+      return array_merge(get_all_english_organism_substance_names($workflow_states), get_all_english_organism_group_names($workflow_states));
+      break;
+     case 'mi_organism':
+      return get_all_organism_names($workflow_states);
+      break;
+    default:
+      return get_all_approved_ingredient_names($workflow_states);
+    }
+}
+
+function ____get_field_constituent_allowed_values($node_type, $workflow_states = array()) {
+ if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+ return array_merge(get_all_english_chemical_names($workflow_states), get_all_english_herbal_hcn_names($workflow_states));
+}
+
+function ____get_field_subingredient_allowed_values($node_type, $workflow_states = array()) {
+  if (!$workflow_states) $workflow_states = get_nhpid_visible_wkf_states();
+  switch ($node_type) {
+    case 'subing_protein':
+      return get_all_english_protein_names($workflow_states);
+    case 'subing_chemical':
+      return get_all_english_chemical_names($workflow_states);
+    break;
+  }
+}
+
+## get the closet old vid to current vid of a node
+function nhpid_get_closest_revision_id_by_datestamp($node, $timestamp, $nid = NULL) {
+  $nid = $node ? $node -> nid : $nid;
+  $sql = "select vid from {node_revision} where nid = :nid and timestamp <= :timestamp order by vid desc limit 1 ";
+  //drupal_set_message(nhpid_api_dump("$sql", 'purple', TRUE));
+  $vid = db_query($sql, array(':nid' => $nid, ':timestamp' => $timestamp))->fetchColumn(0);
+  return $vid;
+}
+
+function nhpid_get_all_nids_by_node_type($node_type){
+
+  $sql = "SELECT nid FROM {node} WHERE type=:type";
+  $result = db_query($sql, array(':type' => $node_type));
+  if ($result) return $result -> fetchCol();
+  return null;
+}
+function nhpid_get_empty_nhpid_data_node_types(){
+  $empty_node_types = array();
+  
+  $nhpid_data_node_types = get_all_nhpid_data_node_types();
+  foreach($empty_node_types as $node_type){
+    if (!nhpid_get_all_nids_by_node_type($node_type)){
+      $empty_node_types[] = $node_type;
+    }
+  }
+  return $empty_node_types;
+}
+
+function nhpid_node_revision_diff($node, $revision_id_from, $revision_id_to = NULL) {
+  //drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));
+  $diffs = array();
+  if ($revision_id_to) $node = node_load($node -> nid, $revision_id_to);
+  $content_type = content_types($node -> type);
+  $diffs['node_name'] = $content_type['name'];
+  $diffs['node_title'] = $node -> title;
+  if ($revision_id_from) $node2 = node_load($node -> nid, $revision_id_from);
+  content_view($node);
+  $diffs['vid']['revision1'] = $revision_id_to;
+  $diffs['date']['revision1'] = timestamp_2_date($node -> revision_timestamp);
+  $diffs['title']['revision1'] = $node -> title;
+  $revision_user = user_load(array('uid' => $node -> revision_uid));
+  $diffs['revision_author']['revision1'] = $revision_user -> name ? $revision_user -> name : 'Anonymous';
+  if ($node ->_workflow ) $node1_workflow_state = get_workflow_state_obj($node -> type, $node ->_workflow );
+  $diffs['workflow']['revision1'] = $node1_workflow_state -> state;
+  if (!$node2) {
+    $diffs['is_new'] = TRUE;
+  }
+  else {
+    $diffs['is_new'] = FALSE;
+    content_view($node2);
+    //drupal_set_message(nhpid_api_dump($node2, 'red', TRUE));
+    $diffs['vid']['revision2'] = $revision_id_from;
+    $diffs['date']['revision2'] = timestamp_2_date($node2 -> revision_timestamp);
+    $diffs['title']['revision2'] = $node2 -> title;
+    $revision_user2 = user_load(array('uid' => $node2 -> revision_uid));
+    $diffs['revision_author']['revision2'] = $revision_user2 -> name ? $revision_user2 -> name : 'Anonymous';
+    if ($node2 ->_workflow ) $node2_workflow_state = get_workflow_state_obj($node2 -> type, $node2 ->_workflow );
+    $diffs['workflow']['revision2'] = $node2_workflow_state -> state;
+    $is_diff = FALSE;
+    $fields = get_all_fields_of_node_type($node -> type);
+    foreach ($fields as $field) {
+      $field_name = $field['field_name'];
+      //drupal_set_message(nhpid_api_dump($field_name, 'red', TRUE));
+      $field_1_render = strip_tags( drupal_render($node->content[$field_name]));
+      
+      //drupal_set_message(nhpid_api_dump($field_1_render, 'red', TRUE));
+      $field_2_render = strip_tags( drupal_render($node2->content[$field_name]));
+      //drupal_set_message(nhpid_api_dump("$field_1_render", 'blue', TRUE));
+      
+      //drupal_set_message(nhpid_api_dump($field_2_render, 'red', TRUE));
+      $replace = $node->content[$field_name]['field']['#title'] . ":";
+      $pos = strpos($field_1_render, $replace);
+      if ($pos !== FALSE) $pos = $pos + strlen($replace);
+      //drupal_set_message(nhpid_api_dump($pos, 'red', TRUE));
+      $field_1_render = trim(substr($field_1_render, $pos));
+      $replace = $node2->content[$field_name]['field']['#title'] . ":";
+      $pos = strpos($field_2_render, $replace);
+      if ($pos !== FALSE) $pos = $pos + strlen($replace);
+      $field_2_render = trim(substr($field_2_render, $pos));
+      //$pattern = "/" . regexp_escape_string($node->content[$field_name]['field']['#title']) . ":/";
+      //drupal_set_message(nhpid_api_dump("$field_1_render", 'blue', TRUE));
+      //$field_1_render = trim(preg_replace($pattern, '', $field_1_render, 1));
+      //$pattern = "/" . regexp_escape_string($node2->content[$field_name]['field']['#title']) . ":/";
+      //$field_2_render = trim(preg_replace($pattern, '', $field_2_render, 1));
+      //drupal_set_message(nhpid_api_dump($field_2_render, 'red', TRUE));
+      if ($field_1_render != $field_2_render) {
+        $diff = array();
+        $diff['revision1']['title'] = $node->content[$field_name]['field']['#title'];
+        $diff['revision2']['title'] = $node2->content[$field_name]['field']['#title'];
+        $diff['revision1']['value'] = $field_1_render;
+        $diff['revision2']['value'] = $field_2_render;
+        $diffs[$field_name] = $diff;
+        $is_diff = TRUE;
+      }
+    }
+    $diffs['is_diff'] = $is_diff;
+  }
+  
+  return $diffs;
+}
+function nhpid_node_revision_diff_as_html_table($node, $revision_id) {
+  $diffs = nhpid_node_revision_diff($node, $revision_id);
+  $header = array('', 'revision 1', 'revision 2');
+  $rows = array();
+  $rows[] = array('revison date', $diffs['date']['revision1'], $diffs['date']['revision2']);
+  $rows[] = array('workflow', $diffs['workflow']['revision1'], $diffs['workflow']['revision2']);
+  foreach ($diffs as $key => $value) {
+    if ($key != 'date') {
+      $rows[] = array($value['revision1']['title'], $value['revision1']['value'], $value['revision2']['value']);
+    }
+  }
+  return theme_table($header, $rows);
+  
+}
+function timestamp_2_date($time_stamp) {
+  include_once 'Date.php';
+  $dateObj = new Date($time_stamp);
+  //$dateObj -> setTZbyID('UTC');
+  //$dateObj -> convertTZByID('EST'); 
+  return $dateObj -> getDate();
+}
+function placeholder_query_2_normal_query($query, $args = array()) {
+  $result = db_query($query, $args);
+  foreach($args as $key => $value){
+    $args[$key] = "'$value'";
+  }
+  return strip_tags(t($result -> getQueryString(), $args));
+}
+
+function ____populate_non_nhp_node(&$node) {
+  $node_type = $node -> type;
+  $nonnhp_types = array('nonnhp_chemical', 'nonnhp_organism');
+  //drupal_set_message(nhpid_api_dump($node_type, 'red', TRUE));
+  if (!in_array($node_type, $nonnhp_types)) return FALSE;
+  $approved_name = $node -> field_approved_ingredient_name[0]['value'];
+  //drupal_set_message(nhpid_api_dump($approved_name, 'red', TRUE));
+  $naming_node = '';
+  $shared_fields = array();
+  $naming_types = get_all_depended_node_types($node_type, 'field_approved_ingredient_name');
+  //drupal_set_message(nhpid_api_dump($naming_types, 'red', TRUE));
+  if ($node_type == 'nonnhp_chemical') {
+    $shared_fields = array('field_ingredient_name_f', 
+                          'field_flexi_synonym_e', 
+                          'field_flexi_synonym_f', 
+                          'field_flexi_proper_name', 
+                          'field_flexi_common_name', 
+                          'field_ingredient_cat',
+                          'field_name_ref',
+                          'field_flexi_cas_number',
+                          'field_organism_parent',
+                          //'field_organism_part',
+                          //'field_organism_preparation',
+                          'field_organism_origin',
+                          'field_restriction_desc_e',
+                          'field_restriction_desc_f',
+                          //'field_route_of_admin',
+                          );
+  }
+  
+  else if ($node_type == 'nonnhp_organism') {
+    $shared_fields = array('field_ingredient_name_f', 
+                          'field_flexi_synonym_e', 
+                          'field_ingredient_cat',
+                          'field_nhpd_classification',
+                          'field_name_ref',
+                          'field_organism_origin',
+                          'field_family',
+                          'field_genus',
+                          'field_species',
+                          'field_subspecies',
+                          'field_geo_distribution',
+                          'field_country',
+                          'field_flexi_taxon',
+                          'field_country',
+                          );
+  }
+  
+  foreach ($naming_types as $naming_type){
+    $sql = "select node.nid from node, content_field_ingredient_name as cf where node.nid = cf.nid and node.type = '%s' and field_ingredient_name_value = '%s'";
+    $nid = db_result(db_query($sql, $naming_type, $approved_name));
+    //drupal_set_message(nhpid_api_dump($nid, 'red', TRUE));
+    if ($nid) {
+      $naming_node = node_load($nid);
+      //drupal_set_message(nhpid_api_dump($naming_node, 'red', TRUE));
+      break;
+    }
+  }
+  //drupal_set_message(nhpid_api_dump($naming_node, 'blue', TRUE));
+  if ($naming_node) {
+    foreach ($shared_fields as $shared_field) {
+      //drupal_set_message(nhpid_api_dump($node -> $shared_field, 'red', TRUE));
+      //drupal_set_message(nhpid_api_dump($naming_node -> $shared_field, 'blue', TRUE));
+      $node -> $shared_field = $naming_node -> $shared_field;
+      //drupal_set_message(nhpid_api_dump($node -> $shared_field, 'brown', TRUE));
+    }
+
+    return TRUE;
+  }
+  else
+  {
+    $title = $node -> title;
+    form_set_error('', "Population of shared fields failed. Please check if the dependency of this content type ($node_type: $title) is set corrently.");
+    return FALSE;
+  }
+  
+}
+
+function nhpid_get_current_node_type() {
+	
+	$current_node_type = '';
+  if (arg(0) == 'node') {
+		if (arg(1) == 'add') {
+		  if (arg(2) and is_string(arg(2))) $current_node_type = str_replace('-', '_', arg(2)); // drupal change underscore to dash when renders url
+		}
+		else if (arg(1) and is_numeric(arg(1))) {
+		  $sql = "select type from {node} where nid = :nid";
+		  $current_node_type = db_query($sql, array(':nid'=>arg(1)))->fetchColumn(0);
+		}
+	}
+	## json return a different QUERY_STRING. Proper code type cannot be retrieved from this QUERY_STRING]
+	if (!$current_node_type) {
+    $referer = $_SERVER['HTTP_REFERER'];
+    global $base_url;
+    $path = str_replace($base_url .'/', '', $referer);
+    if (arg(0, $path) == 'node') {
+  		if (arg(1, $path) == 'add') {
+  		  if (arg(2, $path) and is_string(arg(2))) $current_node_type = str_replace('-', '_', arg(2, $path)); // drupal change underscore to dash when renders url
+  		}
+  		else if (arg(1, $path) and is_numeric(arg(1, $path))) {
+  		  $sql = "select type from {node} where nid = :nid";
+  		  $current_node_type = db_query($sql, array(':nid'=>arg(1, $path)))->fetchColumn(0);
+  
+  		}
+  	}
+  }
+	return $current_node_type;
+}
+
+function nhpid_encode_special_filename_characters($string) {
+  $special_chars = array (  '/' => '~FORWARDSLASH~',
+                            '\\' => '~BACKSLASH~',
+                            '?' => '~QUESTIONMARK~',
+                            '%' => '~PERCENTSIGN~',
+                            '*' => '~ASTERISK~',
+                            ':' => '~COLON~',
+                            '|' => 'VERTICALBAR',
+                            '"' => '~QUOTATIONMARK~',
+                            '<' => '~LESSTHAN~',
+                            '>' => '~GREATERTHAN~',
+                          );
+  foreach($special_chars as $orginal => $replace) {
+    $string = str_replace($orginal, $replace, $string);
+  }
+  
+  return $string;
+}
+
+function nhpid_zip_files(&$dest, $filepaths, $replace = FILE_EXISTS_RENAME) {
+  if (!$dest = file_destination($dest, $replace)) {
+      drupal_set_message("The selected file $dest could not be copied, because a file by that name already exists in the destination.", 'error', FALSE);
+  }
+  //drupal_set_message(nhpid_api_dump($dest, 'brown', TRUE));
+  $zip = new ZipArchive();
+  
+  if ($zip->open($dest, ZIPARCHIVE::CREATE)===TRUE) {
+
+    foreach ($filepaths as $filepath) {
+      $local_path = pathinfo($filepath, PATHINFO_BASENAME);
+      $zip -> addfile($filepath, "nhpid_formula/$local_path");
+      //drupal_set_message(nhpid_api_dump($filepath, 'brown', TRUE));
+    }
+  }
+  else {
+    //die("cannot open <$dest>\n");
+    return FALSE;
+  }
+  
+  $zip -> close();
+  
+  return file_exists($dest);
+}
+
+function nhpid_api_get_content_types_by_field_name($field_name) {
+  $field = field_info_field($field_name);
+  $types = $field['bundles']['node'];
+	$node_type_names = node_type_get_names();
+	$rtn = array();
+	foreach($types as $type){
+		$rtn[$type]=$node_type_names[$type];
+	}
+	return $rtn;
+}
+
+
+function nhpid_api_index_node ($node, $update = true) {
+   
+  // save the changed time of the most recent indexed node, for the search results half-life calculation
+  variable_set('node_cron_last', $node->changed);
+  // Build the node body.
+  //$node_tmp = clone $node;
+  //drupal_set_message(nhpid_api_dump($node, 'brown', TRUE));
+  $node_tmp = node_load($node -> nid);
+  //drupal_set_message(nhpid_api_dump($node_tmp, 'brown', TRUE));
+  if ($node_tmp){
+    //$node_tmp->build_mode = NODE_BUILD_SEARCH_INDEX;
+    
+    node_build_content($node_tmp, 'search_index');
+    $content = drupal_render($node_tmp->content);
+    //drupal_set_message(nhpid_api_dump($node_tmp, 'brown', TRUE));
+    $text = '<h1>'. check_plain($node_tmp->title) .'</h1>'. $content;
+    
+    // Fetch extra data normally not visible
+    $extra = module_invoke_all('node_update_index', $node);
+    foreach ($extra as $t) {
+      $text .= $t;
+    }
+    
+    //drupal_set_message(nhpid_api_dump($text, 'brown', TRUE));
+    
+    search_index($node_tmp->nid, 'node', $text);
+    if ($update){
+      // Update word IDF (Inverse Document Frequency) counts for all words
+      $sql = "select word from {search_index} where sid = :sid";
+      $result = db_query($sql, array(':sid' => $node -> nid));
+      foreach ($result as $word_o) {
+        $word = $word_o -> word;
+        db_query("DELETE FROM {search_total} where word=:word", array(':word' => $word));
+        db_query("INSERT INTO {search_total} (word, count) SELECT word, LOG10(1+1/GREATEST(1, SUM(score))) FROM {search_index} where word=:word GROUP BY word", array(':word' => $word));
+      }
+    }
+  }
+}
+
+function get_sysmeminfo() {
+  $data = explode("\n", file_get_contents("/proc/meminfo"));
+    $meminfo = array();
+    foreach ($data as $line) {
+        list($key, $val) = explode(":", $line);
+        $val = intval($val) * 1024;
+        $meminfo[$key] = trim($val);
+    }
+    return (object)$meminfo;
+}
+function get_sysfreemem() {
+  $free = shell_exec('free');
+	$free = (string)trim($free);
+	$free_arr = explode("\n", $free);
+	$mem = explode(" ", $free_arr[1]);
+	$mem = array_filter($mem);
+	$mem = array_merge($mem);
+	return $mem[3] * 1000;
+}
+  
+function regexp_escape_string($string)
+{
+    $special_chars = array('*', '.', '?', '+', '[', ']', '(', ')', '{', '}', '^', '$', '|', '\\');
+    $replacements = array();
+
+    foreach ($special_chars as $special_char)
+    {
+        $replacements[] = '\\' . $special_char;
+    }
+
+    return str_replace($special_chars, $replacements, $string);
+}
+
+function nhpid_excel_data_is_date(PHPExcel_Cell $pCell){
+  $format_code = $pCell->getParent()->getStyle($pCell->getCoordinate())->getNumberFormat()->getFormatCode();
+  //nhpid_api_dump($format_code);
+  
+  switch ($format_code) {
+    case PHPExcel_Style_NumberFormat::FORMAT_DATE_YYYYMMDD2:
+    case PHPExcel_Style_NumberFormat::FORMAT_DATE_YYYYMMDD:
+    case PHPExcel_Style_NumberFormat::FORMAT_DATE_XLSX14:
+       $value = trim($pCell -> getCalculatedValue());
+       if (is_numeric($value)) return true;
+       return false;
+       break;
+      default:
+        return false;
+  }
+}
+
+function remove_array_empty_element($array) {
+  foreach ($array as $key => $value) {
+    if ($value == "") {
+      unset($array[$key]);
+    }
+    else {
+      $value = trim($value);
+      if ($value == 'NA') $value = 'NA[]'; // in synonymns columns English and French have to be matched. If not 'NA' is useed
+      $array[$key] = $value;
+    }
+   
+  }
+  return array_values($array);
+}
+/**
+ * Trim characters from either (or both) ends of a string in a way that is
+ * multibyte-friendly.
+ *
+ * Mostly, this behaves exactly like trim() would: for example supplying 'abc' as
+ * the charlist will trim all 'a', 'b' and 'c' chars from the string, with, of
+ * course, the added bonus that you can put unicode characters in the charlist.
+ *
+ * We are using a PCRE character-class to do the trimming in a unicode-aware
+ * way, so we must escape ^, \, - and ] which have special meanings here.
+ * As you would expect, a single \ in the charlist is interpretted as
+ * "trim backslashes" (and duly escaped into a double-\ ). Under most circumstances
+ * you can ignore this detail.
+ *
+ * As a bonus, however, we also allow PCRE special character-classes (such as '\s')
+ * because they can be extremely useful when dealing with UCS. '\pZ', for example,
+ * matches every 'separator' character defined in Unicode, including non-breaking
+ * and zero-width spaces.
+ *
+ * It doesn't make sense to have two or more of the same character in a character
+ * class, therefore we interpret a double \ in the character list to mean a
+ * single \ in the regex, allowing you to safely mix normal characters with PCRE
+ * special classes.
+ *
+ * *Be careful* when using this bonus feature, as PHP also interprets backslashes
+ * as escape characters before they are even seen by the regex. Therefore, to
+ * specify '\\s' in the regex (which will be converted to the special character
+ * class '\s' for trimming), you will usually have to put *4* backslashes in the
+ * PHP code - as you can see from the default value of $charlist.
+ *
+ * @param string
+ * @param charlist list of characters to remove from the ends of this string.
+ * @param boolean trim the left?
+ * @param boolean trim the right?
+ * @return String
+ */
+function mb_trim($string, $charlist='\\\\s\\\\pZ', $ltrim=TRUE, $rtrim=TRUE) {
+  $both_ends = $ltrim && $rtrim;
+
+  $char_class_inner = preg_replace(
+    array( '/[\^\-\]\\\]/S', '/\\\{4}/S' ),
+    array( '\\\\\\0', '\\' ),
+    $charlist
+  );
+
+  $work_horse = '[' . $char_class_inner . ']+';
+  $ltrim && $left_pattern = '^' . $work_horse;
+  $rtrim && $right_pattern = $work_horse . '$';
+
+  if ($both_ends) {
+    $pattern_middle = $left_pattern . '|' . $right_pattern;
+  }
+  elseif ($ltrim) {
+    $pattern_middle = $left_pattern;
+  }
+  else {
+    $pattern_middle = $right_pattern;
+  }
+
+  return preg_replace("/$pattern_middle/usSD", '', $string);
+}
+/**
+ * By business rule, duplicated nodes are nodes with the same title within the same node type.
+ * 
+ */  
+
+
+function nhpid_fetch_duplicate_node_nids($node){
+  $nid = $node -> nid;
+  $type = $node -> type;
+  $duplicated_nids = array();
+  $sql = "select nid, type, title from {node} where title like (select title from node where nid = :nid)  and nid != :nid and type like :type";
+  $result = db_query($sql, array(':nid' => $nid, ':nid' =>$nid, ':type' => $type));
+  foreach ($result as $r) {
+    $duplicated_nids[] = $r;
+  }
+  return $duplicated_nids;
+}
+
+function nhpid_get_table_field_names($table) {
+  $sql = "SHOW COLUMNS FROM `$table`";
+  $field_names = array();
+  $result = db_query($sql);
+
+ while ($row = db_fetch_array($result)){
+   $name = $row['Field'];
+   $field_names[] = $name;
+  }
+  
+ return $field_names;
+}
+
+function nhpid_make_tmp_sub_folder($root){
+  global $user;
+  $tmp_sub_folder = $user -> name . '_' . time();
+  if (!is_dir("$root/$tmp_sub_folder")){
+    mkdir ("$root/$tmp_sub_folder");
+  }
+  return "$root/$tmp_sub_folder";
+  
+}
+
+function nhpid_filter_removed_items($field_name, $node_type, $items){
+  $content_field = content_fields($field_name, $node_type);
+  $items = content_set_empty($content_field, $items);
+  return $items;
+}
+
+function unique_code_trim(&$item1, $key) {
+    $item1 = trim($item1);
+}
+function nhpid_is_a_unique_node_type($node_type) {
+  $unique_node_types = variable_get('nhpid_unique_node_types', array());
+  if (isset($unique_node_types[$node_type]) and $unique_node_types[$node_type]) {
+   return TRUE;
+  }
+  return FALSE;
+}
+function assessment_central_is_a_unique_node_type($node_type) {
+  $unique_node_types = variable_get('assessment_central_unique_node_types', array());
+  if (isset($unique_node_types[$node_type]) and $unique_node_types[$node_type]) {
+   return TRUE;
+  }
+  return FALSE;
+}
+function nhpid_is_unique_node_type($node_type) {
+  return nhpid_is_a_unique_node_type($node_type);
+}
+
+function nhpid_is_a_data_node_type($node_type) {
+  $types =  variable_get('nhpid_data_node_types', array());
+  if (isset($types[$node_type]) and $types[$node_type]){
+   return TRUE;
+  }
+  return FALSE;
+}
+
+function nhpid_set_data_node_type($node_type) {
+  $types = variable_get('nhpid_data_node_types', '');
+  
+  if (!(in_array($node_type, $types, TRUE))) {
+   array_push($types, $node_type);
+   variable_set('nhpid_data_node_types',  $types);
+  }
+}
+
+function nhpid_is_a_unique_field($field_name, $node_type) {
+  $unique_field_id =  "nhpid_$node_type" . '_unique_fields';
+  $fields =  variable_get($unique_field_id, array());
+  if ($fields[$field_name]) {
+   return TRUE;
+  }
+  return FALSE;
+}
+
+function nhpid_is_a_unique_field_in_node_type($field_name, $node_type) {
+  if (nhpid_is_a_unique_field($field_name, $node_type) and nhpid_is_a_data_node_type($node_type))  {
+   return TRUE;
+  }
+  return FALSE;
+}
+function nhpid_field_is_empty($field_name, $node) {
+  $is_empty=true;
+  $info = field_info_field($field_name);
+	$function = $info['module'] . '_field_is_empty';
+	if (function_exists($function)) {
+   $items = field_get_items('node', $node, $field_name);
+    if (isset($items['add_more'])) unset($items['add_more']);
+		if (is_array($items)){
+			foreach($items as $item){
+				if ($function($item, $info) == false) {
+					$is_empty = false;
+					break;
+				}
+			}
+		}
+	}
+
+  return $is_empty;
+}
+function nhpid_field_item_is_empty($field_name, $node, $item) {
+  $is_empty=true;
+  $info = field_info_field($field_name);
+	$function = $info['module'] . '_field_is_empty';
+	if (function_exists($function)) {
+		 if ($function($item, $info) == false) {
+			$is_empty = false;
+		}
+	}
+  return $is_empty;
+}
+
+function delete_all_nodes_by_type($node_type) {
+//fetch the nodes we want to delete
+  $sql = "SELECT nid FROM {node} WHERE type= :type";
+
+  $result = db_query($sql, array(':type' => $node_type));
+  $nids = $result->fetchCol();
+  
+  node_delete_multiple($nids);
+  return count($nids);
+  
+}
+function delete_node_by_type_title($node_type, $title) {
+//fetch the nodes we want to delete
+  $title = addslashes($title);
+  $sql = "SELECT nid FROM {node} WHERE type=:type and title like :title";
+
+  $result = db_query($sql, array(':type' => $node_type, ':title' => $title));
+  foreach ($result as $row) {
+    node_delete($row->nid);
+  }
+
+}
+
+function delete_empty_title_node() {
+  $sql = "SELECT nid FROM {node} WHERE title is NULL or title = ''";
+  $result = db_query($sql);
+  $deleted_count = 0;
+  foreach ($result as $row) {
+    node_delete($row->nid);
+    $deleted_count+=1;
+  }
+  //simple debug message so we can see what had been deleted.
+  //drupal_set_message("$deleted_count nodes have been deleted");
+  //mysql_free_result($result);
+}
+function nhpid_api_get_node_by_field_value($node_type, $field_name, $field_value){
+  $field_data_table = 'field_data_' . $field_name;
+  $field_value_col = $field_name . '_value';
+  $sql = "select distinct entity_id from {$field_data_table} where entity_type=:entity_type and bundle = :bundle and $field_value_col = :value";
+  $result = db_query($sql, array(':entity_type' => 'node', ':bundle' => $node_type, ':value' => $field_value)) ->fetchCol();
+  //drupal_set_message(nhpid_api_dump(placeholder_query_2_normal_query($sql,array(':entity_type' => 'node', ':bundle' => $node_type, ':value' => $field_value), 'purple', TRUE)));
+  //drupal_set_message(nhpid_api_dump($result, 'purple', TRUE));
+  $nodes = array();
+  if (is_array($result)){
+    foreach($result as $rc){
+      $nodes[] = $node = node_load($rc);
+    }
+  }
+  elseif ($result){
+    $nodes[] = $node = node_load($result);
+  }
+  else{
+    $nodes = array();
+  }
+  
+  return $nodes;
+}
+
+function nhpid_get_workflow_states_by_type($type){
+  $states = array();
+  $workflow_type_map = workflow_get_workflow_type_map_by_type($type);
+  if ($workflow_type_map){
+    $wkf_objs = workflow_get_workflow_states_by_wid($workflow_type_map->wid);
+    foreach ($wkf_objs as $wkf_obj){
+      $states[] = $wkf_obj-> state;
+    }
+  }
+  return $states;
+}
+
+/*
+    snippet(phrase,[max length],[phrase tail])
+    snippetgreedy(phrase,[max length before next space],[phrase tail])
+
+*/
+
+function snippet($text,$length=64,$tail="...") {
+    $text = trim($text);
+    $txtl = strlen($text);
+    if($txtl > $length) {
+        for($i=1;$text[$length-$i]!=" ";$i++) {
+            if($i == $length) {
+                return substr($text,0,$length) . $tail;
+            }
+        }
+        $text = substr($text,0,$length-$i+1) . $tail;
+    }
+    return $text;
+}
+
+// It behaves greedy, gets length characters ore goes for more
+
+function snippetgreedy($text,$length=64,$tail="...") {
+    $text = trim($text);
+    if(strlen($text) > $length) {
+        for($i=0;$text[$length+$i]!=" ";$i++) {
+            if(!$text[$length+$i]) {
+                return $text;
+            }
+        }
+        $text = substr($text,0,$length+$i) . $tail;
+    }
+    return $text;
+}
+
+// The same as the snippet but removing latest low punctuation chars,
+// if they exist (dots and commas). It performs a later suffixal trim of spaces
+
+function snippetwop($text,$length=64,$tail="...") {
+    $text = trim($text);
+    $txtl = strlen($text);
+    if($txtl > $length) {
+        for($i=1;$text[$length-$i]!=" ";$i++) {
+            if($i == $length) {
+                return substr($text,0,$length) . $tail;
+            }
+        }
+        for(;$text[$length-$i]=="," || $text[$length-$i]=="." || $text[$length-$i]==" ";$i++) {;}
+        $text = substr($text,0,$length-$i+1) . $tail;
+    }
+    return $text;
+}
+
+function nhpid_show_popup_message($message, $title, $check_cookie = false){
+  if (module_exists('popup_message')){
+		$popup_message_parameters = array(
+				     'title' => t($title),
+				      'body' => t($message),
+				      'check_cookie' => $check_cookie,
+              'width' => variable_get('nhpid_tips_and_tricks_popup_width', 600),
+      				'height' => variable_get('nhpid_tips_and_tricks_popup_height', 600),
+				);
+		popup_message_show_message($popup_message_parameters);
+    //drupal_set_message(nhpid_api_dump($popup_message_parameters, 'brown', TRUE));
+	}
+
+}
+
+function nhpid_api_get_node_by_title_type($node_title, $node_type) {
+  $query = new EntityFieldQuery();
+  $entities = $query->entityCondition('entity_type', 'node')
+  ->propertyCondition('type', $node_type)
+  ->propertyCondition('title', $node_title)
+  ->propertyCondition('status', 1)
+  ->range(0,1)
+  ->execute();
+  if (!empty($entities['node'])) {
+    $node = node_load(array_shift(array_keys($entities['node'])));
+  }
+	return $node;
+}
+
+function nhpid_api_reset_field_permissions($field_name, $roles = array(), $permissions = array()){
+	if(empty($roles)){
+		$roles = array('authenticated user');
+	}
+	if (empty($permissions)){
+		$permissions = array(
+													"create $field_name" => TRUE,
+													"view $field_name" => TRUE,
+                          "view own $field_name" => TRUE,
+                          "edit $field_name" => TRUE,
+                          "edit own $field_name" => TRUE,
+		);
+	}
+
+	foreach($roles as $role){
+    $role_o = user_role_load_by_name($role);
+		$role_id = $role_o ? $role_o->rid : NULL;
+		if (!is_null($role_id)){
+      user_role_change_permissions($role_id, $permissions);
+		}
+	}
+
+  cache_clear_all();
+}
+function nhpid_api_field_get_items($entity, $field_name, $entity_type='node'){
+	$return = field_get_items($entity_type, $entity, $field_name);
+	foreach($return as $delta=>$value){
+		if(!is_int($delta)) unset($return[$delta]);
+	}
+	return $return;
+
+}
+/**
+ *This method can be used for unsaved nodes
+ *
+ */
+
+
+function nhpid_api_get_field_values($node, $field_name, $display = array(), $langcode = NULL, $return_delta1_only=FALSE, $force_update = false){
+	$rtn = array();
+	if (nhpid_field_is_empty($field_name, $node)) return $return_delta1_only? null:$rtn;
+  $items = nhpid_api_field_get_items($node, $field_name);
+  //drupal_set_message(nhpid_api_dump($items, 'blue', TRUE));
+	$node -> {$field_name}[$node->language]=$items; // removde 'add_more' from $node
+  $field_type = nhpid_api_get_field_type($field_name);
+	//Change formatter for list fields
+	if (in_array($field_type, array('list_integer', 'list_float', 'list_text', 'list_boolean'))){
+		$display['type']='list_key';
+	}
+  if (in_array($field_type, array('number_integer'))){
+		$display['type']='number_unformatted';
+	}
+	if (!$langcode) $langcode =$node->language;
+
+	if (!$items) return null;
+	if ($force_update==FALSE){
+    $cached = nhpid_api_get_calculated_field_values(array($node->nid), $field_name);
+    $saved_value = $cached[$node->nid];
+    //drupal_set_message(nhpid_api_dump($saved_value, 'blue', TRUE));
+		if ($saved_value){
+      $rtn = $saved_value;
+		}
+	}
+  if (isset($items['add_more'])) unset($items['add_more']);
+	if(empty($rtn)){
+		foreach($items as $delta => $item){
+      if (nhpid_field_item_is_empty($field_name, $node, $item)){
+     		continue;
+			}
+	    switch ($field_type) {
+				case 'field_reference':
+          $field_view_field = field_view_field('node', $node, $field_name, $display, $langcode);
+					if (preg_match('/node:\d+$/', $item['field_key'])){
+						$item = field_reference_key_read($item['field_key']);
+						$ref_node = node_load($item['entity_id']);
+	          $item_value = $ref_node ->{$item['field_key']}[$ref_node->language][0]['value'];
+					}
+					else{
+	          $view_value = $field_view_field[$delta];
+	          $item_value = strip_tags(html_entity_decode($view_value['#markup'], ENT_QUOTES));
+					}
+					break;
+				case 'field_collection':
+          $field_view_field = field_view_field('node', $node, $field_name, $display, $langcode);
+					$fc_fields = field_info_instances('field_collection_item', $field_name);
+					$fc_view = isset($item['value']) ? $field_view_field[$delta]['entity']['field_collection_item'][$item['value']] : $item;
+	        
+					$fc_fields = field_info_instances('field_collection_item', $field_name);
+
+          $field_collection_item=isset($item['value']) ? array_shift(entity_load('field_collection_item', array($item['value']))) : $item['entity'];
+          //drupal_set_message(nhpid_api_dump($field_collection_item, 'green', TRUE));
+					//return;
+	        $item_value = array();
+					foreach($fc_fields as $fc_field_name => $field_info){
+           //$fc_items = nhpid_api_field_get_items($field_collection_item, $fc_field_name);
+            $fc_items = nhpid_api_field_get_items($field_collection_item, $fc_field_name, 'field_collection_item');
+            //drupal_set_message(nhpid_api_dump($fc_items, 'green', TRUE));
+	          $fc_field_item_values=array();
+            $fc_field_type = nhpid_api_get_field_type($fc_field_name);
+            if (in_array($fc_field_type, array('list_integer', 'list_float', 'list_text', 'list_boolean'))){
+							$display['type']='list_key';
+						}
+	        //$item_value = array();
+					//foreach($fc_fields as $fc_field_name => $field_info){
+	          //$fc_field_item_values = array();
+	          //$fc_field_type = nhpid_api_get_field_type($fc_field_name);
+						//$fc_field_view = field_view_value('field_collection_item', $field_collection_item, $fc_field_name, $fc_item, $display, $langcode);
+	          //drupal_set_message(nhpid_api_dump($fc_field_name, 'blue', TRUE));
+	          //drupal_set_message(nhpid_api_dump($fc_field_view, 'blue', TRUE));
+						//continue;
+						$fc_items =  $fc_items = nhpid_api_field_get_items($field_collection_item, $fc_field_name, 'field_collection_item');
+						
+						foreach($fc_items as $fc_delta=>$fc_item){
+							 if ($fc_field_type == 'field_reference'){
+								 if (preg_match('/node:\d+$/', $fc_item['field_key'])){
+	        				$fc_item = field_reference_key_read($fc_item['field_key']);
+				          //drupal_set_message(nhpid_api_dump($fc_field_view, 'blue', TRUE));
+									$ref_node = node_load($fc_item['entity_id']);
+				          $fc_view_value = $ref_node ->{$fc_item['field_key']}[$ref_node->language][0]['value'];
+								}
+								else{
+	                $display = array('type' =>'field_reference_default');
+									$fc_view_value = field_view_value('field_collection_item', $field_collection_item, $fc_field_name, $fc_item, $display, $langcode);
+                  $fc_view_value = strip_tags(html_entity_decode($fc_view_value['#markup'], ENT_QUOTES));
+								}
+                $fc_field_item_values[] = $fc_view_value;
+	             
+							}
+							else{
+		          	$fc_view_value=field_view_value('field_collection_item', $field_collection_item, $fc_field_name, $fc_item, $display, $langcode);
+                $fc_field_item_value =strip_tags(html_entity_decode($fc_view_value['#markup'], ENT_QUOTES));
+								if (!$fc_field_item_value) $fc_field_item_value =$fc_item['value'];
+								$fc_field_item_values[] = $fc_field_item_value;
+		            //$fc_field_item_values[] = $fc_item['value'];
+							}
+
+						}
+	          $item_value[$fc_field_name] = $fc_field_item_values;
+					}
+
+			    $item_value = compute_fc_item_value($field_name, $item_value);
+			    //drupal_set_message(nhpid_api_dump($item_value, 'green', TRUE));
+
+
+	        //drupal_set_message(nhpid_api_dump($item_value, 'green', TRUE));
+	      	break;
+			case "number_decimal":
+      case "number_float":
+        if (!isset($display['type'])) $display['type']='number_unformatted';
+        $field_view_field = field_view_field('node', $node, $field_name, $display, $langcode);
+        $view_value = $field_view_field[$delta];
+				$item_value = strip_tags(html_entity_decode($view_value['#markup'], ENT_QUOTES));
+        $item_value=trim($item_value);
+				if($display['type']=='number_unformatted') $item_value = (float)$item_value; // removing trailing 0's
+				break;
+			default:
+        $field_view_field = field_view_field('node', $node, $field_name, $display, $langcode);
+	      $view_value = $field_view_field[$delta];
+				$item_value = strip_tags(html_entity_decode($view_value['#markup'], ENT_QUOTES));
+			}
+      $item_value=trim($item_value);
+			$rtn[$delta] = $item_value;
+		}
+    //drupal_set_message(nhpid_api_dump($rtn, 'green', TRUE));
+	}
+  //drupal_set_message(nhpid_api_dump($rtn, 'green', TRUE));
+	if ($return_delta1_only) return $rtn[0];
+	return $rtn;
+}
+/**
+ *This method can be used for existing nodes only
+ * return an array when
+ */
+function nhpid_api_get_field_values2($node, $field_name, $display = array(), $langcode = NULL, $return_delta1_only=FALSE,  $force_update = false){
+	$rtn = array();
+	if (nhpid_field_is_empty($field_name, $node)) return $return_delta1_only? null:$rtn;
+  $items = nhpid_api_field_get_items($node, $field_name);
+  //drupal_set_message(nhpid_api_dump($items, 'blue', TRUE));
+  $field_type = nhpid_api_get_field_type($field_name);
+
+	if (!$items) return null;
+  if ($force_update==FALSE){
+    $cached = nhpid_api_get_calculated_field_values(array($node->nid), $field_name);
+    $saved_value = $cached[$node->nid];
+		if ($saved_value){
+      $rtn = $saved_value;
+		}
+	}
+  if (isset($items['add_more'])) unset($items['add_more']);
+	if(empty($rtn)){
+    //Change formatter for list fields
+		if (in_array($field_type, array('list_integer', 'list_float', 'list_text', 'list_boolean'))){
+			$display['type']='list_key';
+		}
+    if (in_array($field_type, array('number_integer'))){
+			$display['type']='number_unformatted';
+		}
+		foreach($items as $delta => $item){
+      if (nhpid_field_item_is_empty($field_name, $node, $item)){
+     		continue;
+			}
+			switch ($field_type) {
+
+				case 'field_collection':
+
+					//$display['type']='field_collection_fields';
+	        //$item_view_value = field_view_value('node', $node, $field_name, $item, $display, $langcode);
+	        //$fc_item_value = array_shift($item_view_value['entity']['field_collection_item']);
+          $field_collection_item=array_shift(entity_load('field_collection_item', array($item['value'])));
+	        //drupal_set_message(nhpid_api_dump($field_collection_item, 'green', TRUE));
+					$fc_fields = field_info_instances('field_collection_item', $field_name);
+          //drupal_set_message(nhpid_api_dump($fc_fields, 'green', TRUE));
+	        $item_value = array();
+					foreach($fc_fields as $fc_field_name => $field_info){
+
+						//$fc_items = nhpid_api_field_get_items($field_collection_item, $fc_field_name);
+            $fc_items = nhpid_api_field_get_items($field_collection_item, $fc_field_name, 'field_collection_item');
+            //drupal_set_message(nhpid_api_dump($fc_items, 'green', TRUE));
+	          $fc_field_item_values=array();
+            $fc_field_type = nhpid_api_get_field_type($fc_field_name);
+            if (in_array($fc_field_type, array('list_integer', 'list_float', 'list_text', 'list_boolean'))){
+							$display['type']='list_key';
+						}
+						foreach($fc_items as $fc_delta=>$fc_item){
+              
+							$fc_item_view_value = field_view_value('field_collection_item', $field_collection_item, $fc_field_name, $fc_item, $display, $langcode);
+              //drupal_set_message(nhpid_api_dump($field_collection_item, 'green', TRUE));
+              //drupal_set_message(nhpid_api_dump($fc_item_view_value, 'green', TRUE));
+							$fc_field_item_values[] = strip_tags(html_entity_decode($fc_item_view_value['#markup'], ENT_QUOTES));
+	           //drupal_set_message(nhpid_api_dump($fc_field_item_values, 'green', TRUE));
+	 					}
+	          $item_value[$fc_field_name] = $fc_field_item_values;
+					}
+
+			    //drupal_set_message(nhpid_api_dump($item_value, 'green', TRUE));
+			    $item_value = compute_fc_item_value($field_name, $item_value);
+			    //drupal_set_message(nhpid_api_dump($item_value, 'green', TRUE));
+
+	      	break;
+      case "number_decimal":
+      case "number_float":
+        if (!isset($display['type'])) $display['type']='number_unformatted';
+        $field_view_field = field_view_field('node', $node, $field_name, $display, $langcode);
+        $view_value = $field_view_field[$delta];
+				$item_value = strip_tags(html_entity_decode($view_value['#markup'], ENT_QUOTES));
+        $item_value=trim($item_value);
+				if($display['type']=='number_unformatted') $item_value = (float)$item_value; // removing trailing 0's
+				break;
+			default:
+        $field_view_field = field_view_field('node', $node, $field_name, $display, $langcode);
+	      $view_value = $field_view_field[$delta];
+				$item_value = strip_tags(html_entity_decode($view_value['#markup'], ENT_QUOTES));
+			}
+      $item_value=trim($item_value);
+			$rtn[$delta] = $item_value;
+		}
+	}
+  //drupal_set_message(nhpid_api_dump($rtn, 'green', TRUE));
+	if ($return_delta1_only) return $rtn[0];
+	return $rtn;
+}
+
+function nhpid_api_get_field_raw_values($node, $field_name, $display = array(), $langcode = NULL, $return_delta1_only=FALSE){
+	$rtn = array();
+	if (nhpid_field_is_empty($field_name, $node)) return $return_delta1_only? null:$rtn;
+	$items = nhpid_api_field_get_items($node, $field_name);
+	//drupal_set_message(nhpid_api_dump($items, 'blue', TRUE));
+	$node -> {$field_name}[$node->language]=$items; // removde 'add_more' from $node
+	$field_type = nhpid_api_get_field_type($field_name);
+ 	$field_view_field = field_view_field('node', $node, $field_name, $display, $langcode = NULL);
+
+	if (!$items) return null;
+	if (isset($items['add_more'])) unset($items['add_more']);
+	if(empty($rtn)){
+		foreach($items as $delta => $item){
+		if (nhpid_field_item_is_empty($field_name, $node, $item)){
+     		continue;
+		}
+		 switch ($field_type) {
+			case 'field_reference':
+				if (preg_match('/node:\d+$/', $item['field_key'])){
+					$item = field_reference_key_read($item['field_key']);
+					$ref_node = node_load($item['entity_id']);
+					$item_value = $ref_node ->{$item['field_key']}[$ref_node->language][0]['value'];
+				}
+				else{
+					$view_value = $field_view_field[$delta];
+					$item_value = strip_tags(html_entity_decode($view_value['#markup'], ENT_QUOTES));
+				}
+				break;
+			case 'field_collection':
+
+				$fc_fields = field_info_instances('field_collection_item', $field_name);
+				$fc_view = isset($item['value']) ? $field_view_field[$delta]['entity']['field_collection_item'][$item['value']] : $item;
+				//drupal_set_message(nhpid_api_dump($fc_view, 'blue', TRUE));
+				//drupal_set_message(nhpid_api_dump($field_view_field, 'blue', TRUE));
+				$item_value = array();
+				foreach($fc_fields as $fc_field_name => $field_info){
+					$fc_field_item_values = array();
+					$fc_field_type = nhpid_api_get_field_type($fc_field_name);
+					$fc_field_view = $fc_view[$fc_field_name];
+					//continue;
+					$fc_items = $fc_field_view['#items'];
+					if(!$fc_items){
+						$fc_items = $fc_view['entity'] -> {$fc_field_name}[$node->language];
+					}
+					//drupal_set_message(nhpid_api_dump($fc_field_name, 'blue', TRUE));
+					foreach($fc_items as $fc_delta=>$fc_item){
+						if ($fc_field_type == 'field_reference'){
+							if (preg_match('/node:\d+$/', $fc_item['field_key'])){ // new field_reference value
+								$fc_item = field_reference_key_read($fc_item['field_key']);
+								//drupal_set_message(nhpid_api_dump($fc_field_view, 'blue', TRUE));
+								$ref_node = node_load($fc_item['entity_id']);
+								$fc_view_value['#markup'] = $ref_node ->{$fc_item['field_key']}[$ref_node->language][0]['value'];
+								//drupal_set_message(nhpid_api_dump($fc_field_view, 'blue', TRUE));
+							}
+							else{
+								//drupal_set_message(nhpid_api_dump($fc_field_view, 'blue', TRUE));
+								$fc_view_value = $fc_field_view[$fc_delta];
+
+							}
+							//drupal_set_message(nhpid_api_dump($fc_view_value, 'blue', TRUE));
+							$fc_field_item_values[] = strip_tags(html_entity_decode($fc_view_value['#markup'], ENT_QUOTES));
+							//drupal_set_message(nhpid_api_dump($fc_field_item_values, 'blue', TRUE));
+						}
+						else{
+							$fc_view_value=$fc_field_view[$fc_delta];
+							$fc_field_item_value =strip_tags(html_entity_decode($fc_view_value['#markup'], ENT_QUOTES));
+							if (!$fc_field_item_value) $fc_field_item_value =$fc_item['value'];
+							$fc_field_item_values[] = $fc_field_item_value;
+							//$fc_field_item_values[] = $fc_item['value'];
+						}
+
+					}
+					$item_value[$fc_field_name] = $fc_field_item_values;
+				}
+
+	      	break;
+		case "number_decimal":
+		case "number_float":
+			if (!isset($display['type'])) $display['type']='number_unformatted';
+			$field_view_field = field_view_field('node', $node, $field_name, $display, $langcode);
+			$view_value = $field_view_field[$delta];
+			$item_value = strip_tags(html_entity_decode($view_value['#markup'], ENT_QUOTES));
+			$item_value=trim($item_value);
+			if($display['type']=='number_unformatted') $item_value = (float)$item_value; // removing trailing 0's
+			break;
+		default:
+			$field_view_field = field_view_field('node', $node, $field_name, $display, $langcode);
+			$view_value = $field_view_field[$delta];
+			$item_value = strip_tags(html_entity_decode($view_value['#markup'], ENT_QUOTES));
+		}
+		//$item_value=trim($item_value);
+		$rtn[$delta] = $item_value;
+		}
+    //drupal_set_message(nhpid_api_dump($rtn, 'green', TRUE));
+	}
+	if ($return_delta1_only) return $rtn[0];
+	return $rtn;
+}
+function nhpid_api_get_field_raw_values__($node, $field_name, $display = array(), $langcode = NULL, $return_delta1_only=FALSE){
+	$rtn = array();
+	if (nhpid_field_is_empty($field_name, $node)) return $return_delta1_only? null:$rtn;
+	//$items = nhpid_api_field_get_items($node, $field_name);
+	//drupal_set_message(nhpid_api_dump($items, 'blue', TRUE));
+	//$node -> {$field_name}[$node->language]=$items; // removde 'add_more' from $node
+	$field_type = nhpid_api_get_field_type($field_name);
+ 	//$field_view_field = field_view_field('node', $node, $field_name, $display, $langcode = NULL);
+	$node_wrapper=entity_metadata_wrapper('node', $node);
+	$field_wrapper = $node_wrapper -> $field_name;
+
+	//if (!$items) return null;
+	//if (isset($items['add_more'])) unset($items['add_more']);
+	if(empty($rtn)){
+		
+		foreach($items as $delta => $item){
+		if (nhpid_field_item_is_empty($field_name, $node, $item)){
+     		continue;
+		}
+		 switch ($field_type) {
+			case 'field_reference':
+				if (preg_match('/node:\d+$/', $item['field_key'])){
+					$item = field_reference_key_read($item['field_key']);
+					$ref_node = node_load($item['entity_id']);
+					$item_value = $ref_node ->{$item['field_key']}[$ref_node->language][0]['value'];
+				}
+				else{
+					$view_value = $field_view_field[$delta];
+					$item_value = strip_tags(html_entity_decode($view_value['#markup'], ENT_QUOTES));
+				}
+				break;
+			case 'field_collection':
+
+				$fc_fields = field_info_instances('field_collection_item', $field_name);
+				$fc_view = isset($item['value']) ? $field_view_field[$delta]['entity']['field_collection_item'][$item['value']] : $item;
+				//drupal_set_message(nhpid_api_dump($item, 'blue', TRUE));
+				//drupal_set_message(nhpid_api_dump($fc_view, 'blue', TRUE));
+				//drupal_set_message(nhpid_api_dump($field_view_field, 'blue', TRUE));
+				$item_value = array();
+				foreach($fc_fields as $fc_field_name => $field_info){
+				$fc_field_item_values = array();
+				$fc_field_type = nhpid_api_get_field_type($fc_field_name);
+				$fc_field_view = $fc_view[$fc_field_name];
+				//drupal_set_message(nhpid_api_dump($fc_field_name, 'blue', TRUE));
+				//drupal_set_message(nhpid_api_dump($fc_field_view, 'blue', TRUE));
+				//continue;
+				$fc_items = $fc_field_view['#items'];
+				if(!$fc_items){
+					$fc_items = $fc_view['entity'] -> {$fc_field_name}[$node->language];
+				}
+				//drupal_set_message(nhpid_api_dump($fc_items, 'blue', TRUE));
+				//drupal_set_message(nhpid_api_dump($fc_field_name, 'blue', TRUE));
+				foreach($fc_items as $fc_delta=>$fc_item){
+					if ($fc_field_type == 'field_reference'){
+						if (preg_match('/node:\d+$/', $fc_item['field_key'])){
+	        				$fc_item = field_reference_key_read($fc_item['field_key']);
+							//drupal_set_message(nhpid_api_dump($fc_field_view, 'blue', TRUE));
+							$ref_node = node_load($fc_item['entity_id']);
+							$fc_view_value = $ref_node ->{$fc_item['field_key']}[$ref_node->language][0]['value'];
+							//drupal_set_message(nhpid_api_dump($fc_field_view, 'blue', TRUE));
+						}
+						else{
+							//drupal_set_message(nhpid_api_dump($fc_field_view, 'blue', TRUE));
+							$fc_view_value = $fc_field_view[$fc_delta];
+
+							}
+						$fc_field_item_values[] = strip_tags(html_entity_decode($fc_view_value['#markup'], ENT_QUOTES));
+						}
+						else{
+							$fc_view_value=$fc_field_view[$fc_delta];
+							$fc_field_item_value =strip_tags(html_entity_decode($fc_view_value['#markup'], ENT_QUOTES));
+							if (!$fc_field_item_value) $fc_field_item_value =$fc_item['value'];
+							$fc_field_item_values[] = $fc_field_item_value;
+							//$fc_field_item_values[] = $fc_item['value'];
+						}
+
+						}
+					$item_value[$fc_field_name] = $fc_field_item_values;
+					}
+
+	      	break;
+		case "number_decimal":
+		case "number_float":
+			if (!isset($display['type'])) $display['type']='number_unformatted';
+			$field_view_field = field_view_field('node', $node, $field_name, $display, $langcode);
+			$view_value = $field_view_field[$delta];
+			$item_value = strip_tags(html_entity_decode($view_value['#markup'], ENT_QUOTES));
+			$item_value=trim($item_value);
+			if($display['type']=='number_unformatted') $item_value = (float)$item_value; // removing trailing 0's
+			break;
+		default:
+			$field_view_field = field_view_field('node', $node, $field_name, $display, $langcode);
+			$view_value = $field_view_field[$delta];
+			$item_value = strip_tags(html_entity_decode($view_value['#markup'], ENT_QUOTES));
+		}
+		$item_value=trim($item_value);
+		$rtn[$delta] = $item_value;
+		}
+    //drupal_set_message(nhpid_api_dump($rtn, 'green', TRUE));
+	}
+	drupal_set_message(nhpid_api_dump($field_name, 'green', TRUE));
+	drupal_set_message(nhpid_api_dump($rtn, 'green', TRUE));
+	if ($return_delta1_only) return $rtn[0];
+	return $rtn;
+}
+
+function nhpid_api_download($path, $download_file_name=null){
+  if (!$download_file_name) $download_file_name = drupal_basename($path);
+  $realpath = drupal_realpath($path);
+  if (file_exists($realpath)){
+    
+    $header = array('Content-Type' => 'application/octet-stream',
+                    'Content-Disposition' => "attachment; filename=$download_file_name;",
+                    'Content-Length' => filesize($path));
+    file_transfer($path, $header);
+  }
+  else {
+    drupal_set_message("$realpath does not exist.");
+  }
+}
+function compute_fc_item_value($fc_name, $fc_item_raw_value) {
+	$value = '';
+
+	if(!$fc_item_raw_value) return null;
+	switch ($fc_name){
+		case 'field_fc_common_name':
+		case 'field_fc_proper_name':
+		case 'field_fc_synonym_e':
+		case 'field_fc_synonym_f':
+		case 'field_fc_taxon':
+		
+	    if($fc_item_raw_value['field_free_text_part'][0] ==='NA'){
+        $value = $fc_item_raw_value['field_free_text_part'][0];
+			}
+			else{
+				$value = $fc_item_raw_value['field_free_text_part'][0] . '[' . implode(';',$fc_item_raw_value['field_code_ref_code']) . ']';
+			}
+			break;
+    case 'field_fc_common_name_e':
+		case 'field_fc_common_name_f':
+		case 'field_fc_proper_name_e':
+		case 'field_fc_proper_name_f':
+	    if($fc_item_raw_value['field_free_text_part'][0] ==='NA'){
+        $value = $fc_item_raw_value['field_free_text_part'][0];
+			}
+			else{
+				$value = $fc_item_raw_value['field_free_text_part'][0] . '[' . implode(';',$fc_item_raw_value['field_mono_citation']) . ']';
+			}
+			break;
+
+    case 'field_fc_cas_number':
+      $value = $fc_item_raw_value['field_cas_number'][0] . '[' . implode(';',$fc_item_raw_value['field_code_ref_code']) . ']';
+			break;
+    case 'field_fc_excluded_item':
+		case 'field_fc_included_item':
+      $value = $fc_item_raw_value['field_taxonomical_name'][0] . '[' . implode(';',$fc_item_raw_value['field_taxonomical_node']) . ']';
+			break;
+    case 'field_fc_chem_mn_sc_org_part':
+      $value = $fc_item_raw_value['field_org_or_org_group_name'][0] . '-' . $fc_item_raw_value['field_single_org_part'][0] . '[' . implode(';',$fc_item_raw_value['field_mono_citation']) . ']';
+			break;
+    case 'field_fc_org_mon_src_part':
+      $value = $fc_item_raw_value['field_single_org_part'][0] . '[' . implode(';',$fc_item_raw_value['field_mono_citation']) . ']';
+			break;
+    case 'field_fc_chem_mon_src_ad_sc_e':
+    case 'field_fc_chem_mon_src_ad_sc_f':
+      $value = $fc_item_raw_value['field_sources'][0] . '[' . implode(';',$fc_item_raw_value['field_mono_citation']) . ']';
+			break;
+    case 'field_fc_chem_mon_src_adt_ing':
+    case 'field_fc_chem_mon_src_ing':
+      $value = $fc_item_raw_value['field_approved_ingredient_name'][0] . '[' . implode(';',$fc_item_raw_value['field_mono_citation']) . ']';
+			break;
+    
+    case 'field_fc_dose_dependency':
+    case 'field_fc_duration_dependency':
+    case 'field_fc_for_use_dependency':
+    case 'field_fc_risk_dependency':
+		case 'field_fc_use_dependency':
+			$values = array();
+      //drupal_set_message(nhpid_api_dump($fc_item_raw_value, 'blue', TRUE));
+			foreach($fc_item_raw_value as $fc_sub_field_name => $fc_sub_field_values){
+				if ($fc_sub_field_values){
+					foreach($fc_sub_field_values as $fc_sub_field_value){
+						if(strpos($fc_sub_field_value, 'OTHER-')!==false){
+              $values[]=$fc_sub_field_value;
+						}
+						else{
+							list($dependency_group, $nid)=explode('-', $fc_sub_field_value);
+							$dependency_node = node_load($nid);
+	            $dependency_group_value = $dependency_node->field_code[$dependency_node->language][0]['value'];
+							$values[]=$dependency_group . '-' . $dependency_group_value;
+						}
+					}
+				}
+			}
+			$value = implode(';', $values);
+			break;
+	}
+  return $value;
+}
+
+function nhpid_api_add_new_nhpid_data_nodes($ingredient_data_only = false, $monograph_data_only = false) {
+	$types = array();
+	$title = '';
+	if ($ingredient_data_only){
+    $types = get_all_nhpid_ingredient_data_node_types();
+		$title = 'All NHPID Ingredient Data Types';
+	}
+	elseif($monograph_data_only){
+    $types = get_all_nhpid_monograph_data_node_types();
+    $title = 'All Monograph Data Types';
+	}
+	else{
+    $types = get_all_nhpid_data_node_types();
+    $title = 'All NHPID Data Types';
+	}
+  $links = array();
+	if (function_exists('nhpid_system_lock_access') and !nhpid_system_lock_access()){
+		$links[]='System is locked or data exporting is in progress. You are not allowed to add new contents at this moment. Please try it later.';
+	}
+	else{
+		foreach($types as $type => $name){
+			$permission = "create $type content";
+			if (user_access($permission)) $links[] = l($name, "node/add/" . str_replace('_', '-', $type), array('html' => true, 'attributes' => array('target' => '_blank')));
+	 	}
+	}
+  //drupal_set_message(nhpid_api_dump($links, 'blue', TRUE));
+	return theme_item_list(array('items'=>$links, 'title' => $title, 'type' => 'ul', 'attributes' => array()));
+}
+
+function nhpid_api_save_calculated_field_values($node){
+	$field_info = field_info_instances('node', $node -> type);
+  $values = array();
+  $display = array('settings' => array('format_type' => 'short_export_date'));
+	foreach ($field_info as $field_name => $info){
+    //$field_type = nhpid_api_get_field_type($field_name);
+		//if ($field_type == 'field_collection'){
+
+    $value = nhpid_api_get_field_values($node, $field_name, $display, $node ->language , FALSE, true);
+		if (!empty($value)){
+      //$values[$field_name] = implode(';',$value);
+      $values[$field_name] = $value;
+		}
+		//}
+	}
+  if (!empty($values)){
+		$values['title'] = $node -> title;
+    $values['nid'] = $node -> nid;
+    $values['changed'] = $node -> changed;
+    $workflow_state = workflow_get_workflow_states_by_sid($node -> workflow);
+    $values['workflow_state'] = (bool)$workflow_state ? $workflow_state -> state : '';
+		$values = serialize($values);
+    //$sql = 'insert into {field_collection_calculated_value} (nid, type, workflow_state, value) values(:nid,:type:, :workflow_state, :value) ON DUPLICATE KEY UPDATE type=:type2, workflow_state=:workflow_state2,value=:value2';
+		//db_query($sql, array(':nid' => $node -> nid, ':type' => $node->type, ':workflow_state'=>$node -> workflow, ':value' => $values, ':type2' => $node->type, ':workflow_state2'=>$node -> workflow, ':value2' => $values));
+    $sql = 'insert into {field_collection_calculated_value} (nid, type, workflow_state, value) values(:nid,:type, :workflow_state, :value) ON DUPLICATE KEY UPDATE type=:type2, workflow_state=:workflow_state2,value=:value2';
+		db_query($sql, array(':nid' => $node -> nid, ':type' => $node->type, ':workflow_state'=>$node -> workflow, ':value' => $values, ':type2' => $node->type, ':workflow_state2'=>$node -> workflow, ':value2' => $values));
+  }
+	
+}
+function nhpid_api_save_all_calculated_field_values($node_types = array(), $recent_updated_only=true, $from_timestamp=null){
+	$now = time();
+	$variable_last_update_time_name_root ='nhpidapi_calculated_field_values_last_update_time_';
+	//drupal_set_message(nhpid_api_dump($node_types, 'blue', TRUE));
+	if (empty($node_types)){
+		$node_types = array_keys(get_all_nhpid_data_node_types());
+	}
+	foreach($node_types as $node_type){
+    $variable_last_update_time_name = $variable_last_update_time_name_root . $node_type;
+    if ($recent_updated_only) $from_timestamp=variable_get($variable_last_update_time_name, $from_timestamp);
+		$sql = db_select('node', 'n');
+		$sql -> fields('n', array('nid'));
+		$sql -> condition('n.type', $node_type, '=');
+		if ($from_timestamp) $sql -> condition('n.changed', $from_timestamp, '>=');
+		$result = $sql -> execute();
+    //drupal_set_message(nhpid_api_dump("$variable_last_update_time_name: $from_timestamp", 'blue', TRUE));
+    //drupal_set_message(nhpid_api_dump($recent_updated_only, 'blue', TRUE));
+    //drupal_set_message(nhpid_api_dump($nids, 'blue', TRUE));
+		while($nid = $result->fetchColumn(0)) {
+			$node = node_load($nid);
+      nhpid_api_save_calculated_field_values($node);
+      //drupal_set_message(nhpid_api_dump($nid, 'blue', TRUE));
+		}
+    // save last update timestamp
+    variable_set($variable_last_update_time_name, $now);
+	}
+}
+
+function nhpid_api_get_calculated_field_values($nids=array(), $field_name=null, $node_type=null,$workflow_sids=array()){
+  $sql = db_select('field_collection_calculated_value', 'fccv');
+	$sql -> fields('fccv', array('value'));
+	if(!empty($nids)) {
+		$sql -> condition('fccv.nid', $nids, 'IN');
+	}
+	else if($node_type){
+    $sql -> condition('fccv.type', $node_type, '=');
+	}
+	else{
+		return array();
+	}
+	if (!empty($workflow_sid)) $sql -> condition('fccv.workflow_state', $workflow_sids, 'IN');
+  //drupal_set_message(nhpid_api_dump($sql -> __toString(), 'blue', TRUE));
+	$result = $sql -> execute();
+	$rtn = array();
+	$user_time_zone = drupal_get_user_timezone();
+	while($value = $result -> fetchColumn(0)){
+  //drupal_set_message(nhpid_api_dump($value, 'blue', TRUE));
+		if ($value){
+			$value = unserialize($value);
+			if (isset($value['changed'])){
+        $value['changed'] = format_date($value['changed'], 'short', '', $user_time_zone,  NULL);
+			}
+	    //drupal_set_message(nhpid_api_dump($value, 'blue', TRUE));
+			if ($field_name){
+				$rtn[$value['nid']] = $value[$field_name];
+			}
+			else {
+				$rtn[$value['nid']] = $value;
+			}
+		}
+	}
+	return $rtn;
+}
+
+function nhpid_api_delete_calculated_field_values($nid){
+	$sql = 'delete from {field_collection_calculated_value} where nid = :nid';
+	$result = db_query($sql, array(':nid' => $nid));
+}
+
+
+function nhpid_api_delete_older_files( $folder = '.', $days, $files = array() ){
+  if (strpos($folder, drupal_realpath("public://")) !== false or strpos($folder, file_directory_temp() . '/') !== false){
+    $ignore = array('.svn', '.', '..' );
+    $dh = @opendir( $folder );
+
+    while( false !== ( $entry = readdir( $dh ) ) ){
+
+        if( !in_array( $entry, $ignore ) ){
+
+            if( is_dir( "$folder/$entry" ) ){
+                nhpid_api_delete_older_files( "$folder/$entry", $days, $files );
+
+            } else {
+
+              $now = time();
+              $fmtime=filemtime("$folder/$entry");
+              $diff = $now - $fmtime;
+               if ($diff > $days * 24 * 3600){
+                drupal_unlink("$folder/$entry");
+                $files[] = "$folder/$entry";
+              }
+            }
+        }
+     }
+     closedir( $dh );
+  }
+  return $files;
+}
