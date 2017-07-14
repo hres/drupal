@@ -1,0 +1,214 @@
+<?php
+// $Id: nhpid_data_export.module,v 1.0.0 2010/07/27 15:26:16 peijun zhang $
+include_once 'XML/Serializer.php';
+//include_once 'PHPExcel/PHPExcel.php';
+module_load_include('inc', 'phpexcel');
+
+define("DATA_EXPORTING_LOCK_VARIABLE", 'nhpiddms_system_lock');
+define("DATA_EXPORTING_LOCK_TEMP_VARIABLE", 'nhpiddms_deta_exporting_temp_lock');
+define("DATE_FORMAT", 'd/m/Y');
+define("TPD_EMAIL_EXPORT_SETTING", 'tpd_email_export_setting');
+
+gc_enable();
+//$freemem = get_sysmeminfo() -> MemFree;
+//if (!$freemem or $freemem < 1000000000) $freemem = '1000M';
+//ini_set('memory_limit', $freemem);
+set_time_limit(0);
+global $file_path_root;
+$file_path_root = 'public://exported_data_files/';
+  
+function tpd_data_export_permission() {
+    return array(
+    'export tpd data' => array(
+      'title' => t('Export TPD Data'),
+      'description' => t(''),
+      ),
+    );
+} 
+
+function tpd_data_export_menu() {
+
+  $items['email_list'] = array(
+    'title' => 'TP Email List',
+    'description' => 'Exports tpd emails',
+    'menu_name' => 'main-menu',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('tpd_email_list_form'),
+    'access arguments' => array('export tpd data'),
+    'type' => MENU_NORMAL_ITEM,
+ 
+   );
+   return $items;
+}
+
+
+function tpd_email_list_form($form, &$form_state) {
+	dpm($form_state);
+	$setting = variable_get(TPD_EMAIL_EXPORT_SETTING, array());
+  //drupal_set_message(nhpid_api_dump($setting, 'red', TRUE));
+	$form['setting'] = array(
+    '#type' => 'fieldset',
+    '#title' => 'Email list setting',
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+	);
+	$form['setting']['desc']=array(
+    '#type' => 'item',
+		'#markup' => "The setting will be saved for your use in the future.",
+	);
+	$sids_default = $setting ? $setting['states'] : Null;
+	$wfs = array();
+	 if (empty($sids_default)){
+    	$sids_default = array_combine(variable_get("nhpid_visible_wkf_states", array()), variable_get("nhpid_visible_wkf_states", array()));
+	 } 
+
+	$sql = "select ws.sid, ws.state from {workflow_states} ws, {workflows} w where ws.sid > 1 and ws.wid = w.wid order by ws.weight";
+	//drupal_set_message ($sql);
+	$result = db_query($sql);
+
+	while ($wf = $result -> fetchAssoc()) {
+	$wfs[$wf['sid']] = array('wfs' => $wf['state']);
+	if (empty($sids_default) and $wf['state'] == 'Published') $sids_default [$wf['sid']]=$wf['sid'];
+	}
+
+	$wf_state = !empty($form_state['values']['wk_state']) ? $form_state['values']['wk_state'] : $sids_default;
+	$wf_header=array('wfs'=>"Workflow State");
+	$form['setting']['wk_state'] = array(
+		'#type' => 'tableselect',
+		'#header' => $wf_header,
+		'#js_select' => TRUE,
+		'#title' => t('Select one or more workflow State(s)'),
+		'#options' => $wfs,
+		//'#multiple' => TRUE,
+		'#required' => true,
+		'#default_value' => $wf_state,
+		'#description' => t('Select one or more workflow states.'),
+	);
+	$epost_statuses = array('Active' => 'Active', 'Not active' => 'Not active');
+	$epost_status_default = isset($setting['epost_status']) ? $setting['epost_status'] : 'Active';
+	$epost_status = !empty($form_state['values']['epost_status']) ? $form_state['values']['epost_status'] : $epost_status_default;
+	$form['setting']['epost_status'] = array(
+		'#type' => 'checkboxes',
+		'#title' => t('ePost Use Status'),
+		'#options' => $epost_statuses,
+		'#required' => true,
+		'#default_value' => $epost_status,
+	);
+	$remove_duplicates = isset($setting['remove_duplicates']) ?  $setting['remove_duplicates']: True;
+	//$remove_duplicates = !empty($form_state['values']['remove_duplicates']) ? $form_state['values']['remove_duplicates'] : $remove_duplicates_default;
+	//drupal_set_message(nhpid_api_dump($remove_duplicates, 'red', TRUE));
+	$form['setting']['remove_duplicates'] = array(
+    '#type' => 'checkbox',
+		'#default_value' => $remove_duplicates,
+    '#title' => t('Remove duplicates'),
+	);
+	$email_per_list_default = empty($setting['emails_per_list']) ? 500 : $setting['emails_per_list'];
+	$emails_per_list = !empty($form_state['values']['emails_per_list']) ? $form_state['values']['emails_per_list'] : $email_per_list_default;
+	$form['setting']['emails_per_list'] = array(
+		'#type' => 'textfield',
+			'#default_value' => $emails_per_list,
+			'#size' => 10,
+		'#required' => true,
+		'#title' => t('Max number of emails per list'),
+	);
+  
+
+	$form['setting']['save_setting'] = array(
+		'#type' => 'submit',
+		'#value' => "Save Setting and Re-export",
+	);
+  
+	$form['result'] = array(
+		'#type' => 'fieldset',
+		'#title' => 'Email lists',
+		'#collapsible' => TRUE,
+		'#collapsed' => FALSE,
+	);
+	$form['result']['note'] = array(
+		'#type' => 'item',
+		'#markup' => 'Note: all duplicates are removed.',
+	);
+	$node_type = 'trading_partner';
+	$sql_nid = new EntityFieldQuery();
+	$sql_nid->entityCondition('entity_type', 'node')
+		->entityCondition('bundle', $node_type)
+		->propertyCondition('status', NODE_PUBLISHED)
+		->fieldCondition('field_epost_application', 'value', $epost_status, 'IN')
+		->fieldCondition('field_workflow', 'value', $wf_state, 'IN');
+
+	$result = $sql_nid->execute();
+	$node_nids = array();
+	if (isset($result['node'])) {
+		$node_nids = array_keys($result['node']);
+	} 
+	if ($node_nids){	
+		$sql_primary_user = "select field_primary_user_value from {field_data_field_primary_user} where entity_id in (:node_nids)";
+		$sql_delegated_user = "select field_delegated_users_value from {field_data_field_delegated_users} where entity_id in (:node_nids)";
+		$sql_email_primary_user = "select field_email_email from field_data_field_email where entity_id in($sql_primary_user)";
+		$sql_email_delegated_user = "select field_email_email from field_data_field_email where entity_id in($sql_delegated_user)";
+		
+		$result_primary_user = db_query ($sql_email_primary_user, array(':node_nids' => $node_nids ));
+		$emails_primary_user = array();
+		while($email = $result_primary_user ->fetchField() ){
+		$emails_primary_user[] = $email;
+		}
+		if ($remove_duplicates) $emails_primary_user = array_unique($emails_primary_user);
+		//drupal_set_message(nhpid_api_dump($emails_primary_user, 'red', TRUE));
+		$result_delegated_user = db_query ($sql_email_delegated_user, array(':node_nids' => $node_nids ));
+		$emails_delegated_user = array();
+		while($email = $result_delegated_user ->fetchField() ){
+		$emails_delegated_user[] = $email;
+		}
+		if ($remove_duplicates) $emails_delegated_user = array_unique($emails_delegated_user);
+		//drupal_set_message(nhpid_api_dump($emails_delegated_user, 'red', TRUE));
+		$emails_primary_user_count = count($emails_primary_user);
+		for ($i = 0; $i < $emails_primary_user_count; $i = $i + $emails_per_list){
+			$to_count = $i + $emails_per_list < $emails_primary_user_count? $i + $emails_per_list : $emails_primary_user_count;
+			$element_id = "edit-emails-primary-user-$i";
+			$form['result']['emails_primary_user_'. $i]=array(
+			'#type' => 'textarea',
+			'#title' => 'Primary Users ' . '(' . ($i + 1) . ' to ' . $to_count . ')',
+				'#value' => implode(', ', array_slice($emails_primary_user, $i, $emails_per_list)),
+		  '#attributes' => array('readonly' => 'readonly'),
+				//'#prefix' => '<button onClick="javascript:tt=document.getElementById(\'' . $element_id . '\').innerText; window.clipboardData.setData(\'Text\',tt);">Copy</button>',
+			);
+		}
+		$emails_delegated_user_count = count($emails_delegated_user);
+		for ($i = 0; $i < $emails_delegated_user_count; $i = $i + $emails_per_list){
+			$to_count = $i + $emails_per_list < $emails_delegated_user_count? $i + $emails_per_list : $emails_delegated_user_count;
+			$form['result']['emails_delegated_user_'. $i]=array(
+			'#type' => 'textarea',
+			'#title' => 'Delegated Users ' . '(' . ($i + 1) . ' to ' . $to_count . ')',
+				'#value' => implode(', ', array_slice($emails_delegated_user, $i, $emails_per_list)),
+		  '#attributes' => array('readonly' => 'readonly'),
+			);
+		}
+	}
+	else{
+		$form['result']=array(
+			'#markup' => 'No emails have been fetched. Please refine your parameters.',
+		);
+	}
+	return $form;
+}
+
+function tpd_email_list_form_validate($form, &$form_state){
+  $email_per_list = $form_state['values']['emails_per_list'];
+	if ($email_per_list < 50){
+		form_set_error('email_per_list', "The max number of emails per list has to be equal to or greater than 50.");
+	}
+}
+
+function tpd_email_list_form_submit($form, &$form_state) {
+  //drupal_set_message(nhpid_api_dump($form_state, 'red', TRUE));
+	switch ($form_state['clicked_button']['#id']) {
+    case 'edit-save-setting':
+      $states = $form_state['values']['wk_state'];
+      $email_per_list = $form_state['values']['emails_per_list'];
+      $epost_status = $form_state['values']['epost_status'];
+			$remove_duplicates = $form_state['values']['remove_duplicates'];
+			variable_set(TPD_EMAIL_EXPORT_SETTING, array('states'=>$states, 'emails_per_list' => $email_per_list, 'epost_status' => $epost_status, 'remove_duplicates' => $remove_duplicates));
+			break;
+    case 'edit-export':
+	}
+}

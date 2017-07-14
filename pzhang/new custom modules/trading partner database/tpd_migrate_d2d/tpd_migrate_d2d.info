@@ -1,0 +1,16 @@
+name = "TPD D7 to D7 migration"
+description = "Migrate content from old D7 site to new D7"
+package = "Development"
+core = 7.x
+hidden = False
+
+dependencies[] = migrate
+dependencies[] = migrate_d2d
+
+files[] = tpd_migrate_d2d.migrate.inc
+files[] = node.inc
+files[] = field_collection.inc
+
+
+
+
