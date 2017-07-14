@@ -1,0 +1,1813 @@
+<?php
+// $Id$
+define('NHPID_AUTO_WORKFLOW_MSG', 'Changed based on the NHPID dependency rule automatically by Drupal');
+define('BODY_DEFAULT', "You do not need to input anything. I'll generate a proper text later. If you change it to anything else, I will accept it.");
+define('TITLE_DEFAULT', "I will generate a meaningful title later. Whatever you enter here will be ignored.");
+define("DATA_EXPORTING_LOCK_TEMP_VARIABLE", 'assessment_central_deta_exporting_temp_lock');
+define("SYSTEM_LOCK_VARIABLE", 'assessment_central_system_lock');
+
+/* hook_ctools_plugin_directory */
+function assessment_central_ctools_plugin_directory($owner, $plugin_type) {
+  if ($owner == 'ctools' && $plugin_type == 'content_types') {
+    return 'plugins/content_types';
+  }
+}
+
+function assessment_central_init(){
+	//$path = drupal_get_path('module', 'assessment_central');
+	//drupal_add_css($path .'/nhpid.css');
+	//drupal_add_js($path .'/nhpid.js');
+	global $user;
+	if (!assessment_central_system_lock_access()){
+	  drupal_set_message("Data exporting is in progress or the system is persistently locked. You are not allowed to edit contents nor to add new contents at this moment.", 'warning', false);
+	}
+  $locker_uid = variable_get(SYSTEM_LOCK_VARIABLE, null);
+	if ($locker_uid != 0){
+	  $email_link = null;
+		$release_link = null;
+	  if ($user->uid != $locker_uid){
+			$locker = user_load($locker_uid);
+			$locker_name = $locker -> name;
+	    if (user_access('access nhpid email') and $locker-> uid != $user -> uid) $email_link = l("Ask info.", "nhpid_email/$locker_uid", array('attributes' => array('target' => '_blank')));
+	  }
+		else{
+	    $locker_name = 'you';
+		}
+		if (user_access('administer assessment central')){
+      $release_link = l("Release.", "rule_management/lock_system", array('attributes' => array('target' => '_blank')));
+		}
+    drupal_set_message("<em>The system is locked persistently by $locker_name.</em></span> $email_link $release_link", 'warning', false);
+	}
+	###// Detects user's browser
+	$javascript_browser_name = 'if (navigator.appName.indexOf("Internet Explorer") != -1) {alert("I find that your browser is Microsoft Insternet Explorer, which may not be compatible to the settings of some Drupal themes. If you find that the content cannot be properly displayed, please change your theme or your browser, such as Chrome or Firefox.")};  ';
+
+	//drupal_set_message(print_r($user, true));
+
+	//if (!$user -> uid or (isset($user-> login) and isset($user -> timestamp) and $user-> login >= $user -> timestamp)) {
+	if (!$user -> uid){
+	  drupal_add_js($javascript_browser_name, 'inline');
+	  //drupal_set_message($javascript_browser_name);
+	}
+}
+function assessment_central_form_alter(&$form, &$form_state, $form_id) {
+  global $user;
+  //
+  $node_type = isset($form['#node'])? $form['#node']->type : '';
+  $form_id = $form['form_id']['#id'];
+  $pattern = '/edit\-(.+)\-node\-form/';
+  //drupal_set_message(nhpid_api_dump($form, 'green', TRUE));
+	// adds place holder to title
+	if (is_assessment_central_data_node_type($node_type)){
+		$form['title']['#attributes']['placeholder'] = TITLE_DEFAULT;
+		$form['title']['#required'] = FALSE;
+	}
+}
+
+/**
+* "After build" callback for node forms. Register the fields to alter.
+*/
+function assessment_central_node_form_after_build($form_element, &$form_state) {
+
+  $node_type = $form_element['#node'] -> type;
+  $fields = get_node_type_field_name_title_mapping($node_type);
+  //drupal_set_message(nhpid_api_dump($fields, 'green', TRUE));
+  foreach ($fields as $key => $value) {
+    //nhpid_node_form_element_alter_register($form_element, $key, $node_type);
+    //nhpid_node_form_element_description_alter($form_element, $key, $node_type);
+  }
+  //drupal_set_message(nhpid_api_dump($form_element, 'green', TRUE));
+  return $form_element;
+}
+function assessment_central_clone_node_alter(&$node, $context) {
+  //$title = nhpid_api_generate_node_title($node, 'assessment_central'); ## title is dynamically changed when node is saved
+  $type = $node -> type;
+	## remove values from title field
+	$node_title_body_fields = variable_get('assessment_central' . "_title_body_fields_" . $node -> type, '');
+  $title_field1= $node_title_body_fields['title_field1'];
+  $title_field2= isset($node_title_body_fields['title_field2'])? $node_title_body_fields['title_field2']:NULL;
+  $title_field3= isset($node_title_body_fields['title_field3'])? $node_title_body_fields['title_field3']:NULL;
+	$node -> $title_field1 = array();
+	if ($title_field2) $node -> $title_field2 = array();
+	if ($title_field3) $node -> $title_field3 = array();
+  ## warning message
+  drupal_set_message("It is strongly suggested that you edit this content and save it immediately. Otherwise, this content will exist as a duplicate, which may confuse other users or affect other functions to work properly. If you cannot edit it now somehow, you should get back to this content as soon as possible. <br> <em>Please copy or take down the URL for your later use.</em>", 'warning');
+
+  ## delete all export history
+  if (property_exists($node, 'field_export_history')) $node -> field_export_history[$node->language] = array();
+  ## new nodehierarchy_menu_links
+  /*
+	if(property_exists($node, 'nid')){
+
+    $pnid = null;
+    $node->nodehierarchy_menu_links = NULL;
+    $default = variable_get('nh_defaultparent_' . $node->type, 0);
+    // Get the parent node id from passed in from the get params.
+    $pnid = !empty($_GET['parent']) ? (int) $_GET['parent'] : $default;
+    $nodehierarchy =  _nodehierarchy_default_menu_link($node -> nid);
+    if ($pnid && $parent_node = node_load($pnid)) {
+      if (nodehierarchy_node_can_be_parent($parent_node)) {
+        $nodehierarchy['pnid'] = $pnid;
+      }
+    }
+    $node->nodehierarchy_menu_links[] = $nodehierarchy;
+    //drupal_set_message(nhpid_api_dump($node , 'blue', TRUE));
+  }
+	*/
+  ## Field collection alter has to be at last, due to it saves the node
+  $fields = get_all_fields_of_node_type($node -> type);
+  foreach($fields as $field_name => $field){
+    if ($field['widget']['module'] == 'field_collection'){
+      clone_fc_items('node', $node, $field_name, $node -> language);
+    }
+  }
+  
+  ## workflow to 'In preparatiion'
+  $wid = workflow_get_workflow_type_map_by_type($node -> type) -> wid;
+  $states = workflow_get_workflow_states_by_wid_state($wid, 'In preparation');
+	$sid = $states[0]->sid;
+  workflow_execute_transition($node, $sid, $comment = "Just cloned", $force = TRUE);
+  
+}
+/**
+ * Implementation of hook_form_FORM_alter
+ */
+function assessment_central_form_node_form_alter(&$form, &$form_state, $form_id){
+  //drupal_set_message(nhpid_api_dump($user, 'green', TRUE));
+	//drupal_set_message(nhpid_api_dump($form, 'green', TRUE));
+  // *** Add javascript alert to remind user to update workflow state ****
+  if (isset($form['#node']->workflow_wid)){
+  	$form['actions']['submit']['#attributes'] = array('onclick' => 'return(confirm("I bet you did not forget to update workflow state. Continue?"))');
+	}
+	$form['revision_information']['#collapsed']=FALSE;
+  $form['revision_information']['#weight']=-100;
+	if (!user_access('bypass node access') && nhpid_api_is_a_nhpid_data_node_type($form['#node']->type)){
+		/*hide($form['menu']);
+    hide($form['comment_settings']);
+    hide($form['author']);
+    hide($form['options']);
+    hide($form['options']);
+    hide($form['body']);
+    hide($form['title']);
+    $form['title']['#printed']=TRUE;*/
+    $form['options']['#access']=false;
+    $form['author']['#access']=false;
+    $form['comment_settings']['#access']=false;
+    $form['title']['#access']=false;
+    $form['path']['#access']=false;
+    $form['nodehierarchy']['#access']=false;
+	}
+  //drupal_set_message(nhpid_api_dump($form, 'green', TRUE));
+}
+
+function assessment_central_menu_alter(&$items){
+  
+	//Access to tab workflow is not contolled by node_access()
+	//$items['node/%node/edit']['access callback']='_assessment_central_node_access_callback';
+  //$items['node/%node/workflow']['access callback']='_assessment_central_node_access_callback';
+  //$items['node/%node/workflow']['access arguments'] = array('workflow', 1);
+  //drupal_set_message(nhpid_api_dump(&$items, 'green', TRUE));
+
+}
+function assessment_central_permission() {
+    return array(
+    'administer assessment central' => array(
+      'title' => t('Administer assessment central'), 
+      'description' => t(''),
+      ),
+    'access assessment central content' => array(
+      'title' => t('Access assessment central content'), 
+      'description' => t(''),
+      ),
+    'export assessment central content' => array(
+      'title' => t('Export assessment central content'), 
+      'description' => t('Export HTML file'),
+      ),
+    );
+} 
+/**
+ * Implementation of hook_cron().
+ */
+
+function assessment_central_cron(){
+ //delete older files in public folder
+ $folder = drupal_realpath("public://");
+ $files = nhpid_api_delete_older_files($folder, 5);
+ if ($files) watchdog('cron', 'The public file system has been cleaned up. The following files have been deleted: @files', array('@files' => implode(", ", $files) ));
+}
+
+
+/**
+ * Implementation of hook_node_access().
+ */
+function assessment_central_node_access($node, $op, $account){
+	$node_access = node_node_access($node, $op, $account);
+	switch($op){
+		case 'update':
+    case 'create':
+			return assessment_central_system_lock_access($account)? $node_access: NODE_ACCESS_DENY;
+		break;
+		default:
+		return NODE_ACCESS_IGNORE;
+	}
+}
+/*
+function assessment_central_node_load($nodes, $types){
+  $node = null;
+  //drupal_set_message(nhpid_api_dump($nodes, 'red', TRUE));
+  foreach ($nodes as $nid => $node){
+    if (!is_assessment_central_data_node_type($node -> type)) continue;
+    //drupal_set_message(nhpid_api_dump($node, 'red', TRUE));
+    //*** Add node name to title to let users identify the node type easier. The added node name will not be saved.
+    
+    //drupal_set_message(nhpid_api_dump($node -> title, 'red', TRUE));
+  }
+}*/
+function assessment_central_node_view($node, $view_mode){
+  //drupal_set_message(nhpid_api_dump($node->content, 'red', TRUE));
+  if (is_assessment_central_data_node_type($node -> type)) {
+    $node_name = get_node_name($node -> type);
+    $node -> title = $node_name . ': ' . $node -> title;
+  }
+  if ($view_mode == 'full' and ($node -> type == 'mi' or $node -> type == 'combo')){
+    $assessment_central_html = assessment_central_format_export_info($node, null, false);
+    $node->content['workflow'] = array(
+      '#type' =>'item',
+      '#title' => 'Current Workflow State',
+			'#markup' => workflow_get_workflow_states_by_sid(workflow_node_current_state($node))->state,
+    );
+     $node->content['export_preview'] = array(
+      '#weight' => 1,
+      '#type' =>'fieldset',
+      '#title' => 'Preview of exported HTML',
+      '#collapsible' => TRUE, 
+      '#collapsed' => FALSE,
+      
+    );
+    $node->content['export_preview']['export_preview_html'] = array(
+      '#markup' => $assessment_central_html,
+      '#type' =>'item',
+    );
+  }
+}
+/*
+function assessment_central_node_view_alter(&$build){
+  //drupal_set_message(nhpid_api_dump($build, 'red', TRUE));
+  if ($build['#view_mode'] == 'full' and ($build['body']['#object'] -> type == 'mi' or $build['body']['#object'] -> type == 'combo')){
+    drupal_add_js('misc/form.js');
+    drupal_add_js('misc/collapse.js');
+		$node_view = array(
+		'#weight' => 2,
+    '#type' => 'fieldset',
+    '#title' => 'Node View',
+    '#collapsible' => true,
+    '#collapsed' => true,
+		'#tree' => TRUE,);
+		
+		$node_view['body']=$build['body'];
+    foreach($build as $key => $value){
+			if (substr($key, 0, 6) == 'field_'){
+        $node_view[]=$value;
+        unset($build[$key]);
+			}
+		}
+		unset($build['body']);
+		$build['node_view'] = $node_view;
+    //$build['#suffix'] = null;
+		//drupal_set_message(nhpid_api_dump($build['export_preview'], 'red', TRUE));
+  }
+}
+*/
+/***
+* for drupal 6
+*/
+function assessment_central_access($op, $node, $account){
+  switch($op){
+		case 'update':
+    case 'create':
+			return nhpid_system_lock_access($account)? NODE_ACCESS_ALLOW : NODE_ACCESS_DENY;
+		break;
+		default:
+		return NODE_ACCESS_IGNORE;
+	}
+}
+function assessment_central_node_prepare($node){
+  //drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));
+  if (!is_assessment_central_data_node_type($node -> type)) return;
+  #### force creating revisiion
+  $node -> revision = 1;           
+  /***
+   * If node is new (no title and body yet), set default title and body
+   */
+  /***
+   * If node is new (no title and body yet), set default title and body
+   */
+ 
+  //if (!(bool)(trim($node -> title)) ) $node -> title = TITLE_DEFAULT;
+  if (!$node -> body or !(bool)(trim(strip_tags($node -> body[$node->language][0]['value'])))) $node -> body[$node->language][0]['value'] = BODY_DEFAULT;
+  
+  
+  ## if exporting founction locks the system, prevent to edit or add node
+  /*
+  $exporting_data_locked = variable_get(DATA_EXPORTING_LOCK_VARIABLE, FALSE);
+  $exporting_data_temp_locked = variable_get(DATA_EXPORTING_LOCK_TEMP_VARIABLE, FALSE);
+  if (($exporting_data_locked and variable_get(DATA_EXPORTING_LOCK_VARIABLE, FALSE) != $user -> uid) or $exporting_data_temp_locked){
+    if (!empty($_SESSION['messages']['status'])) {
+      foreach ($_SESSION['messages']['status'] as $key => $message) {
+        if (stristr($message, t('This document is now locked against simultaneous editing'))){
+          unset ($_SESSION['messages']['status'][$key]);
+        }
+      } 
+      checkout_release($node -> nid, $user -> uid);
+    }
+    drupal_set_message("Data exporting is in progress. The system is locked to prevent data from being changed. Please try it again a few moments later.", 'error');
+    drupal_goto(referer_uri());
+  }
+  */
+}
+
+function assessment_central_node_validate($node, $form, &$form_state){
+  //drupal_set_message(nhpid_api_dump($node , 'blue', TRUE));
+  ## skip non-nhpid node types
+  if (!is_assessment_central_data_node_type($node -> type)) return;
+  
+  ## set nhpid id to MI nodes. It is required when made a node clone
+  if ($node -> type == 'mi'){
+    assessment_central_set_mi_ingred_id($node);
+  }
+  ## get all field names
+  $field_names = array_keys(get_node_type_field_name_title_mapping($node->type));
+  //drupal_set_message(nhpid_api_dump($node, 'red', TRUE));
+  ### If data is exporting, lock system to prevent data from changed
+  global $user;
+  /*
+  $exporting_data_locked = variable_get(DATA_EXPORTING_LOCK_VARIABLE, FALSE);
+  $exporting_data_temp_locked = variable_get(DATA_EXPORTING_LOCK_TEMP_VARIABLE, FALSE);
+  if (($exporting_data_locked and variable_get(DATA_EXPORTING_LOCK_VARIABLE, FALSE) != $user -> uid) or $exporting_data_temp_locked){
+    form_set_error('', "Data exporting is in progress. The system is locked to prevent data from being changed. Please try it again a few moments later.");
+  }
+  */
+         
+  /***
+   * $errors: holder of all new errors. 
+   */                 
+  $errors = array();
+  
+
+  $type = $node -> type;
+  
+  /***
+   * Node title generation checking
+   */
+   $title = null;
+   $title = nhpid_api_generate_node_title($node, 'assessment_central');
+    //drupal_set_message(nhpid_api_dump($title , 'brown', TRUE));
+  if (strlen($title) <= 0  and is_assessment_central_data_node_type($node -> type)) {
+    $node_title_body_fields = variable_get("assessment_central_title_body_fields_" . $node -> type, '');
+		$title_field1= $node_title_body_fields['title_field1'];
+		$title_field2= $node_title_body_fields['title_field2'];
+    $title_field1 = field_info_instance('node',$title_field1, $node -> type);
+    $title_field1_label = $title_field1['label'];
+
+    $title_field_info = "Field $title_field1_label is used for the title. Please make sure it is filled.";
+    if ($title_field2) {
+      $title_field2 = field_info_instance('node',$title_field2, $node -> type);
+			$title_field2_label = $title_field2['label'];
+      $title_field_info = "Fields  $title_field1_label and $title_field2_label are used for the title. Please make sure they are filled.";
+    }
+    $errors[] = array('field' => 'title', 'message' => t("Drupal cannot generate title for this node. $title_field_info" ));
+  }
+		
+  
+  /***
+   * Unique title and fields checking
+   */                 
+  if (assessment_central_is_a_unique_node_type($type)) {
+    $duplicate = db_query("SELECT nid FROM {node} WHERE type = :node_type AND title = :title AND nid <> :nid LIMIT 1", array(':node_type' => $node->type, ':title' => nhpid_api_generate_node_title($node, 'assessment_central'), ':nid' => $node->nid)) -> fetchObject();
+
+    if ($duplicate) {
+      //*** since is most likely a duplicate, set an error so a duplicate isn't created
+      $errors[] = array('field' => 'title', 'message' => t('A duplicate title is found. This node must hava an unique title. This usually results from clicking the submit button more than once.' ));
+    }
+    
+    //*** unique fields
+    
+    foreach($field_names as $u_field) {
+      if (nhpid_is_a_unique_field($u_field, $type)) {
+
+        $field_value_field =  $u_field . '_value';
+        //eval("\$u_field = \"$u_field\";");
+        //drupal_set_message(nhpid_api_dump($node , 'brown', TRUE));
+        if (property_exists($node, $u_field)){
+          $field = $node -> $u_field;
+  
+          $value = isset($field[$node-> language][0]['value']) ? $field[$node-> language][0]['value'] : NULL;
+          
+          if ($value) {
+            $sql = "SELECT entity_id FROM {field_data_$u_field} WHERE entity_type = 'node' AND bundle = :node_type And  language=:lang and field_data_$u_field.$field_value_field = :value AND entity_id != :nid LIMIT 1";
+            $result = db_query($sql, array (':node_type' => $node->type,  ':lang' => $node -> language, ':value' => $value, ':nid' => $node->nid ? $node->nid: 0)) -> fetchObject();
+            $duplicate = null;
+            if ($result) $duplicate = $result -> entity_id;
+            $field_info = field_info_instance('node', $u_field, $type);
+            $field_label = $field_info['label'];
+   
+            if ($duplicate > 0) {
+              $errors[] = array('field' => $u_field, 'message' => t("A duplicate <em>$field_label</em> is found. This field must be unique. This usually results from clicking the submit button more than once."));
+            }
+          }
+        }
+      
+      }
+    }
+    /* Enforce revision log message
+			check nhpid data nodes to be updated only
+		*/
+    //drupal_set_message(nhpid_api_dump($node, 'red', TRUE));
+    if (variable_get('assessment_central_enforce_revision_log', 0)){
+	    if ( (!$node->revision or empty($node->log)) and $node->op == $node->submit and $node->changed and is_assessment_central_data_node_type($node -> type)) {
+	      form_set_error('log', t("Please enter the revision log message and check the 'Create new revision' checkbox."));
+			}
+		}
+  }
+  
+  /***
+   * Combo name checking
+   */                 
+  if ($node -> type == 'combo') {
+    $value = isset($node->field_combo_name[$node-> language][0]['value']) ? $node->field_combo_name[$node-> language][0]['value'] : NULL;
+    $pattern = "/[^\d\w\x5f\x20\x2d]/"; //1..9a..yA..Y_ -
+    if (preg_match($pattern,$value)){
+      $errors[] = array('field' => 'field_combo_name', 'message' => t("Combo name contains unallowed characters."));
+    }
+  }
+  
+  foreach ($errors as $error) {
+    form_set_error($error['field'], $error['message']);
+  }
+}
+
+function assessment_central_node_presave($node){
+  //drupal_set_message(nhpid_api_dump($node , 'blue', TRUE));
+  //*** generate title and body if not available
+  if (is_assessment_central_data_node_type($node -> type)) {
+    $title = null;
+    $title = nhpid_api_generate_node_title($node, 'assessment_central');
+    If ((bool)($title)) {
+      $node -> title = $title;
+    }
+    //$body =($node -> body[$node->language][0]['value']);
+    //drupal_set_message(nhpid_api_dump($node -> title , 'brown', TRUE));
+    If (!isset($node -> body[$node->language][0]['value']) or $node -> body[$node->language][0]['value'] == BODY_DEFAULT) {
+      $node -> body[$node->language][0]['value'] = nhpid_api_generate_node_body($node, 'assessment_central');
+    }
+    //drupal_set_message(nhpid_api_dump($node -> body , 'brown', TRUE));
+  }
+  ## set nhpid id to MI nodes
+  if ($node -> type == 'mi'){
+    assessment_central_set_mi_ingred_id($node);
+    
+  }
+  
+}
+
+function assessment_central_node_insert($node){
+  //drupal_set_message(nhpid_api_dump($node , 'brown', TRUE));
+  ### index the node
+  //drupal_set_message(nhpid_api_dump("ara: " . arg(0) . '-' .  arg(1) , 'brown', TRUE));
+  $arg = arg(0) . '-' .  arg(1);
+  if ($arg == 'node-add') nhpid_api_index_node($node); // do index only for manually added node. skip indexing for batch data loading.
+  // set all nhpid ingredient authorized_name_e in variable assessment_central_nhpid_authorized_names_e
+    if ($node -> type == 'nhpid_ingredient' or $node -> type == 'mi') assessment_central_update_variables_allowed_values($node, 'insert');
+  }
+
+function assessment_central_node_update($node){
+  // re-index the node
+  nhpid_api_index_node($node);
+  
+  // set all nhpid ingredient authorized_name_e in variable assessment_central_nhpid_authorized_names_e
+  if ($node -> type == 'nhpid_ingredient' or $node -> type == 'mi') assessment_central_update_variables_allowed_values($node, 'update');
+
+   /***
+   * workflow warning
+   */
+   ## not working
+   /*
+  $current_sid = workflow_node_current_state($node);
+  $prevouse_sid = workflow_node_previous_state($node);
+  //drupal_set_message(nhpid_api_dump("$current_sid : $prevouse_sid" , 'brown', TRUE));
+  if ($current_sid == $prevouse_sid){
+    drupal_set_message('I found you did not change workflow state. Please make sure that the workflow state is correct.');
+  }
+  */
+}
+
+function assessment_central_node_delete($node){
+  // set all nhpid ingredient authorized_name_e in variable assessment_central_nhpid_authorized_names_e
+  if ($node -> type == 'nhpid_ingredient' or $node -> type == 'mi') assessment_central_update_variables_allowed_values($node, 'delete');
+}
+
+/**
+ *  hook theme
+ *  
+*/  
+
+
+function assessment_central_theme($existing, $type, $theme, $path) {
+  return array(
+    'assessment_central_auto_title_form' => array(
+      'render element' => 'form', 
+      'file' => 'assessment_central_forms.inc',
+    ),
+    
+  );
+}
+/***
+ * hook_menu
+ */ 
+function assessment_central_menu() {
+
+  $items = array();
+  $root = 'rule_management';
+  $items[$root] = array(
+    'title' => 'Assessment Central Rule Management',
+    'description' => 'Settings of Assessment Central Rules',
+    'menu_name' => 'navigation',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('assessment_central_rule_archive_form'),
+    'access arguments' => array('administer assessment central'),
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'assessment_central_forms.inc',
+   );
+   $items[$root . '/archive'] = array(
+    'title' => 'Archive/restore rules',
+    'weight' => -11,
+    'access arguments' => array('administer assessment central'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('assessment_central_rule_archive_form'),
+    //'file' => 'workflow.admin.inc',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'file' => 'assessment_central_forms.inc',
+  );
+  $items[$root . '/default_urls'] = array(
+    'title' => 'Default URLs',
+    'weight' => -8,
+    'access arguments' => array('administer assessment central'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('assessment_central_default_url_form'),
+    'file' => 'assessment_central_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/auto_title_body'] = array(
+    'title' => 'Automated node title and body',
+    'weight' => -7,
+    'access arguments' => array('administer assessment central'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('assessment_central_auto_title_form'),
+    'file' => 'assessment_central_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+   $items[$root . '/unique_node_field'] = array(
+    'title' => 'Unique node types and fields',
+    'weight' => -6,
+    'access arguments' => array('administer assessment central'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('assessment_central_unique_node_field_form'),
+    'file' => 'assessment_central_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/data_node'] = array(
+    'title' => 'Assessment Central data node types',
+    'weight' => -5,
+    'access arguments' => array('administer assessment central'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('assessment_central_data_node_type_form'),
+    'file' => 'assessment_central_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items['node/%node/export'] = array(
+    'title' => 'Export',
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'assessment_central_forms.inc',
+    'access callback' => 'assessment_central_export_node_tab_access',
+    'access arguments' => array(1),
+    'page callback' => 'assessment_central_export_page',
+    'page arguments' => array(1),
+    'weight' => 2,
+  );
+  $items['node/%node/export_history'] = array(
+    'title' => 'Export History',
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'assessment_central_forms.inc',
+    'access callback' => 'assessment_central_export_history_node_tab_access',
+    'access arguments' => array(1),
+    'page callback' => 'assessment_central_export_history_page',
+    'page arguments' => array(1),
+    'weight' => 2,
+  );
+  $items[$root . '/assessment_central_update_nhpid_ingredients'] = array(
+    'title' => 'Update NHPID Ingredients',
+    'weight' => -5,
+    'access arguments' => array('administer assessment central'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('assessment_central_update_nhpid_ingredients_form'),
+    'file' => 'assessment_central_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/assessment_central_export_all'] = array(
+    'title' => 'Export All',
+    'weight' => -4,
+    'access arguments' => array('export assessment central content'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('assessment_central_export_all_form'),
+    'file' => 'assessment_central_forms.inc',
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items[$root . '/revision'] = array(
+    'title' => 'Enforce Revision Log',
+    'weight' => -2,
+    'access arguments' => array('administer assessment central'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('assessment_central_enforce_revision_log_form'),
+    'file' => 'assessment_central_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/lock_system'] = array(
+    'title' => 'Lock system',
+    'weight' => -3,
+    'access arguments' => array('administer assessment central'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('assessment_central_lock_system_form'),
+    'file' => 'assessment_central_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  /*
+  $items[$root . '/required_fields'] = array(
+    'title' => 'Required fields',
+    'weight' => -10,
+    'access arguments' => array('administer assessment central'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_required_field_form'),
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'assessment_central_forms.inc',
+  );
+  
+  $items[$root . '/conditionally_required_fields'] = array(
+    'title' => 'Conditionally required fields',
+    'weight' => -9,
+    'access arguments' => array('administer assessment central'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_conditionally_required_field_form'),
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'assessment_central_forms.inc',
+  );
+  
+  $items[$root . '/field_dependency'] = array(
+    'title' => 'Field dependency',
+    'weight' => -9,
+    'access arguments' => array('administer assessment central'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_field_dependency_form'),
+    'file' => 'assessment_central_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/field_dependency_restrictions'] = array(
+    'title' => 'Field dependency Restrictions',
+    'weight' => -9,
+    'access arguments' => array('administer assessment central'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_field_dependency_restrictions_form'),
+    'file' => 'assessment_central_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  
+  $items[$root . '/field_length_limit'] = array(
+    'title' => 'Field length limit',
+    'weight' => -9,
+    'access arguments' => array('administer assessment central'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_field_length_limit_form'),
+    'file' => 'assessment_central_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  
+  $items[$root . '/field_unit_type_mapping'] = array(
+    'title' => 'Field Unit type mapping',
+    'weight' => -4,
+    'access arguments' => array('administer assessment central'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_field_unit_type_mapping_form'),
+    'file' => 'assessment_central_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  
+  $items[$root . '/excel_column_title_mapping'] = array(
+    'title' => 'Excel column title mapping',
+    'weight' => -3,
+    'access arguments' => array('administer assessment central'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_excel_column_title_mapping_form'),
+    'file' => 'assessment_central_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+    
+  */
+  return $items;
+}
+
+function assessment_central_export_node_tab_access($node = NULL) {
+
+  if ($node -> type == 'mi' or $node -> type == 'combo') {
+
+    if (user_access('export assessment central content') and get_node_current_state_state($node) == 'Published') {
+      return TRUE;
+    }
+    else {
+      return FALSE;
+    }
+
+  }
+  return FALSE;
+}
+function assessment_central_export_history_node_tab_access($node = NULL) {
+
+  if ($node -> type == 'mi' or $node -> type == 'combo') {
+
+    if (user_access('export assessment central content') and assessment_central_get_export_history($node)) {
+      return TRUE;
+    }
+    else {
+      return FALSE;
+    }
+
+  }
+  return FALSE;
+}
+## helper functions
+function assessment_central_set_mi_ingred_id(&$node){
+  if ($node -> type == 'nhpid_ingredient'){
+  //drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));  
+    $name = $node-> field_authorized_name_e[$node->language][0]['value'];
+    $mi_nodes = nhpid_api_get_node_by_field_value('mi', 'field_mi_nhpid_name', $name);
+    
+    //drupal_set_message(nhpid_api_dump($name, 'purple', TRUE));
+    foreach($mi_nodes  as $mi_node){
+      $mi_node -> field_nhpid_id = $node -> field_ingred_id;
+      //drupal_set_message(nhpid_api_dump($mi_node, 'purple', TRUE));
+      //drupal_set_message(nhpid_api_dump($nhpid_ingredient_node, 'blue', TRUE));
+      node_save($mi_node);
+      
+      //drupal_set_message(nhpid_api_dump($mi_node, 'purple', TRUE));
+      unset($mi_node);
+    }
+  }
+  elseif ($node -> type == 'mi'){
+    $name = $node-> field_mi_nhpid_name[$node->language][0]['value'];
+    $nhpid_ingredient_node = nhpid_api_get_node_by_field_value('nhpid_ingredient', 'field_authorized_name_e', $name);
+    $node  -> field_nhpid_id = $nhpid_ingredient_node[0] -> field_ingred_id;
+  }
+  else{
+    form_set_error('', t("Node :title of :type is not a valid node for function assessment_central_set_mi_ingred_id.", array(':title' => $node -> title, ':type' => $node -> type)));
+  }
+  
+  return true;
+}
+
+function assessment_central_get_field_collection_entities($node){
+  $entities = array();
+  $fields = get_all_fields_of_node_type($node -> type);
+  foreach($fields as $field_name => $field){
+    if ($field['widget']['module'] == 'field_collection'){
+      $field_countent = $node -> $field_name;
+      if ($field_countent){
+        foreach ($field_countent[$node -> language] as $item){
+          $entity_id = $item['value'];
+          $entity = field_collection_item_load($entity_id);
+          $entities[$field_name][] = $entity;
+        }
+      }
+    }
+    
+  }
+  return $entities;
+}
+
+function assessment_central_fetch_info_for_export($node, $vid = null){
+  //drupal_set_message(nhpid_api_dump($node-> field_pci, 'red', TRUE));
+  if ($node -> type != 'mi' and $node -> type != 'combo'){
+    form_set_error('', t('Node(:nid) of :node_type is not a valid node for export. ', array(':nid' => $node -> nid, ':node_type' => $node -> type)));
+    return null;
+  }
+  if($vid) $node = node_load($node -> nid, $vid);
+  //drupal_set_message(nhpid_api_dump($node, 'red', TRUE));
+  $info = array();
+  $nhpid_url = variable_get('assessment_central_nhpid_id_url', 'http://was-int-01.hc-sc.gc.ca/nhpid-bdipsn-internal/ingredReq.do?id=:nhpid_id&lang=eng');
+  $central_url = variable_get('assessment_central_assessment_central_url', '');
+  $usda_url = variable_get('assessment_central_usda_url', '');
+  $cnf_url = variable_get('assessment_central_cnf_url', '');
+  $cms_url_file = variable_get('assessment_central_cms_url_file', '');
+  $cms_url_folder = variable_get('assessment_central_cms_url_folder', '');
+  $nhpid_url_place_holder = ':nhpid_id';
+  $central_url_place_holder = ':assessment_central_html_name';
+  $cms_url_place_holder = ':cms_id';
+  $lang = $node -> language;
+  $modified_date = format_date($node -> revision_timestamp, 'custom', 'F j, Y');
+  $info['version'] = array('key' => 'Version', 'value' =>$modified_date);
+    // mi
+  if ($node -> type == 'mi'){
+    $nhpid_name = $node -> field_mi_nhpid_name[$lang][0]['value'];
+    $info['name'] = array('key' => 'NHPID Name', 'value' => $nhpid_name);
+    $info['title'] = array('key' => 'Title', 'value' => $nhpid_name);
+    
+    $synonyms = array();
+    //$info['synonyms'] = array();
+    if (!empty($node -> field_nhpid_synonyms)){
+      foreach($node -> field_nhpid_synonyms[$lang] as $item) {
+        $synonyms[] = $item['value'];
+      }
+      $info['synonyms'] = array('key' => 'Synonyms', 'value' => $synonyms);
+    }
+    $cnf_usda = (!empty($node -> field_cnf_usda) and !empty($node -> field_cnf_usda[$lang])) ? $node -> field_cnf_usda[$lang][0]['value'] : NULL;
+    $nhpid_id = (!empty($node -> field_nhpid_id) and !empty($node ->field_nhpid_id[$lang])) ? $node -> field_nhpid_id[$lang][0]['value'] : NULL;
+    $nhpid_link = $nhpid_id? strip_tags(t($nhpid_url, array($nhpid_url_place_holder => $nhpid_id))): NULL;
+    $mi_folder = (!empty($node -> field_mi_folder) and !empty($node -> field_mi_folder[$lang])) ? $node -> field_mi_folder[$lang][0]['value'] : '';
+    $mi_folder_link =$mi_folder? strip_tags(t($cms_url_folder, array($cms_url_place_holder => $mi_folder))): NULL;
+    $info['links'][] = array('key' =>$cnf_usda? l('CNF', $cnf_url, array('attributes' => array('target' => '_blank'))) . '/' . l('USDA', $usda_url, array('attributes' => array('target' => '_blank'))): null, 'value' => $cnf_usda);
+    $info['links'][] = array('key' =>$nhpid_link ? l('NHPID', $nhpid_link, array('attributes' => array('target' => '_blank'))) : null, 'value' => NULL);
+    $info['links'][] = array('key' =>$mi_folder_link? l('MI FOLDER', $mi_folder_link, array('attributes' => array('target' => '_blank'))) : null, 'value' => NULL);
+    if (empty($info['links'])) unset($info['links']);
+    $tags = array();
+   // $info['tags'] = array();
+    if (!empty($node -> field_tag)){
+      foreach($node -> field_tag[$lang] as $item) {
+        $tags[] = $item['value'];
+      }
+      $info['tags'] = array('key' => 'Tags', 'value' => $tags);
+    }
+    ## combinations
+    $info['combinations'] = array();
+    
+    $combo_nodes = nhpid_api_get_node_by_field_value('combo', 'field_combo_nhpid_name', $nhpid_name);
+    
+ 
+    if ($combo_nodes){
+      //drupal_set_message(nhpid_api_dump($combo_nodes, 'red', TRUE));
+      foreach($combo_nodes as $combo_node){
+        $combo_nhpid_names = array();
+        $combo_html_file_names = array();
+        $combo_name = $combo_node -> field_combo_name[$lang][0]['value'];
+        $combo_node_file_names = assessment_central_export_file_name($combo_node);
+        foreach($combo_node -> field_combo_nhpid_name[$lang] as $item) {
+          $ing_nodes = nhpid_api_get_node_by_field_value('mi', 'field_mi_nhpid_name', $item['value']);
+          $central_link = null;
+          
+          //if ($ing_nodes)$central_link = strip_tags(t($central_url, array($central_url_place_holder => drupal_encode_path($ing_nodes[0] ->field_ingred_id[$lang][0]['value']))));
+          //if ($ing_nodes)$central_link = strip_tags(t($central_url, array($central_url_place_holder => drupal_encode_path($ing_nodes[0] ->field_ingred_id[$lang][0]['value']))));
+          //if ($ing_nodes) $central_link = $ing_nodes[0] ->field_ingred_id[$lang][0]['value'];
+          
+          //drupal_set_message(nhpid_api_dump($central_link, 'red', TRUE));
+          //drupal_set_message(nhpid_api_dump($item, 'red', TRUE));
+          //$combo_nhpid_names[$ing_nodes[0] ->nid] = l($item['value'], $central_link, array('attributes' => array('target' => '_blank')));
+          $combo_nhpid_names[$ing_nodes[0] ->nid] = $item['value'];
+          $file_names = assessment_central_export_file_name($ing_nodes[0]);
+          $combo_html_file_names[$ing_nodes[0]->nid] = $file_names;
+        }
+        natsort($combo_nhpid_names);
+      $info['combinations'][$combo_node -> nid] = array('key' => $combo_name, 'value' => $combo_nhpid_names, 'html_file_names' => $combo_html_file_names, 'combo_node_html_file_names' => $combo_node_file_names);
+      }
+    }
+    
+  }
+     // combo
+  else if ($node -> type == 'combo'){
+    $combo_name = $node -> field_combo_name[$lang][0]['value'];
+    $info['name'] = array('key' => 'COMBO Name', 'value' => $combo_name);
+    $info['title'] = array('key' => 'Title', 'value' => $combo_name);
+    
+    $combo_nhpid_names = array();
+    $combo_html_file_names = array();
+    $info['combo_nhpid_names'] = array();
+    $info['combo_combo_names'] = array();
+		// Ingredients of the combo
+		if (!empty($node -> field_combo_nhpid_name)){
+      foreach($node -> field_combo_nhpid_name[$lang] as $item) {
+        $ing_nodes = nhpid_api_get_node_by_field_value('mi', 'field_mi_nhpid_name', $item['value']);
+        //$central_link = NULL;
+        //if($ing_nodes) $central_link = strip_tags(t($central_url, array($central_url_place_holder => drupal_encode_path($ing_nodes[0] ->field_ingred_id[$lang][0]['value']))));
+        //if ($ing_nodes) $central_link = $ing_nodes[0] ->field_ingred_id[$lang][0]['value'];
+        //$combo_nhpid_names[$ing_nodes[0]->nid] = l($item['value'], $central_link, array('attributes' => array('target' => '_blank')));
+        $combo_nhpid_names[$ing_nodes[0]->nid] = $item['value'];
+        $file_names = assessment_central_export_file_name($ing_nodes[0]);
+        $combo_html_file_names[$ing_nodes[0]->nid] = $file_names;     
+      }
+			natsort($combo_nhpid_names);
+      $info['combo_nhpid_names'] = array('key' => 'Medicinal Ingredients', 'value' => $combo_nhpid_names, 'html_file_names' => $combo_html_file_names);
+    }
+		// linked combos
+    if (!empty($node -> field_linked_combos)){
+      $info['combo_combo_names']['key'] = "Linked Combos";
+      $info['combo_combo_names']['value'] = array();
+      $info['combo_combo_names']['mi'] = array();
+      foreach($node -> field_linked_combos[$lang] as $item) {
+        
+				$linked_combo_nid = $item['target_id'];
+				$linked_combo_node = node_load(array('nid'=>$linked_combo_nid));
+        $linked_combo_name = $linked_combo_node -> field_combo_name[$lang][0]['value'];
+        $info['combo_combo_names']['value'][$linked_combo_nid] = $linked_combo_name;
+        
+        $linked_combo_nhpid_names = array();
+        if (!empty($linked_combo_node -> field_combo_nhpid_name)){
+          $linked_combo_ing_html_file_names = array();
+					foreach($linked_combo_node -> field_combo_nhpid_name[$lang] as $item) {
+		        $linked_combo_ing_nodes = nhpid_api_get_node_by_field_value('mi', 'field_mi_nhpid_name', $item['value']);
+		        $linked_combo_nhpid_names[$linked_combo_ing_nodes[0]->nid] = $item['value'];
+		        $file_names = assessment_central_export_file_name($linked_combo_ing_nodes[0]);
+		        $linked_combo_ing_html_file_names[$linked_combo_ing_nodes[0]->nid] = $file_names;
+		      }
+          natsort($linked_combo_nhpid_names);
+		      $info['combo_combo_names']['mi'][$linked_combo_nid] = array('key' => 'Medicinal Ingredients', 'value' => $linked_combo_nhpid_names, 'html_file_names' => $linked_combo_ing_html_file_names);
+		    }
+				$linked_combo_node_file_names = assessment_central_export_file_name($linked_combo_node);
+        $info['combo_combo_names']['html_file_names'][$linked_combo_nid] = $linked_combo_node_file_names;
+      }
+			natsort($info['combo_combo_names']['value']);
+    }
+  }
+  ## PCI
+  $info['PCI'] = array();
+  $pci = array();
+  if (!empty($node -> field_pci)){
+    foreach($node -> field_pci[$lang] as $item) {
+      
+      if (isset($item['entity'])){
+        $entity = $item['entity'];
+      }
+      else{
+        $entity_id = $item['value'];
+        $entity = field_collection_item_load($entity_id);
+      }
+      
+      $pci_type = (!empty($entity -> field_pci_type) and !empty($entity -> field_pci_type[$lang])) ? $entity -> field_pci_type[$lang][0]['value'] : NULL;
+      $link_type = (!empty($entity -> field_link_type)  and !empty($entity -> field_link_type[$lang])) ? $entity -> field_link_type[$lang][0]['value'] : NULL;
+      $note = (!empty($entity -> field_note) and !empty($entity -> field_note[$lang])) ? $entity -> field_note[$lang][0]['value'] : NULL;
+      $address = (!empty($entity -> field_address)  and !empty($entity -> field_address[$lang])) ? trim($entity -> field_address[$lang][0]['value']) : NULL;
+			if ($link_type == 'NHPD_CMS_URL_FILE'){
+				$address_array = explode('/', $address);
+        $cms_file = $cms_id = array_pop($address_array);
+				$cms_folder = array_pop($address_array);
+				$cms_id = "$cms_folder/$cms_file";
+        $address =$cms_id? strip_tags(t($cms_url_file, array($cms_url_place_holder => $cms_id))): NULL;
+			}
+      else if ($link_type == 'NHPD_CMS_URL_FOLDER'){
+        $address_array = explode('/', $address);
+				$cms_folder = array_pop($address_array);
+				$address =$cms_folder? strip_tags(t($cms_url_folder, array($cms_url_place_holder => $cms_folder))): NULL;
+			}
+      $link = null;
+    
+      if ($note){
+        $link = $address? l($note, $address, array('attributes' => array('target' => '_blank'))) : $note;
+      }
+      else{
+        $link = $address? l($pci_type, $address, array('attributes' => array('target' => '_blank'))) : $pci_type;
+      }
+      /*if($link_type == 'URL'){
+        if ($note){
+          $link = l($note, $address, array('attributes' => array('target' => '_blank')));
+        }
+        else{
+          $link = l($pci_type, $address, array('attributes' => array('target' => '_blank')));
+        }
+        
+      }
+      else if ($link_type == 'DOCUMENT' or $link_type == 'FOLDER'){
+        //$link = "<a href='file:///" . str_replace(' ', '%20', $address) . "' target='_blank'>$pci_type</a>";
+        if ($note){
+          $link = l($note, $address, array('attributes' => array('target' => '_blank')));
+        }
+        else{
+          $link = l($pci_type, $address, array('attributes' => array('target' => '_blank')));
+        }
+      }
+      else {
+        $link = '';
+      }*/
+     
+      //$value = $link ?  "$link" : '';
+      //$value = $address ? $value .  $address : $value;
+      //$value = $note ? $value . "<p>$note</p>" : $value;
+      $info['PCI'][] = array('key' => $pci_type, 'link' => $link, 'value' => $note);
+    }
+  }
+  //drupal_set_message(nhpid_api_dump($info['PCI'], 'red', TRUE));
+  ## notes
+  $info['notes'] = array();
+  $notes = array();
+  $note_type_mapping = nhpid_api_multi_code_field_allowed_values('note_type', null, null, 'field_code', 'field_description', array(), true);
+  $note_types = array();
+  if (!empty($node -> field_notes)){
+    foreach($node -> field_notes[$lang] as $item) {
+      if (isset($item['entity'])){
+        $entity = $item['entity'];
+      }
+      else{
+        $entity_id = $item['value'];
+        $entity = field_collection_item_load($entity_id);
+      }
+      $note_type = (!empty($entity -> field_note_type) and !empty($entity -> field_note_type[$lang])) ? $entity -> field_note_type[$lang][0]['value'] : NULL;
+      $link_type = (!empty($entity -> field_link_type)  and !empty($entity -> field_link_type[$lang])) ? $entity -> field_link_type[$lang][0]['value'] : NULL;
+      $note = (!empty($entity -> field_note) and !empty($entity -> field_note[$lang])) ? $entity -> field_note[$lang][0]['value'] : NULL;
+      $address = (!empty($entity -> field_address)  and !empty($entity -> field_address[$lang])) ? trim($entity -> field_address[$lang][0]['value']) : NULL;
+			if ($link_type == 'NHPD_CMS_URL_FILE'){
+				$address_array = explode('/', $address);
+        $cms_file = $cms_id = array_pop($address_array);
+				$cms_folder = array_pop($address_array);
+				$cms_id = "$cms_folder/$cms_file";
+        $address =$cms_id? strip_tags(t($cms_url_file, array($cms_url_place_holder => $cms_id))): NULL;
+			}
+      else if ($link_type == 'NHPD_CMS_URL_FOLDER'){
+        $address_array = explode('/', $address);
+				$cms_folder = array_pop($address_array);
+				$address =$cms_folder? strip_tags(t($cms_url_folder, array($cms_url_place_holder => $cms_folder))): NULL;
+			}
+			$warning = (!empty($entity -> field_warning)  and !empty($entity -> field_warning[$lang])) ? trim($entity -> field_warning[$lang][0]['value']) : NULL;
+      $link = '';
+      if ($address){
+        $link = l($note, $address, array('attributes' => array('target' => '_blank')));
+        /*if($link_type == 'URL'){
+          $link = l($note, $address, array('attributes' => array('target' => '_blank')));
+        }
+        else ($link_type == 'DOCUMENT' or $link_type == 'FOLDER'){
+          //$link = "<a href='file:///" . str_replace(' ', '%20', $address) . "' target='_blank'>$note</a>";
+          $link = l($note, $address, array('attributes' => array('target' => '_blank')));
+          //$link = file_create_url("file:///$address");
+        }*/
+      }
+      else {
+        $link = $note;
+      }
+      //drupal_set_message(nhpid_api_dump("$note_type, $link_type, $link ", 'red', TRUE));
+      $value = $link ?  "$link <br>" : '';
+      //$value = $address ? $value .  $address : $value;
+      //$value = $note ? $value .  "<em>Note: </em> $note <br>" : $value ;
+      $value = $warning? $value .  "<p> $warning</p>" : $value ;
+      $note_types[$note_type][]=$value;
+      //$info['notes'][$note_type][] = array('key' => $note_type_mapping[$note_type], 'valule' => $link . ": $address" . '<br>' . $note);
+      //$info['notes'][] = array('key' => $note_type_mapping[$note_type], 'valule' => $link . ": $address" . '<br>' . $note);
+    }
+    foreach ($note_types as $note_type => $value){
+      $info['notes'][] = array('key' => $note_type_mapping[$note_type], 'value' =>$value );
+    }
+  
+  }
+  //drupal_set_message(nhpid_api_dump($note_types, 'red', TRUE));
+  
+  
+  
+  return $info;
+  
+}
+/**
+ *arg lang: exported file language, value: 'n', 'e', or 'f'
+ *
+ */
+    
+function assessment_central_format_export_info($node, $vid = null, $export = true, $export_info = null, $lang = 'n'){
+  $central_url = variable_get('assessment_central_assessment_central_url', '');
+  $central_url_place_holder = ':atid';
+  $file_name = '';
+  if ($node -> type != 'mi' and $node -> type != 'combo'){
+    form_set_error('', t('Node(:nid) of :node_type is not a valid node for export. ', array(':nid' => $node -> nid, ':node_type' => $node -> type)));
+    return null;
+  }
+  //drupal_set_message(nhpid_api_dump($export_info , 'blue', TRUE));
+  $info = $export_info? $export_info : assessment_central_fetch_info_for_export($node, $vid);
+  $html = '';
+  //$table_style = 'table-layout:inherit; border-width:0;padding-bottom:0;padding-top:0;"><tr><td style="font-weight:bold;vertical-align:text-top;border-color:transparent;border-collapse:separate;border-spacing:0px;';
+  //$td_key ='<tr><td style="font-weight:bold;vertical-align:text-top;white-space:nowrap;border-width:0;padding-bottom:0;padding-top:0;">';
+  //$td_value ="<td style='vertical-align:text-top;word-wrap:break-word; border-width:0;padding-bottom:0;padding-top:0;padding-left:20px;'>";
+  if ($info){
+    $title = $info["title"]['value'];
+    $version = $info["version"]['value'];
+    $name = $info["name"];
+    $html = "<center><strong><big>$title</big></strong><br>$version</center><p></p>" . "\n";
+    $html = $html . "<h3>" . $name['key'] . "</h3>" . $name['value']  . "\n";
+    if (!empty($info['synonyms'])){
+      $value_list = assessment_central_theme_item_list(array('items' => $info['synonyms']['value'], 'title' => "<h3>". $info['synonyms']['key'] . "</h3>", 'type' => 'ul', 'attributes' => array()), $export);
+      $html = $html . $value_list . "\n";
+    }
+    if (!empty($info['tags'])){
+      $value_list = assessment_central_theme_item_list(array('items' => $info['tags']['value'], 'title' => "<h3>" . $info['tags']['key'] . "</h3>", 'type' => 'ul', 'attributes' => array()), $export);
+      $html = $html .  $value_list . "\n";
+    }
+    if (!empty($info['links'])){
+      
+      $inner_table = "";
+      foreach($info['links'] as $item){
+        $key = $item['key'];
+        $value = $item['value'];
+        if ($key)  $inner_table = $inner_table . "<h5>$key</h5>" . "\n";
+        if ($value)  $inner_table = $inner_table . "$value" . "\n";
+      }
+      $html = $html . "<h3>Links</h3><ul>$inner_table</ul>" . "\n";
+      
+    }
+    if (!empty($info['combo_nhpid_names'])){
+      //drupal_set_message(nhpid_api_dump($info['combo_nhpid_names'], 'red', TRUE));
+      $option = array();
+      $html_file_names = null;
+      $link = "";
+      $place_holder = "";
+      $link_type = '';
+      if ($export){
+         $link = $central_url;
+         $place_holder = $central_url_place_holder;
+         $link_type = 'value';
+         $html_file_names = $info['combo_nhpid_names']['html_file_names'];
+      }
+      else {
+        $link = "node/:nid";
+        $place_holder = ':nid';
+        $link_type = 'key';
+       
+      }
+      $value = $info['combo_nhpid_names']['value'];
+      
+      //drupal_set_message(nhpid_api_dump($html_file_names, 'red', TRUE));
+      //drupal_set_message(nhpid_api_dump($value, 'red', TRUE));
+      array_walk($value, 'mapping_list_to_url', array('link_type' => $link_type, 'link_url' =>$link, 'place_holder' =>$place_holder, 'place_holder_substitutions' => $html_file_names, 'lang' => 'id', 'option' => $option));
+      //drupal_set_message(nhpid_api_dump($value, 'green', TRUE));
+      $value_list = count($value) < 1 ? reset($value) :  assessment_central_theme_item_list(array('items' => $value, 'title' => '<h3>' . $info['combo_nhpid_names']['key'] . "</h3>" , 'type' => 'ul', 'attributes' => array()), $export);
+      $html = $html .  $value_list . "\n";
+
+    }
+		if (!empty($info['combo_combo_names'])){
+      //drupal_set_message(nhpid_api_dump($info['combo_nhpid_names'], 'red', TRUE));
+      $option = array();
+      $html_file_names = null;
+      $link = "";
+      $place_holder = "";
+      $link_type = '';
+      if ($export){
+         $link = $central_url;
+         $place_holder = $central_url_place_holder;
+         $link_type = 'value';
+         $html_file_names = $info['combo_combo_names']['html_file_names'];
+      }
+      else {
+        $link = "node/:nid";
+        $place_holder = ':nid';
+        $link_type = 'key';
+
+      }
+      $value = $info['combo_combo_names']['value'];
+
+      //drupal_set_message(nhpid_api_dump($html_file_names, 'red', TRUE));
+      //drupal_set_message(nhpid_api_dump($value, 'red', TRUE));
+      array_walk($value, 'mapping_list_to_url', array('link_type' => $link_type, 'link_url' =>$link, 'place_holder' =>$place_holder, 'place_holder_substitutions' => $html_file_names, 'lang' => 'id', 'option' => $option));
+      
+			
+      
+      foreach ($info['combo_combo_names']['mi'] as $mi => $mi_value){
+				
+        if ($export){
+	         $link = $central_url;
+	         $place_holder = $central_url_place_holder;
+	         $link_type = 'value';
+	         $html_file_names = $mi_value['html_file_names'];
+	      }
+	      else {
+	        $link = "node/:nid";
+	        $place_holder = ':nid';
+	        $link_type = 'key';
+
+	      }
+	      //$value = $info['combo_combo_names']['value'];
+				array_walk($mi_value['value'], 'mapping_list_to_url', array('link_type' => $link_type, 'link_url' =>$link, 'place_holder' =>$place_holder, 'place_holder_substitutions' => $html_file_names, 'lang' => 'id', 'option' => $option));
+        $info['combo_combo_names']['mi'][$mi]=$mi_value;
+        $mi_value_list = assessment_central_theme_item_list(array('items' => $mi_value['value'], 'title' => null, 'type' => 'ul', 'attributes' => array()), $export);
+      	//$value[$mi] = $value[$mi] . '<h4>' . $mi_value['key'] . "</h4>" . $mi_value_list . "\n";
+        $value[$mi] = $value[$mi] .  $mi_value_list . "\n";
+			}
+      //drupal_set_message(nhpid_api_dump($value, 'green', TRUE));
+      $value_list = count($value) < 1 ? reset($value) :  assessment_central_theme_item_list(array('items' => $value, 'title' => '<h3>' . $info['combo_combo_names']['key'] . "</h3>" , 'type' => 'ul', 'attributes' => array()), $export);
+      $html = $html . $value_list . "\n";
+      //drupal_set_message(nhpid_api_dump($value_list, 'red', TRUE));
+    }
+    
+    if (!empty($info['PCI'])){
+      
+      $inner_table = "";
+      foreach($info['PCI'] as $item){
+        $key = $item['key'];
+        $value = $item['value'];
+        $link = $item['link'];
+        if ($value)  {
+          $inner_table = $inner_table . "<h5>$key</h5>$link" . "\n";
+        }
+        else{
+          $inner_table = $inner_table . "<h5>$link</h5>" . "\n";
+        }
+      }
+       $html = $html . "<h3>PCI</h3><ul>$inner_table</ul>" . "\n";
+      
+    }
+    if (!empty($info['notes'])){
+      
+      $inner_table = "";
+      foreach($info['notes'] as $item){
+        $key = $item['key'] == 'Notes' ? '' : '<ul><h4>' . $item['key'] . '</h4>';
+        $value = $item['value'];
+        if ($value){
+          $value_list = count($value) == 1 ? reset($value) :  assessment_central_theme_item_list(array('items' => $value, 'title' => null, 'type' => 'ul', 'attributes' => array()), $export);
+          $inner_table = $inner_table . $key . $value_list;
+          $inner_table = $item['key'] == 'Notes' ? $inner_table : $inner_table . "</ul>";
+        } 
+      }
+      $html = $html . "<h3>Notes</h3>$inner_table" . "\n";
+      
+    }
+    if (!empty($info['combinations'])){
+      
+      $inner_table = "";
+      foreach($info['combinations'] as $nid => $item){
+        
+        if ($export){
+           
+           $link = strip_tags(t($central_url, array($central_url_place_holder => drupal_encode_path($item['combo_node_html_file_names']['id']))));
+           $key = l('<h4>' . $item['key'] . '</h4>', $link, array('html' => true));
+        }
+        else {
+          $key = l('<h4>' . $item['key'] . '</h4>', "node/$nid",array('html' => true, 'attributes' => array('target' => '_blank')));
+        }
+        $value = $item['value'];
+        if ($value){
+          $link = "";
+          $place_holder = "";
+          $link_type = '';
+          $option = array();
+          $html_file_names = null;
+          if ($export){
+             $link = $central_url;
+             $place_holder = $central_url_place_holder;
+             $link_type = 'value';
+             $html_file_names = $item['html_file_names'];
+          }
+          else {
+            $link = "node/:nid";
+            $place_holder = ':nid';
+            $link_type = 'key';
+            $option = array('attributes' => array('target' => '_blank'));
+            
+          }
+          $skipped_items = array($name['value']);
+          
+          array_walk($value, 'mapping_list_to_url', array('link_type' => $link_type, 'link_url' =>$link, 'place_holder' =>$place_holder, 'place_holder_substitutions' => $html_file_names, 'lang' => 'id', 'option' => $option));
+          $value_list = count($value) == 1 ? reset($value) :  assessment_central_theme_item_list(array('items' => $value, 'title' => null, 'type' => 'ul', 'attributes' => array()), $export);
+          $inner_table = $inner_table . $key . $value_list . "\n";
+        } 
+      }
+      $html = $html . "<h3>Combinations</h3><ul>$inner_table</ul>";
+    }
+
+  }
+  
+  return $html;
+}
+function assessment_central_export_file_name($node, $ext='htm'){
+  $file_names = array();
+  $lang = $node -> language;
+  $file_name_base = '';
+  if ($node->type == 'mi'){
+    $file_name_base = $node -> field_nhpid_id[$lang][0]['value'] . '_AC';
+  }
+  else if($node->type == 'combo'){
+    $file_name_base = $node -> field_combo_name[$lang][0]['value'];
+    $file_name_base = strtoupper(str_replace(' ', '_', $file_name_base));
+  }
+  $file_names['e'] = $file_name_base . '_E.' . $ext;
+  $file_names['f'] = $file_name_base . '_F.' . $ext;
+  $file_names['n'] = $file_name_base . $ext;
+  //$file_names['b'] = $node -> field_combo_name[$lang][0]['value'];
+  $file_names['id'] = strtolower($file_name_base);
+  $file_names['b'] = $file_name_base;
+  return $file_names;
+}
+
+/*
+function assessment_central_format_export_info_($node, $vid = null, $export = true){
+  $central_url = variable_get('assessment_central_assessment_central_url', '');
+  $central_url_place_holder = ':assessment_central_html_name';
+  
+  if ($node -> type != 'mi' and $node -> type != 'combo'){
+    form_set_error('', t('Node(:nid) of :node_type is not a valid node for export. ', array(':nid' => $node -> nid, ':node_type' => $node -> type)));
+    return null;
+  }
+  $info = assessment_central_fetch_info_for_export($node, $vid);
+  $html = '';
+  $table_style = 'table-layout:inherit; border-width:0;padding-bottom:0;padding-top:0;"><tr><td style="font-weight:bold;vertical-align:text-top;border-color:transparent;border-collapse:separate;border-spacing:0px;';
+  $td_key ='<tr><td style="font-weight:bold;vertical-align:text-top;white-space:nowrap;border-width:0;padding-bottom:0;padding-top:0;">';
+  $td_value ="<td style='vertical-align:text-top;word-wrap:break-word; border-width:0;padding-bottom:0;padding-top:0;padding-left:20px;'>";
+  if ($info){
+    $title = $info["title"]['value'];
+    $version = $info["version"]['value'];
+    $name = $info["name"];
+    $html = "<center><h2>$title</h2></center><br><center>$version</center>" . "\n";
+    $html = $html . "<table style='$table_style'>$td_key" . $name['key'] . "</td>$td_value" . $name['value'] . '</td></tr>' . "\n";
+    if (!empty($info['synonyms'])){
+      $value_list = assessment_central_theme_item_list(array('items' => $info['synonyms']['value'], 'title' => null, 'type' => 'ul', 'attributes' => array()), $export);
+      $html = $html . $td_key . $info['synonyms']['key'] . "</td>$td_value" . $value_list .'</td></tr>';
+    }
+    if (!empty($info['tags'])){
+      $value_list = assessment_central_theme_item_list(array('items' => $info['tags']['value'], 'title' => null, 'type' => 'ul', 'attributes' => array()), $export);
+      $html = $html . $td_key . $info['tags']['key'] . "</td>$td_value" . $value_list .'</td></tr>';
+    }
+    if (!empty($info['links'])){
+      
+      $inner_table = "<table style='$table_style'>";
+      foreach($info['links'] as $item){
+        $key = $item['key'];
+        $value = $item['value'];
+        if ($value)  $inner_table = $inner_table . $td_key. "$key</td>$td_value$value</td></tr>";
+      }
+      $inner_table = $inner_table . '</table>';
+      $html = $html . $td_key . "Links</td>$td_value$inner_table </td></tr>";
+      
+    }
+    if (!empty($info['combo_nhpid_names'])){
+      //drupal_set_message(nhpid_api_dump($info['combo_nhpid_names'], 'red', TRUE));
+      $link = "";
+      $place_holder = "";
+      $link_type = '';
+      if ($export){
+         $link = $central_url;
+         $place_holder = $central_url_place_holder;
+         $link_type = 'value';
+      }
+      else {
+        $link = "node/:nid";
+        $place_holder = ':nid';
+        $link_type = 'key';
+      }
+      $value = $info['combo_nhpid_names']['value'];
+      array_walk($value, 'mapping_list_to_url', array('link_type' => $link_type, 'link_url' =>$link, 'place_holder' =>$place_holder, 'option' => array()));
+      $value_list = count($value) == 1 ? reset($value) :  assessment_central_theme_item_list(array('items' => $value, 'title' => null, 'type' => 'ul', 'attributes' => array()), $export);
+      $html = $html . $td_key . $info['combo_nhpid_names']['key'] . "</td>$td_value" . $value_list .'</td></tr>';
+
+    }     
+    
+    if (!empty($info['PCI'])){
+      
+      $inner_table = "<table style='$table_style'>";
+      foreach($info['PCI'] as $item){
+        $key = $item['key'];
+        $value = $item['value'];
+        if ($value)  $inner_table = $inner_table . $td_key . "$key</td>$td_value$value</td></tr>";
+      }
+      $inner_table = $inner_table . '</table>';
+      $html = $html . $td_key. "PCI</td>$td_value$inner_table </td></tr>";
+      
+    }
+    if (!empty($info['notes'])){
+      
+      $inner_table = "<table style='$table_style'>";
+      foreach($info['notes'] as $item){
+        $key = $item['key'];
+        $value = $item['value'];
+        if ($value){
+          $value_list = count($value) == 1 ? reset($value) :  assessment_central_theme_item_list(array('items' => $value, 'title' => null, 'type' => 'ul', 'attributes' => array()), $export);
+          $inner_table = $inner_table . $td_key . "$key</td>$td_value$value_list</td></tr>";
+        } 
+      }
+      $inner_table = $inner_table . '</table>';
+      $html = $html . $td_key . "Notes</td>$td_value$inner_table </td></tr>";
+      
+    }
+    if (!empty($info['combinations'])){
+      
+      $inner_table = "<table style='$table_style'>";
+      foreach($info['combinations'] as $nid => $item){
+        
+        if ($export){
+           
+           $link = strip_tags(t($central_url, array($central_url_place_holder => drupal_encode_path($item['key']))));
+           $key = l($item['key'], $link);
+        }
+        else {
+          $key = l($item['key'], "node/$nid",array('attributes' => array('target' => '_blank')));
+        }
+        $value = $item['value'];
+        if ($value){
+          $link = "";
+          $place_holder = "";
+          $link_type = '';
+          $option = array();
+          if ($export){
+             $link = $central_url;
+             $place_holder = $central_url_place_holder;
+             $link_type = 'value';
+          }
+          else {
+            $link = "node/:nid";
+            $place_holder = ':nid';
+            $link_type = 'key';
+            $option = array('attributes' => array('target' => '_blank'));
+          }
+          array_walk($value, 'mapping_list_to_url', array('link_type' => $link_type, 'link_url' =>$link, 'place_holder' =>$place_holder, 'option' => $option));
+          $value_list = count($value) == 1 ? reset($value) :  assessment_central_theme_item_list(array('items' => $value, 'title' => null, 'type' => 'ul', 'attributes' => array()), $export);
+          $inner_table = $inner_table . $td_key . "$key</td>$td_value$value_list</td></tr>";
+        } 
+      }
+      $inner_table = $inner_table . '</table>';
+      $html = $html . $td_key . "Combinations</td>$td_value$inner_table </td></tr>";
+    }
+    $html = $html . '</table>';
+  }
+  
+  return $html;
+}
+*/
+function assessment_central_add_export_history($node, $timestamp = null){
+  //$trace=debug_backtrace();
+  //$caller=array_shift($trace);
+  //drupal_set_message(nhpid_api_dump($caller, 'red', TRUE));
+  $field_name = 'field_export_history';
+  if (!property_exists($node, $field_name )){
+    form_set_error('', t('Cannot set export history to the node(:nid) of :node_type . ', array(':nid' => $node -> nid, ':node_type' => $node -> type)));
+    return null;
+  }
+  $lan = $node -> language;
+    
+  $timezone = date_default_timezone();
+  $field_info = field_info_field($field_name);
+  $timezone_db = $field_info['settings']['timezone_db'];
+  $type = $field_info['type'];
+  if (!$timestamp){
+    $date = date_now($timezone_db);
+    //drupal_set_message(nhpid_api_dump($date, 'red', TRUE));
+    $value =  date_format_date($date, 'custom', 'U');
+  }
+  
+  else{
+    $value = $timestamp;
+  }
+  //drupal_set_message(nhpid_api_dump($value, 'red', TRUE));
+ 
+  $item = array();
+  $item['value'] = $value;
+  $item['timezone'] = $timezone;
+  $item['timezone_db'] = $timezone_db;
+  $item['date_type'] = $type;
+  $node -> field_export_history[$lan][] = $item;
+  $node -> revision = 0; // no revsion added
+  node_save($node);
+  //drupal_set_message(nhpid_api_dump($node , 'brown', TRUE));
+  return $node;
+}
+
+function assessment_central_get_export_history($node){
+  $field_name = 'field_export_history';
+  if (!property_exists($node, $field_name )){
+    form_set_error('', t('Cannot set export history to the node(:nid) of :node_type . ', array(':nid' => $node -> nid, ':node_type' => $node -> type)));
+    return null;
+  }
+  $lan = $node -> language;
+  $timezone = date_default_timezone_object();
+  $field_info = field_info_field($field_name);
+  $timezone_db = $field_info['settings']['timezone_db'];
+  $history = array();
+  if ($node -> field_export_history){
+    foreach($node -> field_export_history[$lan] as $item){
+      $value = $item['value'];
+      //$date =New DateObject(date('Y-m-j H:i:s', $value),  $timezone_db);
+      $date =New DateObject($value,  $timezone_db);
+      //drupal_set_message(nhpid_api_dump($date, 'red', TRUE));
+      $date->setTimezone($timezone);
+      //drupal_set_message(nhpid_api_dump($date, 'blue', TRUE));
+      $history[$value] = date_format_date($date, 'custom', 'Y-m-j H:i:s');
+    }
+    
+  }
+  krsort($history);
+  return $history;
+}
+
+function assessment_central_download($path, $download_file_name=null){
+  nhpid_api_download($path, $download_file_name);
+}
+
+function assessment_central_fetch_retired_nhpid_names(){
+  $sql = 'select entity_id, field_mi_nhpid_name_value from field_data_field_mi_nhpid_name where field_mi_nhpid_name_value not in(select field_authorized_name_e_value from field_data_field_authorized_name_e)';
+  $rcs = db_query($sql) -> fetchAllKeyed(0,1);
+  $list = array();
+  foreach($rcs as $nid => $nhpid_name){
+    //$link = l($nhpid_name, "node/$nid", array('attributes' => array('target' => '_blank')));
+    $list[$nid] = $nhpid_name;
+  }
+  return $list;
+}
+
+function assessment_central_fetch_combos_containing_retired_nhpid_names(){
+  $sql = 'select combo.entity_id, field_combo_nhpid_name_value, field_combo_name_value from field_data_field_combo_nhpid_name nhpid, field_data_field_combo_name combo where combo.entity_id=nhpid.entity_id and combo.revision_id=nhpid.revision_id and combo.entity_type=nhpid.entity_type and field_combo_nhpid_name_value not in(select field_authorized_name_e_value from field_data_field_authorized_name_e)';
+  $rcs = db_query($sql) -> fetchAll();
+  $list = array();
+  foreach($rcs as $rc){
+    //$link = l($nhpid_name, "node/$nid", array('attributes' => array('target' => '_blank')));
+    $list[$rc->entity_id][] = array('combo_name' => $rc->field_combo_name_value, 'nhpid_name' => $rc->field_combo_nhpid_name_value);
+  }
+  return $list;
+}
+
+function mapping_list_to_url(&$item, $key, $param){
+  $link = '';
+  if ($param['place_holder_substitutions']){
+    $lang = $param['lang'];
+    $link = strip_tags(t($param['link_url'], array($param['place_holder'] => drupal_encode_path($param['place_holder_substitutions'][$key][$lang]))));
+  }
+  else{
+    if ($param['link_type'] == 'value'){
+      $link = strip_tags(t($param['link_url'], array($param['place_holder'] => drupal_encode_path($item))));
+    }
+    else {
+      $link = strip_tags(t($param['link_url'], array($param['place_holder'] => drupal_encode_path($key))));
+    }
+  }
+  
+  //drupal_set_message(nhpid_api_dump($param['skipped_items'] , 'blue', TRUE));
+  if (!isset($param['skipped_items']) or !in_array($item, $param['skipped_items'])) $item = l($item, $link, $param['option']);
+  //drupal_set_message(nhpid_api_dump($item, 'blue', TRUE));
+}
+
+
+function clone_fc_items($entity_type, &$entity, $fc_field, $language = LANGUAGE_NONE){
+  $entity_wrapper = entity_metadata_wrapper($entity_type, $entity);
+  $old_fc_items = $entity_wrapper->{$fc_field}->value();
+  if (!is_array($old_fc_items)) {
+    $old_fc_items = array($old_fc_items);
+  }
+
+  $field_info_instances = field_info_instances();
+  $field_names = element_children($field_info_instances['field_collection_item'][$fc_field]);
+
+  unset($entity->{$fc_field}[$language]);
+
+  foreach ($old_fc_items as $old_fc_item) {
+    $old_fc_item_wrapper = entity_metadata_wrapper('field_collection_item', $old_fc_item);
+    $new_fc_item = entity_create('field_collection_item', array('field_name' => $fc_field));
+    $new_fc_item->setHostEntity($entity_type, $entity);
+    $new_fc_item_wrapper = entity_metadata_wrapper('field_collection_item', $new_fc_item);
+    
+    foreach ($field_names as $field_name) {
+        //if (is_array($old_fc_item->{$field_name})){
+            if (!empty($old_fc_item->{$field_name})){
+                $new_fc_item->{$field_name} = $old_fc_item->{$field_name};
+            }
+        //}    
+    }
+    $new_fc_item_wrapper->save();
+    
+    //Now check if any of the fields in the newly cloned fc item is a field collection and recursively call this function to properly clone it.
+    foreach ($field_names as $field_name) {
+        if (!empty($new_fc_item->{$field_name})){
+            $field_info = field_info_field($field_name);
+            if ($field_info['type'] == 'field_collection'){
+                clone_fc_items('field_collection_item',$new_fc_item, $field_name,$language);
+            }     
+        }
+    }
+    
+  }
+}
+  
+function assessment_central_theme_item_list($variables, $export = true) {
+  $items = $variables['items'];
+  $title = $variables['title'];
+  $type = $variables['type'];
+  $attributes = $variables['attributes'];
+
+  // Only output the list container and title, if there are any list items.
+  // Check to see whether the block title exists before adding a header.
+  // Empty headers are not semantic and present accessibility challenges.
+  $output = $export? '': '<div class="item-list">';
+  if (isset($title) && $title !== '') {
+    $output .= '<h3>' . $title . '</h3>';
+  }
+
+  if (!empty($items)) {
+    $output .= "<$type" . drupal_attributes($attributes) . '>';
+    $num_items = count($items);
+    foreach ($items as $i => $item) {
+      $attributes = array();
+      $children = array();
+      $data = '';
+      if (is_array($item)) {
+        foreach ($item as $key => $value) {
+          if ($key == 'data') {
+            $data = $value;
+          }
+          elseif ($key == 'children') {
+            $children = $value;
+          }
+          else {
+            $attributes[$key] = $value;
+          }
+        }
+      }
+      else {
+        $data = $item;
+      }
+      if (count($children) > 0) {
+        // Render nested list.
+        $data .= assessment_central_theme_item_list(array('items' => $children, 'title' => NULL, 'type' => $type, 'attributes' => $attributes), $export);
+      }
+      if ($i == 0) {
+        $attributes['class'][] = 'first';
+      }
+      if ($i == $num_items - 1) {
+        $attributes['class'][] = 'last';
+      }
+      $output .= '<li' . drupal_attributes($attributes) . '>' . $data . "</li>\n";
+    }
+    $output .= "</$type>";
+  }
+  $output = $export? $output : $output .  '</div>';
+  return $output;
+}
+function set_field_mi_nhpid_name_allowed_value(){
+ return assessment_central_get_field_mi_nhpid_name_allowed_value();
+}
+
+function assessment_central_get_field_mi_nhpid_name_allowed_value(){
+  $workflow_states = nhpid_get_workflow_states_by_type('mi');
+  $allowd_value = assessment_central_get_variable_nhpid_authorized_names_e_values();
+  $self_value = array();
+  if (arg(0) == 'node' and arg(2) == 'edit'){
+    $nid = arg(1);
+    $node = node_load($nid);
+    if ($node -> type == "mi"){
+      $lang = $node -> language;
+      $self_value[$node -> field_mi_nhpid_name[$lang][0]['value']] = $node -> field_mi_nhpid_name[$lang][0]['value'];
+    }
+  }
+  //drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));
+  //drupal_set_message(nhpid_api_dump(arg(0) . arg(1) . arg(2), 'blue', TRUE));
+  //drupal_set_message(nhpid_api_dump($self_value, 'blue', TRUE));
+  //$allowd_value = nhpid_api_multi_code_field_allowed_values('nhpid_ingredient', NULL, NULL,'field_authorized_name_e');
+  $used_value = nhpid_api_multi_code_field_allowed_values('mi', NULL, NULL,'field_mi_nhpid_name', 'body', $workflow_states);
+  $used_value = array_diff_key($used_value, $self_value);
+  //drupal_set_message(nhpid_api_dump($used_value, 'blue', TRUE));
+  return array_diff_key($allowd_value, $used_value);
+  //return $allowd_value;
+}
+function assessment_central_set_variable_nhpid_authorized_names_e_values($op = 'batch', $additional_values=array()){
+  //drupal_set_message(nhpid_api_dump($op, 'blue', TRUE));
+  //drupal_set_message(nhpid_api_dump($additional_values, 'blue', TRUE));
+  $names = nhpid_api_multi_code_field_allowed_values('nhpid_ingredient', NULL, NULL,'field_authorized_name_e');
+  if ($op=='delete') {
+    $names = array_diff_key($names, $additional_values);
+  }
+  elseif ($op=='insert' or $op=='update'){
+    $names = array_merge($names, $additional_values);
+  }
+  variable_set('assessment_central_nhpid_authorized_names_e_values', $names);
+}
+
+function assessment_central_get_variable_nhpid_authorized_names_e_values(){
+  $names = variable_get('assessment_central_nhpid_authorized_names_e_values', null);
+  if (!$names){
+    $names = nhpid_api_multi_code_field_allowed_values('nhpid_ingredient', NULL, NULL,'field_authorized_name_e');
+    variable_set('assessment_central_nhpid_authorized_names_e_values', $names);
+  } 
+  return $names;
+}
+function set_field_combo_nhpid_name_allowed_value(){
+ return assessment_central_get_field_combo_nhpid_name_allowed_value();
+}
+
+function assessment_central_get_field_combo_nhpid_name_allowed_value(){
+  return assessment_central_get_variable_mi_nhpid_name_values();
+  
+}
+function assessment_central_set_variable_mi_nhpid_name_values($op = 'batch', $additional_values=array()){
+  $names = nhpid_api_multi_code_field_allowed_values('mi', NULL, NULL,'field_mi_nhpid_name');
+  if ($op=='delete') {
+    $names = array_diff_key($names, $additional_values);
+  }
+  elseif ($op=='insert' or $op=='update'){
+    $names = array_merge($names, $additional_values);
+  }
+  variable_set('assessment_central_mi_nhpid_name_values', $names);
+}
+function assessment_central_get_variable_mi_nhpid_name_values(){
+  $names = variable_get('assessment_central_mi_nhpid_name_values', null);
+  if (!$names){
+    $names = nhpid_api_multi_code_field_allowed_values('mi', NULL, NULL,'field_mi_nhpid_name');
+    variable_set('assessment_central_mi_nhpid_name_values', $names);
+    //drupal_set_message(nhpid_api_dump($names, 'blue', TRUE));
+  } 
+  return $names;
+}
+
+function assessment_central_update_variables_allowed_values($node, $op){
+  $referer = $_SERVER['HTTP_REFERER'];
+  $is_batch_op =strstr($referer, 'batch?') or  strstr($referer, 'rule_management/assessment_central_update_nhpid_ingredients') or strstr($referer, 'data_loading');
+  //update the variables only for non-batch operations.
+  
+  $current_workflow_state = get_node_current_state_state($node);
+  //drupal_set_message(nhpid_api_dump($referer, 'blue', TRUE));
+  //drupal_set_message(nhpid_api_dump($is_batch_op, 'blue', TRUE));
+  if (!$is_batch_op){
+    if ($node -> type == 'nhpid_ingredient'){
+      // only 'Published' nodes can be seen
+      if ($current_workflow_state != 'Published'){
+        $op = 'delete';
+      }
+      $value = array();
+      $lang = $node -> language;
+      $additional_value[$node -> field_authorized_name_e[$lang][0]['value']] = $node -> field_authorized_name_e[$lang][0]['value'];
+
+      assessment_central_set_variable_nhpid_authorized_names_e_values($op, $additional_value);
+       
+    } 
+    if ($node -> type == 'mi'){
+      // node workflow state in all states can been seen
+      $value = array();
+      $lang = $node -> language;
+      $additional_value[$node -> field_mi_nhpid_name[$lang][0]['value']] = $node -> field_mi_nhpid_name[$lang][0]['value'];
+      assessment_central_set_variable_mi_nhpid_name_values($op, $additional_value);
+    } 
+  }
+    
+}
+
+function aseessment_central_get_export_all_view_header(){
+  $header = '';
+  $header= $header . l("Batch Export","rule_management/assessment_central_export_all", array('html' => false, 'attributes' => array('target' => '_blank')));
+  $header= $header .  "<br>If you have changed any filters, please press 'Apply' first.";
+  
+  return $header;
+}
+
+function assessment_central_system_lock_access($account=null){
+  global $user;
+	if (!isset($account)){
+		$account=$user;
+	}
+	$system_locked = variable_get(SYSTEM_LOCK_VARIABLE, FALSE);
+  $exporting_data_temp_locked = variable_get(DATA_EXPORTING_LOCK_TEMP_VARIABLE, FALSE);
+	if ($exporting_data_temp_locked){
+		return FALSE;
+	}
+	if($system_locked){
+		if ($system_locked == $account->uid){
+			return TRUE;
+		}
+		else{
+			return FALSE;
+		}
+	}
+	return TRUE;
+
+}
+function _assessment_central_node_access_callback($op, $node, $account=null){
+	global $user;
+  if (!isset($account)){
+		$account=$user;
+	}
+	drupal_set_message(nhpid_api_dump($op, 'blue', TRUE));
+  drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));
+  ## blocks editing node menu structure nodes by users other than admin
+  $nhpid_menu_node_types = array("assessment_central", "assessment_central_data", "medicinal_ingredients", "nhpid_ingredients", "note_types", "pci_types", "combos","nhpid_data_form","nhpid_data_form_group", "fields_house");
+  if (in_array($node -> type, $nhpid_menu_node_types)){
+		if($user -> uid == 1) {
+    	return TRUE;
+		}
+		else{
+			return false;
+		}
+  }
+  
+  switch($op){
+
+    case 'edit':
+    case 'revisions':
+    case 'revisions_list':
+    case 'revisions_revert':
+    case 'revisions_delete':
+    case 'workflow':
+    return node_access($op, $node, $account);
+    break;
+
+    case 'children':
+    if ($account -> uid != 1){
+      return false;
+    }
+    return true;
+    break;
+  }
+}
+
+function currentnode_nid(){
+    if (arg(0)=='node' && is_numeric(arg(1)))
+        return arg(1);
+    else
+        return 0;
+}

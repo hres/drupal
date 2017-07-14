@@ -1,0 +1,10 @@
+.pane-nhpd-oa-member-widget .tab-content {
+  overflow: visible;
+}
+
+.pane-nhpd-oa--member-widget .form-item-group-name {
+  float: left;
+  margin: 0 10px 0 0;
+}
+
+

@@ -1,0 +1,10 @@
+; $Id: oa_watchers.info Peijun Zhang$
+name = NHPD OA Task Move and Copy
+description = A modules to handle task move and copy.
+core = 7.x
+package = NHPD
+dependencies[] = panels
+dependencies[] = nhpd_oa2
+dependencies[] = oa_worktracker_task_custom_fields_workflow_control
+version = "7.x-1.0-dev"
+

@@ -1,0 +1,66 @@
+<?php
+// $Id$
+
+/**
+* Install the oa_watchers module
+* type.
+* @file
+*/
+
+/**
+* Implementation of hook_install()
+*/
+function oa_watchers_install() {
+    drupal_install_schema('oa_watchers');
+    db_query("DELETE FROM {cache}");
+}
+
+/**
+* Implementation of hook_uninstall()
+*/
+function oa_watchers_uninstall() {
+    drupal_uninstall_schema('oa_watchers');
+}
+
+/**
+* Implementation of hook_schema()
+* @return array of Schema API table definitions.
+*/
+function oa_watchers_schema() {
+		$schema=array();
+		$table_name='oa_watchers';
+		if(!db_table_exists($table_name)){
+      $schema[$table_name] = array(
+			  'description' => 'Watchers (users) on tasks, etc',
+			  'fields' => array(
+			    'nid' => array(
+			      'description' => 'node nid',
+			      'type' => 'int',
+			      'unsigned' => TRUE,
+			      'not null' => TRUE,
+			      'default' => 0,
+			    ),
+          'watchers' => array(
+			      'description' => 'User uids, array, serialized',
+			      'type' => 'text',
+			      'size' => 'medium',
+			      'not null' => FALSE,
+						'serialize' => TRUE,
+			    ),
+          'notify' => array(
+			      'description' => 'The flag for notification, 1, yes; 0. no',
+			      'type' => 'int',
+			      'size' => 'tiny',
+			      'not null' => FALSE,
+						'default' => 1,
+			    ),
+          
+			  ),
+			  'primary key' => array('nid')
+			);
+
+		}
+
+    return $schema;
+}
+?>

@@ -1,0 +1,133 @@
+<?php
+// $Id$
+
+/**
+* Install the nhpid module, including it's content (node)
+* type.
+* @file
+*/
+
+/**
+* Implementation of hook_install()
+*/
+function nhpid_install() {
+    drupal_install_schema('nhpid');
+    db_query("DELETE FROM {cache}");
+}
+
+/**
+* Implementation of hook_uninstall()
+*/
+function nhpid_uninstall() {
+    drupal_uninstall_schema('nhpid');
+}
+
+/**
+* Implementation of hook_schema()
+* @return array of Schema API table definitions.
+*/
+function nhpid_schema() {
+		$schema=array();
+		$table_name='field_collection_calculated_value';
+		if(!db_table_exists($table_name)){
+      $schema[$table_name] = array(
+			  'description' => 'TODO: please describe this table!',
+			  'fields' => array(
+			    'nid' => array(
+			      'description' => 'TODO: please describe this field!',
+			      'type' => 'int',
+			      'unsigned' => TRUE,
+			      'not null' => TRUE,
+			      'default' => 0,
+			    ),
+          'workflow_state' => array(
+			      'description' => 'TODO: please describe this field!',
+			      'type' => 'text',
+			      'size' => 'small',
+			      'not null' => FALSE,
+			    ),
+          'type' => array(
+			      'description' => 'TODO: please describe this field!',
+			      'type' => 'text',
+			      'size' => 'small',
+			      'not null' => FALSE,
+			    ),
+          'value' => array(
+			      'description' => 'TODO: please describe this field!',
+			      'type' => 'text',
+			      'size' => 'medium',
+			      'not null' => FALSE,
+			    ),
+			  ),
+			  'primary key' => array('nid')
+			);
+
+		}
+    $table_name='nhpid_excel_drupal_field_mapping';
+		if(!db_table_exists($table_name)){
+      $schema[$table_name] = array(
+			  'description' => 'TODO: please describe this table!',
+			  'fields' => array(
+			    'node_type' => array(
+			      'description' => 'TODO: please describe this field!',
+			      'type' => 'varchar',
+			      'length' => '100',
+			      'not null' => TRUE,
+			    ),
+			    'excel_field_name' => array(
+			      'description' => 'TODO: please describe this field!',
+			      'type' => 'varchar',
+			      'length' => '150',
+			      'not null' => TRUE,
+			    ),
+			    'drupal_field_name' => array(
+			      'description' => 'TODO: please describe this field!',
+			      'type' => 'varchar',
+			      'length' => '150',
+			      'not null' => TRUE,
+			    ),
+			    'col_order' => array(
+			      'description' => 'TODO: please describe this field!',
+			      'type' => 'int',
+			      'not null' => FALSE,
+			    ),
+			    'data_group_title' => array(
+			      'description' => 'TODO: please describe this field!',
+			      'type' => 'varchar',
+			      'length' => '100',
+			      'not null' => FALSE,
+			    ),
+			    'data_group_type' => array(
+			      'description' => 'TODO: please describe this field!',
+			      'type' => 'varchar',
+			      'length' => '100',
+			      'not null' => FALSE,
+			    ),
+			    'data_form_title' => array(
+			      'description' => 'TODO: please describe this field!',
+			      'type' => 'varchar',
+			      'length' => '100',
+			      'not null' => FALSE,
+			    ),
+			    'data_form_type' => array(
+			      'description' => 'TODO: please describe this field!',
+			      'type' => 'varchar',
+			      'length' => '100',
+			      'not null' => FALSE,
+			    ),
+			    'mapping_field_name' => array(
+			      'description' => 'TODO: please describe this field!',
+			      'type' => 'varchar',
+			      'length' => '100',
+			      'not null' => FALSE,
+			    ),
+			  ),
+			  'primary key' => array('node_type', 'drupal_field_name')
+			);
+
+
+		}
+    
+    return $schema;
+}
+?>

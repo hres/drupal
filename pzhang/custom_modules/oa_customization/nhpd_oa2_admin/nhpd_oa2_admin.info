@@ -1,0 +1,6 @@
+; $Id: nhpid_tpd.info,v 1.0.0 2010/07/27 15:26:16 peijun zhang$
+name =NHPD OA2 Admin
+description = A modules for administrating NHPD OA2.
+core = 7.x
+package = NHPD
+version = "7.x-1.0-dev"

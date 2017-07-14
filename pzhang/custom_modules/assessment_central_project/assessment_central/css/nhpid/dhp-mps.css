@@ -1,0 +1,178 @@
+/* CLF 2.0 TEMPLATE VERSION 1.04 | VERSION 1.04 DU GABARIT NSI 2.0 */
+
+/* INSTITUTIONAL BANNER CSS BEGINS | DEBUT DU CSS DE LA BANNIERE INSTITUTIONNELLE */
+div.banner {
+	background-color: #636;
+	background: url(/imsd/images/dhp-mps/banner.jpg) #636 no-repeat;
+}
+div.banner-eng, div.banner-lfcoa-eng {
+	background: url(/imsd/images/dhp-mps/banner.jpg) #636 no-repeat;
+}
+div.banner-fra, div.banner-lfcoa-fra {
+	background: url(/imsd/images/dhp-mps/banner.jpg) #636 no-repeat;
+}
+/* INSTITUTIONAL BANNER CSS ENDS | FIN DU CSS DE LA BANNIERE INSTITUTIONNELLE */
+
+/***********START NEW************************************/
+
+/* GENERAL NAVIGATION CSS BEGINS | DEBUT DU CSS DE NAVIGATION GENERALE */
+div.left h2.nav, div.left h2.nav a:link, div.left h2.nav a:visited, div.left div.h2nav, div.left div.h2nav a:link, div.left div.h2nav a:visited, div.left p.h2nav, div.left p.h2nav a:link, div.left p.h2nav a:visited {
+	background-color: #ceb6ce;
+	color: #524;
+}
+
+div.right h2.nav, div.right h2.nav a:link, div.right h2.nav a:visited, div.right div.h2nav, div.right div.h2nav a:link, div.right div.h2nav a:visited, div.right p.h2nav, div.right p.h2nav a:link, div.right p.h2nav a:visited {
+	background-color: #636;
+}
+
+/* GENERAL NAVIGATION CSS ENDS | FIN DU CSS DE NAVIGATION GENERALE */
+
+/* SIDE MENU CSS BEGINS | DEBUT DU CSS DU MENU LATERAL */
+div.left ul.nav li div.menucontent	{ background: #636;  }
+div.right ul.nav li div.menucontent { background: #ceb6ce; }
+
+div.left ul.nav ul.nav a.menulink, div.left ul.nav div.menucontent a.menulink, div.left ul.nav ul.nav strong
+{
+	border-top: 1px solid #885488;
+	border-bottom: 1px solid #4a224a;
+	background-color: #636;
+}
+
+div.right ul.nav ul.nav a.menulink, div.right ul.nav div.menucontent a.menulink {
+	border-top: 1px solid #e5cfe5;
+	border-bottom: 1px solid #bb9ebb;
+	background-color: #ceb6ce;
+	color: #524;
+}
+
+/*This grey class must remain or colour CSS will override it*/
+div ul.nav ul.nav ul.nav2 a.menulink, div ul.nav ul.nav ul.nav2 strong  {
+	color: #000;
+	border-top: 1px solid #EEE;
+	border-bottom: 1px solid #c4c4c4;
+	border-right: 1px solid #c4c4c4;
+	border-left: 1px solid #c4c4c4;
+	background-color: #DDD;
+}
+
+div ul.nav ul.nav a.menulink:hover, div ul.nav div.menucontent a.menulink:hover {
+	background:#524;
+	border-top: 1px solid #524;
+	border-bottom: 1px solid #524;
+}
+
+div.right ul.nav ul.nav a.menulink:hover, div.right ul.nav div.menucontent a.menulink:hover {
+	background:#c5aec5;
+	border-top: 1px solid #ceb6ce;
+	border-bottom: 1px solid #ceb6ce;
+}
+
+
+div ul.nav ul.nav ul.nav2 a.menulink:hover {
+	background:#C4C4C4;
+	border-top: 1px solid #c4c4c4;
+	border-bottom: 1px solid #c4c4c4;
+}
+
+div.prodis { background-color: #ceb6ce; }
+/* SIDE MENU CSS ENDS | FIN DU CSS DU MENU LATERAL */
+
+/* CONTENT CSS BEGINS | DEBUT DU CSS DU CONTENU */
+div.center h2, h3, h4, h5, h6 {color: #636;}
+div.colLayout div.center h1, div.core div.center h1 {background:#636 url(/imsd/images/dhp-mps/h1.gif) no-repeat top right;}
+div.center h3 {border-bottom:#ceb6ce solid 2px}
+div.center h4 {border-bottom:#ceb6ce dotted 2px}
+
+div.center a:link 		{ color: #636; }
+div.center a:visited 	{ color: #524; }
+div.blackborder 		{ border: solid #636 1px; }
+
+div#subjectHeader 		{background:url(/imsd/images/dhp-mps/subject-sujet-bg.gif); color:#524; font-weight:bold}
+div#subjectHeader strong {color:#524; background-color:#ceb6ce; background-image:url(/imsd/images/dhp-mps/subject-sujet.gif);}
+h1#subjectHeader		{background-color:#636}
+
+
+#tools a 				{ color: #636; }
+/* CONTENT CSS ENDS | FIN DU CSS DU CONTENU */
+
+/* FOOTER CSS BEGINS | DEBUT DU CSS DU PIED DE LA PAGE */
+
+div.footer div.footerline { background-color: #636; }
+div.footer a:link, div.footer a:visited, div.center div.footer a:link, div.center div.footer a:visited, div.center div.topPage a:link, div.center div.topPage a:visited, div.center p.topPage a:link, div.center p.topPage a:visited {
+	color: #636;
+}
+/* FOOTER CSS ENDS | FIN DU CSS DU PIED DE LA PAGE */
+
+/* LIST UTILITY CSS BEGINS | DEBUT DU CSS D'UTILITE DE LISTE */
+ul.subjectBullet	{ list-style-image: url(/imsd/images/dhp-mps/bullet_subject.gif); }
+
+/*COLOUR CLASS'S */
+.subjectColour		{ color: #636; }
+.subjectDarkColour	{ color: #524; }
+
+/*BACKGROUND COLOUR CLASS'S */
+.subjectBG, table tr.subjectBG td, table tr.subjectBG th				{ background-color: #636; color: #FFF; }
+.lightsubjectBG, table tr.lightsubjectBG td, table tr.lightsubjectBG th	{ background-color: #ceb6ce; color: #524; }
+.darksubjectBG, table tr.darksubjectBG td, table tr.darksubjectBG th		{ background-color: #524; color: #FFF; }
+
+/* BORDER CLASS'S */
+.borderSubject	{ border: 1px solid #636; }
+
+/* FORM TAGS */
+legend 		{ background: #636; }
+fieldset 	{  border: 1px solid #636; }
+
+input.subject, p.submit input, #close
+{
+	background: #636;
+	border-top: 2px solid #ceb6ce;
+	border-left: 2px solid #ceb6ce;	
+	border-right: 2px solid #524;
+	border-bottom: 2px solid #524;
+	color: #FFF;
+}
+
+table.subject th {background: #636;	color: #FFF;}
+
+div.center h2.promotion {color:#524; background:none; background-color:#ceb6ce;}
+
+/* In this topic style */
+div.topic ul {list-style-image:url(/imsd/images/dhp-mps/bullet_subject.gif);}
+div.topic p {background-image:url(/imsd/images/dhp-mps/topic-header.gif); color:#524;}
+
+/* publications */
+.next, .previous, .toc {border:1px solid #ceb6ce;}
+
+.quickLinks p, .quickLinks p a {background-color: #636}
+div.HighlightFloat2 p#header, div.HighlightFloat2 p.header {background:#ceb6ce url(/imsd/images/dhp-mps/ql-header-top.gif) no-repeat left top; color:#524; }
+div.HighlightFloat2 p {background-image:url(/imsd/images/dhp-mps/ql-header-bottom.gif); color:#524;}
+div.HighlightFloat2 p.second {color:#524; }
+div.HighlightFloat2 ul{ background-image:url(/imsd/images/dhp-mps/ql-header-bottom.gif); list-style-image:url(/imsd/images/dhp-mps/bullet_square.gif) }
+div.HighlightFloat2 ul li a {color:#524!important;}
+
+div.highlightFloat, p.highlightFloat	{border: 1px solid #636} 
+
+/* top nav for applications */
+ul.topnav li {background-color:#ceb6ce;}
+ul.topnav li a {color:#524!important}
+ul.topnav li a:hover {background:#636; color:#fff}
+
+div.center h2.promotion {color:#524; background:none; background-color:#ceb6ce;}
+
+/* date format */
+div.date ul {list-style-image: url(/imsd/images/dhp-mps/bullet_subject.gif);}
+
+/* hover boxes for months, a-z listing etc */
+ul.alpha li a {color:#636!important;}
+ul.alpha li a:hover {background:#636;}
+
+/* Online Pubs ordering System */
+div.tools-resources {
+	border: 1px solid #636;
+}
+div.tools-resources div.target {
+	border: 1px dotted #636;
+}
+
+/*Share Feature Style */
+div.share p#shareTitle {background:url(/imsd/images/dhp-mps/topic-header.gif) no-repeat; height:32px; font-weight:bold; padding:4px 0 0 0px; margin:0; color:#336633; text-align:center;}

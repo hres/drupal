@@ -1,0 +1,5 @@
+name = OA task modification tool
+description = OA task modification tool
+core = 7.x
+package = NHPD
+version = "7.x-1.0-dev"

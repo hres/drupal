@@ -1,0 +1,1119 @@
+<?php
+// $Id$
+include_once 'sites/all/libraries/Colors/RandomColor.php';
+use \Colors\RandomColor;
+
+//include_once('InFlect.php');
+define("TASK_LIST_VIEW_NAME", 'customized_work_tracker');
+define("TASK_REPORT_DISPLAY_ID", 'task_report');
+define("TASK_LIST_FOR_SPACE_DISPLAY_ID", 'view_field_for_space');
+define("TASK_LIST_FOR_SECTION_DISPLAY_ID", 'view_field_for_section');
+function nhpd_oa2_init(){
+	global $user;
+	$trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+	$first_caller = array_pop($trace);
+  //drupal_set_message(nhpid_api_dump($first_caller, 'blue', TRUE));
+	if ($first_caller['function'] != 'drush_main' && $user -> uid == 0 && (arg(0) != 'user' && arg(1) != 'login')){
+		drupal_goto('user/login');
+	}
+	//css
+  $theme_dir = drupal_get_path('theme', 'hc_ims');
+  drupal_add_css($theme_dir . '/assets/stylesheets/hc.css');
+}
+
+function nhpd_oa2_cron(){
+
+}
+
+function nhpd_oa2_permission() {
+    return array(
+    'administer nhpd oa2' => array(
+      'title' => t('Administer NHPD OA2'),
+      'description' => t(''),
+      ),
+    'oa2 reporting' => array(
+      'title' => t('Task reporting'),
+      'description' => t(''),
+      ),
+    
+    );
+} 
+/* hook_og_permission*/
+function nhpd_oa2_og_permission(){
+  $items = array();
+
+  $items['access to comment form'] = array(
+    'title' => t('Access to comment form'),
+    'description' => t('Users may add/edit new comments.'),
+    'roles' => array(OG_ADMINISTRATOR_ROLE,OG_AUTHENTICATED_ROLE),
+    'default role' => array(OG_ADMINISTRATOR_ROLE),
+    'restrict access' => TRUE,
+  );
+  $items['access to node update form'] = array(
+    'title' => t('Access to node update form'),
+    'description' => t('Users may update nodes through the update form in node view.'),
+		'roles' => array(OG_ADMINISTRATOR_ROLE,OG_AUTHENTICATED_ROLE),
+    'default role' => array(OG_ADMINISTRATOR_ROLE),
+    'restrict access' => TRUE,
+  );
+  return $items;
+}
+/* hook_ctools_plugin_directory */
+function nhpd_oa2_ctools_plugin_directory($module, $plugin) {
+  if ($module == 'ctools') {
+    return 'plugins/' . $plugin;
+  }
+}
+
+
+/***
+ *hook_views_pre_build
+ *
+ */
+
+function nhpd_oa2_views_pre_build(&$view){
+  /*drupal_set_message(nhpid_api_dump($view, 'blue', TRUE));
+  unset($view->{field}['nid']);
+  unset($view->display_handler->handlers['field']['nid']);
+  unset($view->{filter}['nid']);
+  unset($view->display_handler->handlers['filter']['nid']);
+  $view->display_handler->handlers->display->display_option['filters']['nid']['exposed']=false;
+	//unset ($view_filter);
+  drupal_set_message(nhpid_api_dump($view->field, 'blue', TRUE));
+	*/
+  global $user;
+	$user_data = property_exists($user, 'data')? $user->data : array();
+	$view_name = $view->name;
+	$current_display_id = $view ->current_display;
+	//if (empty($view->display_handler->handlers)){
+	//	$view
+	//}
+  //drupal_set_message(nhpid_api_dump($view->display[$current_display_id], 'blue', TRUE));
+	if (!in_array($view_name, array(TASK_LIST_VIEW_NAME, 'oa_worktracker'))) return;
+	$customizable_fields = variable_get('oa_worktracker_customizable_fields', array());
+	$customizable_filters = variable_get('oa_worktracker_customizable_filters', array());
+	$view_fields = $view->field;
+	$view_filters = $view->filter;
+
+	switch ($view_name){
+		case TASK_LIST_VIEW_NAME:
+		switch ($current_display_id){
+			case TASK_REPORT_DISPLAY_ID:
+			case TASK_LIST_FOR_SPACE_DISPLAY_ID:
+			case TASK_LIST_FOR_SECTION_DISPLAY_ID:
+			case 'panel_pane_task_report':
+			if ($current_display_id == TASK_REPORT_DISPLAY_ID){
+				$task_reporting_setting = isset($user_data['task_reporting_setting'])? $user_data['task_reporting_setting'] : array();
+				$visible_fields = isset($task_reporting_setting['task_reporting']['fields']) ? $task_reporting_setting['task_reporting']['fields'] : array();
+				$visible_filters = isset($task_reporting_setting['task_reporting']['filters']) ? $task_reporting_setting['task_reporting']['filters'] : array();
+			}
+			else{
+				$task_list_setting = isset($user_data['task_list_setting'])? $user_data['task_list_setting'] : array();
+				$currentnode_nid = currentnode_nid();
+				$visible_fields = isset($task_list_setting[$currentnode_nid]['fields']) ? $task_list_setting[$currentnode_nid]['fields'] : array();
+				$visible_filters = isset($task_list_setting[$currentnode_nid]['filters']) ? $task_list_setting[$currentnode_nid]['filters'] : array();
+			}
+ 
+			foreach ($view_fields as $field_id => $view_field){
+				if(isset($customizable_fields[$field_id]) and $customizable_fields[$field_id]){
+					if (!isset($visible_fields[$field_id]) or !$visible_fields[$field_id]){
+						unset($view->display_handler->handlers['field'][$field_id]);
+					}
+				}
+			}
+			foreach ($view_filters as $filter_id => $view_filter){
+		    if(isset($customizable_filters[$filter_id]) and $customizable_filters[$filter_id]){
+					if (!isset($visible_filters[$filter_id]) or !$visible_filters[$filter_id]){
+						unset($view->display_handler->handlers['filter'][$filter_id]);
+					}
+				}
+			}
+			
+		  $view->is_cacheable = FALSE;
+			
+			break;
+			
+		}
+		break;
+		
+	}
+  //$view->display[$view->current_display]->handler->definition['js'] = $js;
+	//$new_view_name = $view_name . 'new';
+	//$view -> name = $new_view_name;
+	//views_save_view($view);
+  //drupal_set_message(nhpid_api_dump($view, 'blue', TRUE));
+
+  
+}
+ // hook_node_view_alter
+function nhpd_oa2_node_view_alter(&$build){
+  global $user;
+	$node = $build['#node'];
+
+  //drupal_set_message(nhpid_api_dump($build, 'blue', TRUE));
+	switch ($node -> type){
+		case "oa_worktracker_task":
+	  // only some pre-defined memebers can update this task but still can use comment
+		if (!_nhpd_oa2_task_update_allowed($node)){
+	    $fields =field_info_instances('node', 'oa_worktracker_task');
+			foreach($fields as $field_name => $info){
+	      unset($build['comments']['comment_form'][$field_name]);
+			}
+		}
+	  // only space members can add comments
+		$current_space = oa_core_get_space_context();
+		if (!og_user_access('node', $current_space, 'access to comment form', NULL, FALSE, TRUE)){
+	    unset($build['comments']['comment_form']);
+	    unset($build['links']['comment']['#links']);
+		}
+		//adds subtasks
+		$subtasks = nhpd_oa2_get_all_child_tasks($node);
+    $children = array();
+		foreach($subtasks as $nid => $subtask){
+			$children[] = l($subtask -> title, 'node/' . $subtask ->nid, array('attributes' => array('target' =>'_blank')));
+		}
+	  if (!empty($children)){
+      $build['children'] = array(
+    	'#markup' => theme_item_list(array('type' => 'ol', 'items' => $children, 'title' => t('Subtasks'), 'attributes' => array())),
+    	'#weight' => 3,
+			'#type' => 'item',
+  		);
+		}
+		//adds siblings
+    $sibling_tasks = nhpd_oa2_get_all_sibing_tasks($node);
+		$siblings = array();
+		foreach($sibling_tasks as $nid => $task_node){
+			$siblings[] = l($task_node -> title, 'node/' . $task_node ->nid, array('attributes' => array('target' =>'_blank')));
+		}
+	  if (!empty($siblings)){
+      $build['siblings'] = array(
+    	'#markup' => theme_item_list(array('type' => 'ol', 'items' => $siblings, 'title' => t('Siblings'), 'attributes' => array())),
+    	'#weight' => 3,
+			'#type' => 'item',
+  		);
+		}
+    //adds related tasks
+    $related_tasks = nhpd_oa2_get_reverse_related_tasks($node);
+		$relateds = array();
+		foreach($related_tasks as $nid => $value){
+      $variable_name = 'oa_worktracker_allowed_values_related_task_relation';
+			$related_task_relation=variable_get_value($variable_name);
+			$relation = isset($value['relation']) ? $related_task_relation['options'][$value['relation']] : '';
+			$title = '';
+			$nid = '';
+			if ($value['entity']){
+				$title = $value['entity'] -> title;
+				$nid = $value['entity'] -> nid;
+			}
+			$relateds[] = $relation . ' ' .  l($title, 'node/' . $nid, array('attributes' => array('target' =>'_blank')));
+
+		}
+	  if (!empty($relateds)){
+		$build['related_tasks_reverse_container'] = array(
+        '#type' => 'fieldset',
+				'#title' => t('Reverse Related Tasks'),
+				'#collapsible' => TRUE,
+        '#collapsed' => FALSE,
+        '#weight' => 3,
+        '#attributes' => array('class' => array('field-group-fieldset')),
+			);
+			$build['related_tasks_reverse_container']['related_tasks'] = array(
+    	'#markup' => theme_item_list(array('type' => 'ol', 'items' => $relateds, 'title' => NULL, 'attributes' => array())),
+ 			'#type' => 'item',
+  		);
+		}
+		break;
+	}
+  //unset($build['comments']['comment_form']);
+  //drupal_set_message(nhpid_api_dump($build['#fieldgroups']['group_task_related_parent_task'], 'blue', TRUE));
+  //unset($build['links']['comment']['#links']['comment-add']);
+}
+
+function nhpd_oa2_comment_view_alter(&$build){
+	global $user;
+  //drupal_set_message(nhpid_api_dump($build, 'blue', TRUE));
+	switch($build['#bundle']){
+		case 'comment_node_oa_worktracker_task':
+    // only space members can use comment links
+		$current_space = oa_core_get_space_context();
+		if (!og_user_access('node', $current_space, 'access to comment form', NULL, FALSE, TRUE)){
+	    unset($build['links']['comment']['#links']);
+		}
+		break;
+	}
+}
+
+function nhpd_oa2_form_alter(&$form, $form_state, $form_id) {
+  //dpm($form);
+  global $user;
+  //drupal_set_message(nhpid_api_dump($form, 'blue', TRUE));
+  //drupal_set_message(nhpid_api_dump(form_process_container($form['field_oa_worktracker_task_status']['und'],$form_state), 'blue', TRUE));
+	switch($form_id){
+	case 'comment_node_oa_worktracker_task_form':
+    // only some pre-defined members can update this task but still can use comment
+    $node = $form['#node'];
+		if (!_nhpd_oa2_task_update_allowed($node)){
+	    $fields =field_info_instances('node', 'oa_worktracker_task');
+			foreach($fields as $field_name => $info){
+	      unset($form[$field_name]);
+			}
+		}
+
+		break;
+
+	}
+}
+
+/**
+ * Implements hook_element_info_alter().
+ * Adds an #after_build function to all form elements.
+ */
+function nhpd_oa2_element_info_alter(&$types) {
+  foreach ($types as $type => $info) {
+    $types[$type]['#after_build'][] = 'conditional_fields_element_after_build';
+    
+  }
+  //drupal_set_message(nhpid_api_dump($types, 'blue', TRUE));
+}
+
+// Implementation of hook_node_operations
+function nhpd_oa2_node_validate($node){
+	//Assigned to and Assigned
+	if ($node->type == 'oa_worktracker_task'){
+		$wrapper=entity_metadata_wrapper('node', $node);
+		$status = $wrapper->field_oa_worktracker_task_status ->value();
+		if ( ($status =='assigned' && !$wrapper->field_oa_worktracker_assigned_to ->value())){
+			form_set_error('field_oa_worktracker_assigned_to', "Status is Assigned while Assigned to is empty.");
+		}
+	}
+	
+}
+
+
+function nhpd_oa2_node_presave($node){
+	// set value to field_is_closed
+	//drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));
+	switch($node->type){
+	  	case 'oa_worktracker_task':
+		//if (property_exists($node, 'field_is_closed') && property_exists($node, 'field_oa_worktracker_task_status')){
+			$wrapper = entity_metadata_wrapper('node', $node);
+			$status = $wrapper -> field_oa_worktracker_task_status -> raw();
+			//drupal_set_message(nhpid_api_dump($status, 'blue', TRUE));
+			if (nhpd_oa2_is_a_closed_task_status($status)){
+				$wrapper -> field_is_closed = TRUE;
+			}
+			else{
+				$wrapper -> field_is_closed = FALSE;
+			}
+		//}
+	}
+	//drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));
+}
+
+function nhpd_oa2_chart_definition_alter(&$definition, $chart, $chart_id) {
+ // dpm($definition);
+  //dpm($chart);
+   switch($chart_id){
+	 case 'customized_work_tracker__panel_pane_chart_status':
+		$definition['plotOptions']['series']['allowPointSelect'] = true; //change the distance
+		$definition['plotOptions']['pie']['dataLabels']['distance'] = 20; //change the distance
+		$definition['plotOptions']['series']['dataLabels']['enabled']= TRUE;
+		$definition['plotOptions']['series']['dataLabels']['format']=  '<b>{point.name}</b>:{point.percentage:.2f}% ({point.y})';
+		$definition['plotOptions']['series']['dataLabels']['style'] = 'color: "Highcharts.theme && Highcharts.theme.contrastTextColor)"';//change color of labels
+		//$definition['series'][0]['data'][]=array('test', 10000);
+		// changes colors
+		$num_points = count($definition['series'][0]['data']);
+		if ($num_points > count($definition['colors'])){
+			$colors = RandomColor::many($num_points); 
+			$definition['colors'] = $colors;
+		}
+		break;
+  }
+  
+  //dpm($definition);
+}
+
+function nhpd_oa2_theme_registry_alter(&$theme_registry) {
+  $theme_registry['username']['preprocess functions'][] = '_untrim_username';
+}
+
+
+//*** Helper functions *****
+function _untrim_username(&$variables) {
+  $name = $variables['name_raw'];
+  $variables['name'] = check_plain($name);
+}
+
+function nhpd_oa2_field_attach_validate($entity_type, $entity, &$errors) {
+  //drupal_set_message(nhpid_api_dump($errors, 'blue', TRUE));
+	switch ($entity_type){
+		case 'node':
+	  switch($entity->type){
+	  	case 'oa_worktracker_task':
+			$field_lancode = field_language('node', $entity, 'field_oa_worktracker_task_status');
+			if (nhpd_oa2_is_a_closed_task_status($entity->field_oa_worktracker_task_status[$field_lancode][0]['value']) && variable_get('oa_worktracker_require_all_sub_task_to_be_closed', FALSE)){
+				$children_not_closed = nhpd_oa2_get_child_tasks_not_closed($entity);
+				$oa_worktracker_task_status = variable_get('oa_worktracker_allowed_values_task_status', array());
+				$closed_status_values = implode(', ',nhpd_oa2_get_closed_task_statuses_values());
+				if(!empty($children_not_closed)){
+					$message = "The status of this task cannot be set to a closed status since some of its sub-tasks are not closed. Statuses <strong>$closed_status_values</strong> are considered to be closed stautese :<br>";
+					$links = array();
+					foreach($children_not_closed as $nid => $status){
+						$child = node_load($nid);
+						$links[] = l($entity->title . "($nid):", "/node/$nid", array('attributes' => array('target' =>'_blank'))) . $oa_worktracker_task_status['options'][$status];
+					}
+					$message = $message . theme_item_list(array('type' => 'ol', 'items' => $links, 'title' => null, 'attributes' => array()));
+					//form_set_error('field_oa_worktracker_task_status', $message);
+					$errors['field_oa_worktracker_task_status'][$field_lancode][0][] = array('error' => 'children_not_closed', 'message' => $message);
+				}
+				break;
+			}
+		}
+		break;
+	}
+	
+}
+
+/***
+ * hook_menu
+ */ 
+function nhpd_oa2_menu() {
+
+  $items = array();
+
+  $items['user/%user/edit/oa_task_reporting_setting'] = array(
+    'title' => t('Reporting Setting'),
+    //'menu_name' => 'menu-nhpdtpd',
+    'weight' => -2,
+    'access arguments' => array('oa2 reporting'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('oa_reporting_setting_form'),
+    'file' => 'forms.inc',
+    'type' => MENU_LOCAL_TASK,
+		//'description' => "Get TP report",
+  );
+
+  return $items;
+}
+
+//hook_variable_info_alter
+
+function nhpd_oa2_variable_info_alter(&$info){
+  
+	foreach($info as $name => $setting){
+		switch($name){
+			case 'oa_worktracker_allowed_values_task_status':
+			case 'oa_worktracker_allowed_values_task_type':
+			case 'oa_worktracker_allowed_values_priority':
+			$setting['localize'] = TRUE;
+			$info[$name] = $setting;
+			break;
+		}
+	}
+	//drupal_set_message(nhpid_api_dump( $info, 'purple', TRUE));
+	return $info;
+}
+
+// hook variable_info
+function nhpd_oa2_variable_info($options){
+  $description  = t('The possible values this field can contain.');
+  $variable = array();
+	$variable['oa_worktracker_allowed_values_test'] = array(
+    'type' => 'string',
+    'title' => t('Task category values(oa_worktracker_allowed_values_test)'),
+    'description' => 'test',
+    'group' => 'oa_worktracker',
+		'localize' => TRUE,
+  );
+  $variable['oa_worktracker_allowed_values_task_category'] = array(
+    'type' => 'oa_worktracker_allowed_values',
+    'title' => t('Task category values(oa_worktracker_allowed_values_task_category)'),
+    'default' => array(
+      'options' => array(
+        'General'=>'General',
+      ),
+      'default_value' => 'General',
+    ),
+    'description' => $description,
+    'group' => 'oa_worktracker',
+		'localize' => TRUE,
+  );
+  $variable['oa_worktracker_allowed_values_task_subcategory'] = array(
+    'type' => 'oa_worktracker_allowed_values',
+    'title' => t('Task sub-category values (oa_worktracker_allowed_values_task_subcategory)'),
+    'default' => array(
+      'options' => array(
+        'ePLA: Use'=>'ePLA: Use',
+      ),
+      'default_value' => 'ePLA: Use',
+    ),
+    'description' => $description,
+    'group' => 'oa_worktracker',
+		'localize' => TRUE,
+  );
+	
+  $view = views_get_view(TASK_LIST_VIEW_NAME, true);
+  $customizable_fields = array();
+  $customizable_filters = array();
+	foreach($view->display['default']->display_options['fields'] as $field){
+		if(field_info_field($field['id'])){
+			$customizable_fields[$field['id']] = isset($field['label'])?$field['label']:$field['id'];
+		}
+	}
+  
+  foreach($view->display['default']->display_options['filters'] as $filter){
+    $customizable_filters[$filter['id']] = isset($filter['expose']['label'])?$filter['expose']['label']:$filter['id'];
+	}
+
+  $variable['oa_worktracker_customizable_fields'] = array(
+    'type' => 'options',
+    'title' => t('customizable task fields (oa_worktracker_customizable_fields)'),
+    'options' => $customizable_fields,
+    'description' => t('Customizable task fields used for task views. If checked, the field will be a customizable one, meaning users can control its visibility in views. Otherwise, the field will be always visible. '),
+    'group' => 'oa_worktracker',
+  );
+  $variable['oa_worktracker_customizable_filters'] = array(
+    'type' => 'options',
+    'title' => t('customizable task filters (oa_worktracker_customizable_filters)'),
+    'options' => $customizable_filters,
+    'description' => t('Customizable task filters. If checked, the filer will be a customizable one, meaning users can control its visibility in views. Otherwise, the filer will be always visible. '),
+    'group' => 'oa_worktracker',
+  );
+  $variable['oa_worktracker_require_all_sub_task_to_be_closed'] = array(
+    'type' => 'boolean',
+    'title' => t('Require all sub-tasks to be closed(oa_worktracker_require_all_sub_task_to_be_closed)'),
+    'description' => t('To close a parent task, do all its sub-tasks have to be close?'),
+		'default' => TRUE,
+    'group' => 'oa_worktracker',
+  );
+	// !!!variable_get_value is not working here!!!
+  $task_status = variable_get('oa_worktracker_allowed_values_task_status', array());
+  $task_status_options = $task_status['options'];
+
+  $variable['oa_worktracker_closed_task_statuses'] = array(
+    'type' => 'options',
+    'title' => t("Task statuses defined as ''closed'(oa_worktracker_closed_task_statuses)"),
+    'description' => t("Task statues acting as 'closed'"),
+    'options' => $task_status_options,
+		'default' => array('closed'),
+    'group' => 'oa_worktracker',
+  );
+	$related_task_relation_options=array(
+        'relates'=>'Related to',
+				'duplicates'=>'Duplicates',
+				'duplicated by'=>'Duplicated by',
+				'blocks'=>'Blocks',
+				'blocked by'=>'Blocked by',
+				'precedes'=>'Precedes',
+				'follows'=>'Follows',
+				'copied to'=>'Copied to',
+				'copied from'=>'Copied from',
+      );
+  $variable['oa_worktracker_allowed_values_related_task_relation'] = array(
+    'type' => 'oa_worktracker_allowed_values',
+    'title' => t('Related task relation values(oa_worktracker_allowed_values_related_task_relation)'),
+    'default' => array(
+      'options' => $related_task_relation_options,
+      'default_value' => 'relates',
+    ),
+    'description' => $description,
+    'group' => 'oa_worktracker',
+  );
+  $variable['oa_worktracker_allowed_values_related_task_relation_mapping'] = array(
+    'type' => 'oa_worktracker_allowed_values',
+    'title' => t('Related task relation values mapping(oa_worktracker_allowed_values_related_task_relation_mapping)'),
+    'default' => array(
+      'options' => array(
+        'relates'=>'relates',
+				'duplicates'=>'duplicated by',
+				'duplicated by'=>'duplicates',
+				'blocks'=>'blocked by',
+				'blocked by'=>'blocks',
+				'precedes'=>'follows',
+				'follows'=>'precedes',
+				'copied to'=>'copied from',
+				'copied from'=>'copied to',
+      ),
+    ),
+    'description' => $description,
+    'group' => 'oa_worktracker',
+  );
+	/*
+	$og_roles = array(NHPD_OA_UPDATE_TASKS_ALL_MEMBERS => 'All members',
+										NHPD_OA_UPDATE_TASKS_ASSIGNED_MEMBERS_ONLY=> 'Space admins,  task authors, and assigned-to members only',
+										NHPD_OA_UPDATE_TASKS_ADMIN_AUTHOR_ONLY => 'Space admins and task authors only');
+  $variable['oa_worktracker_task_update_access'] = array(
+    'type' => 'options',
+    'title' => t('Users who can update tasks'),
+    'options' => $og_roles,
+    'description' => t('If <em>All members</em> checked, any space member can update particially (fields showed in comment form) all tasks, otherwise, only assigned menbers can update partcially tasks.' ),
+    'group' => 'oa_worktracker',
+    'default' => NHPD_OA_UPDATE_TASKS_ASSIGNED_MEMBERS_ONLY,
+    'element' => array(
+      '#type' => 'radios',
+		),
+  );
+	*/
+  $variable['oa_worktracker_task_update_access_special_members'] = array(
+    'type' => 'options',
+    'title' => t('Special members who can update tasks'),
+    'options' => array('author' => 'Task author', 'assignee' => 'Assignee'),
+    'description' => t('Special members who can access to task update form in task view.' ),
+    'group' => 'oa_worktracker',
+  );
+  return $variable;
+}
+
+function nhpd_oa2_task_allowed_values__($field, $field_instance, $entity_type, $entity, &$cachable){
+  //drupal_set_message(nhpid_api_dump(debug_backtrace(), 'purple', TRUE));
+	$all_options = oa_worktracker_allowed_values_callback($field, $field_instance, $entity_type, $entity, $cachable);
+	$field_name = $field['field_name'];
+	$varialbe_name = '';
+	$options = array();
+	drupal_set_message(nhpid_api_dump( $field_name, 'purple', TRUE));
+	drupal_set_message(nhpid_api_dump( $all_options, 'purple', TRUE));
+	drupal_set_message(nhpid_api_dump( variable_get('oa_worktracker_allowed_values_task_category', ''), 'purple', TRUE));
+	switch ($field_name){
+		case 'field_oa_worktracker_task_status':
+		if (!$entity) return $all_options; // some callers do not give arg $entity
+		global $user;
+		$variable_name = 'nhpd_oa_task_status_allowed_values_setting';
+    $setting = variable_get($variable_name, array());
+    
+		$entity_wrapper =entity_metadata_wrapper('node', $entity);
+		$task_type = $entity_wrapper -> field_oa_worktracker_task_type -> value();
+		$author = $entity_wrapper -> author -> value();
+		$assignee = $entity_wrapper -> field_oa_worktracker_assigned_to -> value();
+    $current_status = $entity_wrapper -> field_oa_worktracker_task_status -> value();
+		$current_space = oa_core_get_space_context();
+		$user_og_roles = og_get_user_roles('node', $current_space, $user -> uid);
+		$setting_avaialbe = FALSE;
+		foreach($user_og_roles as $rid => $role){
+			if(isset($setting[$task_type][$rid])){ // If this task_type and og role has not been set, return all options
+        $setting_avaialbe = TRUE;
+			}
+		}
+		if (!$setting_avaialbe) return $all_options;
+		$allowed_statuses = array();
+		if ($current_status) $allowed_statuses[] = $current_status;
+		foreach($user_og_roles as $rid => $role){
+      $workflow_setting =isset($setting[$task_type][$rid]['all_options'])? $setting[$task_type][$rid]['all_options'] : array();
+      //drupal_set_message(nhpid_api_dump( $workflow_setting, 'purple', TRUE));
+			if (!empty($workflow_setting)){
+				$general_setting = $workflow_setting['general_setting'];
+				foreach($general_setting[$current_status] as $status => $allowed){
+					if ($allowed){
+            $allowed_statuses[] = $status;
+					}
+				}
+				if ($user -> uid == $author -> uid){
+          $author_setting = $workflow_setting['author_setting'];
+					foreach($author_setting[$current_status] as $status => $allowed){
+						if ($allowed){
+	            $allowed_statuses[] = $status;
+						}
+					}
+				}
+        if ($user -> uid == $assignee -> uid){
+          $assignee_setting = $workflow_setting['assignee_setting'];
+					foreach($assignee_setting[$current_status] as $status => $allowed){
+						if ($allowed){
+	            $allowed_statuses[] = $status;
+						}
+					}
+				}
+			}
+		}
+		$allowed_statuses = array_unique($allowed_statuses);
+    //drupal_set_message(nhpid_api_dump( $allowed_statuses , 'purple', TRUE));
+    $task_statuses = variable_get_value('oa_worktracker_allowed_values_task_status');
+		if (empty($allowed_statuses)){
+			$allowed_statuses[] = $task_statuses['default_value'];
+		}
+    //drupal_set_message(nhpid_api_dump( $allowed_statuses , 'purple', TRUE));
+		foreach($allowed_statuses as $allowed_status){
+			$options[$allowed_status] = $task_statuses['options'][$allowed_status];
+		}
+
+		break;
+    case 'field_oa_worktracker_task_type':
+    case 'field_issue_category':
+		if ($field_name == 'field_oa_worktracker_task_type') $variable_name = 'nhpd_oa_task_type_allowed_values_setting';
+	  if ($field_name == 'field_issue_category')$variable_name = 'nhpd_oa_task_category_allowed_values_setting';
+		$field_lancode = field_language('node', $entity, 'oa_section_ref');
+    $section_nid =($entity && property_exists($entity, 'oa_section_ref')) ? $entity -> oa_section_ref[$field_lancode][0]['target_id'] : oa_core_get_section_context();
+		$setting = variable_get($variable_name, array());
+		if(!$setting){
+			return $all_options;
+		}
+		$all_options = $setting['all_options'];
+	  $options = isset($setting['setting'][$section_nid])? $setting['setting'][$section_nid] : array();
+	  //drupal_set_message(nhpid_api_dump( $options, 'purple', TRUE));
+	  //drupal_set_message(nhpid_api_dump( $section_nid, 'purple', TRUE));
+		$options = array_intersect_key($all_options, $options);
+		
+		break;
+	}
+	
+  //drupal_set_message(nhpid_api_dump( $section_nid, 'purple', TRUE));
+  //drupal_set_message(nhpid_api_dump( $setting, 'purple', TRUE));
+  
+	//
+  if (empty($options)) $options = $all_options;
+	return $options;
+}
+function nhpd_oa2_related_task_relation_allowed_values($field, $field_instance, $entity_type, $entity, &$cachable){
+  $field_name = $field['field_name'];
+	
+	switch ($field_name){
+		case 'field_relation_type':
+		$variable_name = 'oa_worktracker_allowed_values_related_task_relation';
+		$related_task_relation=variable_get_value($variable_name);
+		return $related_task_relation['options'];
+	}
+}
+function nhpd_oa2_get_mapped_related_task_relation($relation){
+  $variable_name = 'oa_worktracker_allowed_values_related_task_relation_mapping';
+	$related_task_relation_mapping=variable_get_value($variable_name);
+	return $related_task_relation_mapping['options'][$relation];
+}
+function nhpd_oa2_task_list_customizable_fields_for_section($section_id){
+  $view = views_get_view(TASK_LIST_VIEW_NAME, true);
+  $view->set_display(TASK_LIST_FOR_SECTION_DISPLAY_ID);
+	$view->init_handlers();
+  $customizable_fields = variable_get('oa_worktracker_customizable_fields', array());
+	$field_options = array();
+	$view_fields = isset($view->display[$view->current_display]->display_options['fields']) ? $view->display[$view->current_display]->display_options['fields'] : $view->display['default']->display_options['fields'];
+ 	foreach($customizable_fields as $field){
+    if ($field) $field_options[$view_fields[$field]['id']] = isset($view_fields[$field]['label'])?$view_fields[$field]['label']:$view_fields[$field]['id'];
+	}
+
+	$entity = new stdClass();
+	$entity -> nid = $section_id ? $section_id : currentnode_nid();
+  $entity -> type =  node_load($entity -> nid)->type;
+  $cachable = TRUE;
+  $section_customizable_fields = nhpd_oa2_task_customizable_fields_allowed_values(null, null, 'node', $entity, $cachable);
+	$new_section_customizable_fields = array_intersect_key ($field_options,$section_customizable_fields);
+  //drupal_set_message(nhpid_api_dump( $section_customizable_fields, 'purple', TRUE));
+	return $new_section_customizable_fields;
+}
+
+function nhpd_oa2_task_list_customizable_filters_for_section($section_id){
+  $view = views_get_view(TASK_LIST_VIEW_NAME, true);
+  $view->set_display(TASK_LIST_FOR_SECTION_DISPLAY_ID);
+	$view->init_handlers();
+  $customizable_filters = variable_get('oa_worktracker_customizable_filters', array());
+	$filter_options = array();
+  $view_filters = isset($view->display[$view->current_display]->display_options['filters']) ? $view->display[$view->current_display]->display_options['filters'] : $view->display['default']->display_options['filters'];
+  foreach($customizable_filters as $filter){
+    if ($filter && isset($view_filters[$filter]))$filter_options[$view_filters[$filter]['id']] = isset($view_filters[$filter]['expose']['label'])?$view_filters[$filter]['expose']['label']:$view_filters[$filter]['id'];
+	}
+  $entity = new stdClass();
+	$entity -> nid = $section_id ? $section_id : currentnode_nid();
+  $entity -> type =  node_load($entity -> nid)->type;
+  $cachable = TRUE;
+  $section_customizable_fields = nhpd_oa2_task_customizable_fields_allowed_values(null, null, 'node', $entity, $cachable);
+	$new_section_customizable_filers = array();
+	foreach($section_customizable_fields as $field => $label){
+		$filter_id = $field . '_value';
+    $section_customizable_fields[$filter_id] = $label;
+		unset($section_customizable_fields[$field]);
+	}
+	$new_section_customizable_filters = array_intersect_key ($filter_options,$section_customizable_fields);
+  //drupal_set_message(nhpid_api_dump( $customizable_filters, 'purple', TRUE));
+  //drupal_set_message(nhpid_api_dump( $section_customizable_fields, 'purple', TRUE));
+	return $new_section_customizable_filters;
+}
+
+function nhpd_oa2_task_customizable_fields_allowed_values($field, $field_instance, $entity_type, $entity, &$cachable){
+	$customizable_fields = variable_get('oa_worktracker_customizable_fields', array());
+	$new_customizable_fields = $customizable_fields;
+	$dependencies = conditional_fields_load_dependencies('node', 'oa_worktracker_task');
+	//drupal_set_message(nhpid_api_dump( $dependencies, 'purple', TRUE));
+	//drupal_set_message(nhpid_api_dump( $customizable_fields, 'purple', TRUE));
+	$terms = taxonomy_get_term_by_name('Task Section', 'section_type');
+	$tid = array_shift($terms) -> tid;
+	$node_type = $entity -> type;
+	foreach($customizable_fields as $customizable_field => $value){
+		if (!$value){
+			unset($new_customizable_fields[$customizable_field]);
+			continue;
+		}
+		else{
+    	$options_values = array();
+			if (isset($dependencies['dependents'][$customizable_field])){
+				foreach($dependencies['dependents'][$customizable_field] as $id => $dependency){
+					if ($dependency['dependee'] == 'oa_section_ref'){
+						$options_values = $dependency['options']['values'];
+						break;
+					}
+				}
+			}
+			$value = null;
+			if($node_type == 'oa_section'){
+				$value = $entity->nid;
+			}
+			elseif($node_type == 'oa_space'){
+				$sql = new EntityFieldQuery();
+				$sql->entityCondition('entity_type', 'node')
+				->entityCondition('bundle', 'oa_section')
+				->fieldCondition('og_group_ref', 'target_id', $entity -> nid, '=')
+				->fieldCondition('field_oa_section', 'tid', $tid, '=');
+				$result2 = $sql->execute();
+				$section_node = null;
+				if ($result2){
+					$value = array_shift((array_keys($result2['node'])));
+				}
+			}
+			if (!empty($options_values) && !in_array($value, $options_values)){
+		    unset($new_customizable_fields[$customizable_field]);
+			}
+		  //drupal_set_message(nhpid_api_dump( $customizable_field, 'purple', TRUE));
+		  //drupal_set_message(nhpid_api_dump( $value, 'purple', TRUE));
+		  //drupal_set_message(nhpid_api_dump( $options_values, 'purple', TRUE));
+		  //drupal_set_message(nhpid_api_dump( $entity->nid, 'purple', TRUE));
+	    //drupal_set_message(nhpid_api_dump( $new_customizable_fields, 'purple', TRUE));
+		}
+	}
+  //drupal_set_message(nhpid_api_dump( $new_customizable_fields, 'purple', TRUE));
+  return $new_customizable_fields;
+}
+function nhpd_oa2_is_parent_task($node = null){
+	$nid = null;
+	if ($node){
+		$nid = $node -> nid;
+	}
+	else{
+		$nid = currentnode_nid();
+	}
+	$result = db_select('field_data_field_parent_task', 'f')
+						-> fields('f')
+						->condition('field_parent_task_target_id', $nid, '=')
+            ->condition('deleted', 0, '=')
+						->execute()
+						->fetchObject();
+	if ($result){
+		return TRUE;
+	}
+	return FALSE;
+}
+function nhpd_oa2_get_parent_task_node_nid($node=null){
+  $nid = null;
+	if ($node){
+		$nid = $node -> nid;
+	}
+	else{
+		$nid = currentnode_nid();
+	}
+	$result = db_select('field_data_field_parent_task', 'f')
+						-> fields('f')
+						->condition('entity_id', $nid, '=')
+            ->condition('deleted', 0, '=')
+						->execute()
+						->fetchObject();
+	if ($result){
+		return $result -> field_parent_task_target_id;
+	}
+	return null;
+}
+function nhpd_oa2_get_parent_task_node($node=null){
+	$parent_task_nid = nhpd_oa2_get_parent_task_node_nid($node);
+	return  $parent_task_nid ? node_load($parent_task_nid) : null;
+}
+function nhpd_oa2_get_all_child_task_nids($node = null){
+  $nid = null;
+	if ($node){
+		$nid = $node -> nid;
+	}
+	else{
+		$nid = currentnode_nid();
+	}
+	$result = db_select('field_data_field_parent_task', 'f')
+						-> fields('f')
+						->condition('field_parent_task_target_id', $nid, '=')
+            ->condition('deleted', 0, '=')
+						->execute();
+	$child_task_nids = array();
+	while($rc = $result->fetchObject()){
+		$child_task_nids[] = $rc->entity_id;
+	}
+	return $child_task_nids;
+}
+function nhpd_oa2_get_all_child_tasks($node = null){
+  $child_task_nids = nhpd_oa2_get_all_child_task_nids($node);
+	$child_tasks = array();
+	foreach($child_task_nids as $child_task_nid){
+    $child_tasks[$child_task_nid] = node_load($child_task_nid);
+	}
+  return $child_tasks;
+}
+function nhpd_oa2_get_all_sibing_task_nids($node = null){
+  $nid = null;
+	if ($node){
+		$nid = $node -> nid;
+	}
+	else{
+		$nid = currentnode_nid();
+	}
+	$parent_task_nid = nhpd_oa2_get_parent_task_node_nid($node);
+  $result = db_select('field_data_field_parent_task', 'f')
+						-> fields('f')
+						->condition('field_parent_task_target_id', $parent_task_nid, '=')
+            ->condition('deleted', 0, '=')
+						->execute();
+	$sibling_task_nids = array();
+	while($rc = $result->fetchObject()){
+		if ($rc->entity_id != $nid) $sibling_task_nids[] = $rc->entity_id;
+	}
+	return $sibling_task_nids;
+}
+function nhpd_oa2_get_all_sibing_tasks($node = null){
+  $sibling_task_nids = nhpd_oa2_get_all_sibing_task_nids($node);
+	$sibling_tasks = array();
+	foreach($sibling_task_nids as $sibling_task_nid){
+    $sibling_tasks[$sibling_task_nid] = node_load($sibling_task_nid);
+	}
+  return $sibling_tasks;
+}
+function nhpd_oa2_get_reverse_related_task_nids($node = null){
+	//return array();
+	$field_name = 'field_related_tasks2';
+	$field_info = field_info_field($field_name);
+	if (!$field_info){
+		return array();
+	}
+	$nid = null;
+	if ($node){
+		$nid = $node -> nid;
+	}
+	else{
+		$nid = currentnode_nid();
+		$node = node_load($nid);
+	}
+  $related_task_nids = array();
+	if ($field_info['module'] == 'multifield'){
+		$result = db_select("field_data_$field_name", 'f')
+							-> fields('f')
+							->condition("$field_name_field_related_task_target_id", $nid, '=')
+	            ->condition('deleted', 0, '=')
+							->execute();
+		while($rc = $result->fetchObject()){
+			if ($rc->entity_id != $nid) {
+				$relation = $rc->{"$field_name_field_relation_type_value"};
+				$related_task_nids[$rc->entity_id] = nhpd_oa2_get_mapped_related_task_relation($relation);
+			}
+		}
+	}
+	
+	elseif ($field_info['module'] == 'field_collection'){
+		$query = new EntityFieldQuery;
+        $query->entityCondition('entity_type', 'field_collection_item')
+            ->entityCondition('bundle', $field_name)
+            ->fieldCondition('field_related_task', 'target_id', $node->nid, '=');
+		$result = $query->execute();
+		if (!empty($result['field_collection_item'])){
+			foreach($result['field_collection_item'] as $item_id=>$info){
+				$fc=field_collection_item_load($item_id);
+				$fc_wrapper=entity_metadata_wrapper('field_collection_item', $fc);
+				$relation = $fc_wrapper->field_relation_type->raw();
+				$query2 = new EntityFieldQuery;
+				$query2->entityCondition('entity_type', 'node')
+					->entityCondition('bundle', 'oa_worktracker_task')
+					->fieldCondition($field_name, 'value', $item_id, '=');
+				$result2 = $query2->execute();
+				if (!empty($result2['node'])){
+					$result2_nids = array_keys($result2['node']);
+					$relation_id = array_shift($result2_nids);
+					if ($relation_id) $related_task_nids[$relation_id] = nhpd_oa2_get_mapped_related_task_relation($relation);
+					//dpm($result2);
+				}
+			}
+		}
+	}
+
+	return $related_task_nids;
+}
+function nhpd_oa2_get_reverse_related_tasks($node = null){
+  $related_task_nids = nhpd_oa2_get_reverse_related_task_nids($node);
+	$related_tasks = array();
+	foreach($related_task_nids as $related_task_nid => $relation){
+    $related_tasks[$related_task_nid]['entity'] = node_load($related_task_nid);
+    $related_tasks[$related_task_nid]['relation'] = $relation;
+	}
+	//dpm($related_tasks);
+  return $related_tasks;
+}
+function nhpd_oa2_get_related_task_nids($node = null){
+  $field_name = 'field_related_tasks2';
+  $field_info = field_info_field($field_name);
+	if (!$field_info){
+		return array();
+	}
+
+	$nid = null;
+	if ($node){
+		$nid = $node -> nid;
+	}
+	else{
+		$nid = currentnode_nid();
+		$node = node_load($nid);
+	}
+	$related_task_nids = array();
+    if ($field_info['module'] == 'multifield'){
+		$result = db_select("field_data_$field_name", 'f')
+					-> fields('f')
+					->condition('entity_id', $nid, '=')
+		->condition('deleted', 0, '=')
+					->execute();
+		
+		while($rc = $result->fetchObject()){
+			$relation = $rc->{$field_name_field_relation_type_value};
+			$related_task_nids[$rc->{$field_name_field_related_task_target_id}] = $relation;
+		}
+	}
+	
+	
+	elseif ($field_info['module'] == 'field_collection'){
+		$node_wrapper = entity_metadata_wrapper('node', $node);
+		//dpm((array)$node_wrapper);
+		if ($node_wrapper->__isset($field_name)){
+			$related_tasks = $node_wrapper->$field_name;
+			//dpm($related_tasks);
+			for ($i = 0; $i < $related_tasks->count(); $i++){
+				$item=$related_tasks->get($i);
+				//dpm($item->value());
+				$relation = $item->field_relation_type->raw();
+				$related_task_nids[$item->field_related_task->raw()] = $relation;
+			}
+		}
+	}
+	return $related_task_nids;
+}
+function nhpd_oa2_get_related_tasks($node = null){
+  $related_task_nids = nhpd_oa2_get_related_task_nids($node);
+	$related_tasks = array();
+	foreach($related_task_nids as $related_task_nid => $relation){
+    $related_tasks[$related_task_nid]['entity'] = node_load($related_task_nid);
+    $related_tasks[$related_task_nid]['relation'] = $relation;
+	}
+  return $related_tasks;
+}
+function nhpd_oa2_get_child_tasks_status($node = null){
+	if(!nhpd_oa2_is_parent_task($node)){
+		return array();
+	}
+  $child_task_nids = nhpd_oa2_get_all_child_task_nids($node);
+  $result = db_select('field_data_field_oa_worktracker_task_status', 'f')
+						-> fields('f')
+						->condition('entity_id', $child_task_nids, 'IN')
+            ->condition('deleted', 0, '=')
+						->execute();
+	$children_status = array();
+  while($rc = $result->fetchObject()){
+    $children_status[$rc->entity_id] = $rc -> field_oa_worktracker_task_status_value;
+	}
+	return $children_status;
+}
+
+function nhpd_oa2_get_child_tasks_not_closed($node = null){
+	$children_status = nhpd_oa2_get_child_tasks_status($node);
+	foreach($children_status as $nid => $child_staus){
+		if (nhpd_oa2_is_a_closed_task_status($child_staus)){
+			unset($children_status[$nid]);
+		}
+	}
+	return $children_status;
+}
+function nhpd_oa2_get_closed_task_statuses_values(){
+  $closed_statuses = variable_get_value('oa_worktracker_closed_task_statuses');
+  $oa_worktracker_task_status = variable_get('oa_worktracker_allowed_values_task_status', array());
+	$values = array();
+	foreach($closed_statuses as $value){
+		if($value) $values[] = $oa_worktracker_task_status['options'][$value];
+	}
+	return $values;
+}
+function nhpd_oa2_is_a_closed_task_status($status){
+	$closed_statuses = variable_get_value('oa_worktracker_closed_task_statuses');
+	return (bool)$closed_statuses[$status];
+}
+
+function _nhpd_oa2_task_update_allowed($node){
+	global $user;
+  $current_space = oa_core_get_space_context();
+  $allow_update = FALSE;
+  $allow_update = og_user_access('node', $current_space, 'access to node update form', NULL, FALSE, TRUE);
+  $oa_worktracker_task_update_access_special_members_setting = variable_get('oa_worktracker_task_update_access_special_members', array());
+	switch ($node -> type){
+		case "oa_worktracker_task":
+		// sets access to node update in comment form
+		// only defined members can update this task
+    $node_wrapper = entity_metadata_wrapper('node', $node);
+		$assignee = $node_wrapper -> field_oa_worktracker_assigned_to -> value();
+		$author = $node_wrapper -> author ->value();
+		
+		if (!$allow_update ){
+			if (in_array('author', $oa_worktracker_task_update_access_special_members_setting) && $user -> uid == $author -> uid){
+        $allow_update = TRUE;
+			}
+			if (in_array('assignee', $oa_worktracker_task_update_access_special_members_setting) && $assignee && $user -> uid == $assignee -> uid){
+        $allow_update = TRUE;
+			}
+		}
+    return $allow_update;
+		break;
+	}
+	return TRUE;
+}
+
+
+function nhpid_api_dump($data, $color='blue', $return = FALSE, $show_caller = TRUE, $use_devel = TRUE) {
+  $out = "<div style='color:$color;'>";
+	if ($use_devel && module_exists('devel') && user_access('access devel information')){
+     $out = $out . kprint_r($data, TRUE);
+     $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+     $out = $out . "--File: " . $backtrace[0]['file'] . "\n";
+	   $out = $out . "--Line: " . $backtrace[0]['line'] . "\n";
+	}
+	else{
+		$out = $out . "<pre>";
+	  //print var_name($data);
+	  $out =  $out . print_r($data, TRUE);
+		if ($show_caller){
+			$backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+	    $out = $out . "\nCaller:\n";
+	    //$out = $out . "--Function: " . $backtrace[0]['function'] . "\n";
+	    $out = $out . "--File: " . $backtrace[0]['file'] . "\n";
+	    $out = $out . "--Line: " . $backtrace[0]['line'] . "\n";
+		}
+	  $out = $out . "</pre>";
+	}
+  $out = $out . "</div>";
+  if ($return) {
+    return $out;
+  }
+  print $out;
+}
+function currentnode_nid(){
+    if (arg(0)=='node' && is_numeric(arg(1)))
+        return arg(1);
+    else
+        return 0;
+}
+
+function reset_user_membership_based_on_drupal_user_state($user_status){
+	$og_membership_state = $user_status == 1? OG_STATE_ACTIVE: OG_STATE_BLOCKED;
+	$query = new EntityFieldQuery();
+	$query->entityCondition('entity_type', 'user')
+		  ->propertyCondition('status', $user_status);
+	$result = $query->execute();
+	if (isset($result['user'])) {
+		foreach($result['user'] as $u){
+			$update_query= db_update('og_membership')
+			->fields(array('state' => $og_membership_state))
+			->condition('entity_type', 'user', '=')
+			->condition('etid', $u->uid, '=')
+			->execute();
+		}
+	}
+}

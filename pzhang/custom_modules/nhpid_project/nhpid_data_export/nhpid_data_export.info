@@ -1,0 +1,8 @@
+; $Id: nhpid_data_export.info,v 1.0.0 2010/07/27 15:26:16 peijun zhang $
+name = "NHPID Data Export"
+description = "This module defines helper functions for exporting NHPID data"
+dependencies[] = nhpid_api
+core = "7.x"
+version = "7.x-1.0"
+
+package = NHPID

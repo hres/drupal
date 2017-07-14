@@ -1,0 +1,9 @@
+; $Id: oa_watchers.info Peijun Zhang$
+name = OA Watchers
+description = A modules to handle watchers.
+core = 7.x
+package = NHPD
+dependencies[] = panels
+dependencies[] = oa_notifications
+version = "7.x-1.0-dev"
+

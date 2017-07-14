@@ -1,0 +1,25 @@
+<?php
+// $Id$
+
+/**
+* Install the oa_watchers module
+* type.
+* @file
+*/
+
+/**
+* Implementation of hook_install()
+*/
+function oa_watchers_install() {
+    
+}
+
+/**
+* Implementation of hook_uninstall()
+*/
+function oa_watchers_uninstall() {
+   
+}
+
+
+?>

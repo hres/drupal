@@ -1,0 +1,9 @@
+; $Id: oa_watchers.info Peijun Zhang$
+name = NHPD OA Member
+description = A modules overriding OA member managing functions. Allows to manage custom OG roles
+core = 7.x
+package = NHPD
+dependencies[] = oa_core
+stylesheets[all][] = css/nhpd_oa_member.css
+version = "7.x-1.0-dev"
+

@@ -1,0 +1,994 @@
+<?php
+
+function oa_task_modification_tool_permission() {
+    return array(
+    'clean up task data' => array(
+      'title' => t('Clean up task data'),
+      'description' => t(''),
+      ),
+    );
+}
+function oa_task_modification_tool_menu() {
+
+  $items = array();
+
+  $items['admin/oa_task_clen_up'] = array(
+    'title' => 'Task clean up',
+    'description' => 'Clean up tasks',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('com_clean_up_form'),
+    'access arguments' => array('clean up task data'),
+    'type' => MENU_NORMAL_ITEM,
+   );
+ return $items;
+}
+
+function com_clean_up_form($form, &$form_state = NULL){
+	
+	$form['#tree'] = true;
+	$form['warning']=array(
+    '#type' => 'item',
+    '#markup' => "Those operations will move and remove data permanently. Please make sure you know what your are doing .",
+	);
+	$form['tabs'] = array(
+		'#type' => 'horizontal_tabs',
+		'#attached' => array('library' => array(array('field_group', 'horizontal-tabs'))), // Converts fieldsets into tabs
+	);
+	// custom fields
+	$form['custom_fields'] = array(
+		'#type' => 'fieldset',
+		'#title' => t('Clean up custom fields'), 
+		'#collapsible' => TRUE, 
+		'#collapsed' => FALSE,
+		'#group' => 'tabs',
+		'#weight' => 1,
+	);
+	$field_info = field_info_instances('node', 'oa_worktracker_task');
+	$fields = array('' => '-select a field or leave it empty-');
+	foreach($field_info as $field_name => $info){
+		$fields[$field_name] =  $info['label'] .  ' (field name: ' . $field_name .', module: ' . $info['widget']['module'] . ', type: ' . $info['widget']['type'] .')' ;
+	}
+	asort($fields,SORT_STRING);
+	$form['custom_fields']['field_from'] = array(
+		'#type' => 'select',
+		'#title' => t('Custom field to be cleaned up'), 
+		'#options' => $fields,
+		'#required' => true,
+		//'#attributes' => array('placeholder' => t( 'Select a field' )),
+	);
+	$form['custom_fields']['field_to'] = array(
+		'#type' => 'select',
+		'#title' => t('Move data to this field'), 
+		'#options' => $fields,
+		//'#attributes' => array('placeholder' => t( 'Select a field' )),
+		'#description' => t('If you want to keep the data of field to be cleaned up, select a field to copy to. Please make sure the two fields must have the same module and type.'),
+	);
+	$form['custom_fields']['conflict_mode'] = array(
+		'#type' => 'radios',
+		'#required' => true,
+		'#title' => t('When there is data conflict between the two fields, keep data of'), 
+		'#options' => array('field_from' => 'Field to be removed', 'field_to' => 'Field to be copy to'),
+		//'#attributes' => array('placeholder' => t( 'Select a field' )),
+		'#description' => t('There may be conflicts between the two fields when copying data. For example, both fields are used by a issue and all of them contains data. If the fields are multi-valued, the data are appended to the target field. However, if the fields are single-valued, the value of the target field has to be overridden or kept. '),
+	);
+	$form['custom_fields']['process'] = array(
+		'#type' => 'submit',
+		'#value' => 'Process',
+		'#name' => 'custom_field_process',
+		'#attributes' => array('onclick' => 'return confirm("Are you sure you wish to continue?");'),
+		'#validate' => array( '_clean_up_custom_fields_validate'),
+		'#submit' => array('_clean_up_custom_fields_submit'),
+		'#limit_validation_errors' => array(array('custom_fields')),
+	);
+	// task status
+	$form['task_status'] = array(
+		'#type' => 'fieldset',
+		'#title' => t('Clean up task statuses'), 
+		'#collapsible' => TRUE, 
+		'#collapsed' => FALSE,
+		'#group' => 'tabs',
+		'#weight' => 3,
+	);
+	$allowed_value_status = variable_get('oa_worktracker_allowed_values_task_status', array());
+	$options = array('' => '-select a status or leave it empty-') + $allowed_value_status['options'];
+	natsort($options);
+	$form['task_status']['status_remove'] = array(
+		'#type' => 'select',
+		'#title' => t('Status to be removed'), 
+		'#required' => true,
+		'#options' => $options,
+		'#description' => t(''),
+	);
+	$field_instance_info = field_info_instance('node', 'field_oa_worktracker_task_status', 'oa_worktracker_task');
+	$form['task_status']['status_replace'] = array(
+		'#type' => 'select',
+		'#title' => t('Status to be replaced with'), 
+		'#required' => $field_instance_info['required'],
+		'#options' => $options,
+		'#description' => t(''),
+	);
+	$form['task_status']['process'] = array(
+		'#type' => 'submit',
+		'#value' => 'Process',
+		'#name' => 'task_status_process',
+		'#attributes' => array('onclick' => 'return confirm("Are you sure you wish to continue?");'),
+		'#validate' => array( '_clean_up_task_status_validate'),
+		'#submit' => array('_clean_up_task_status_submit'),
+		'#limit_validation_errors' => array(array('task_status')),
+	);
+	// task category
+	
+	$form['task_category'] = array(
+		'#type' => 'fieldset',
+		'#title' => t('Clean up task categories'), 
+		'#collapsible' => TRUE, 
+		'#collapsed' => FALSE,
+		'#group' => 'tabs',
+		'#weight' => 2,
+	);
+	$allowed_value_category = variable_get('oa_worktracker_allowed_values_task_category', array());
+	$options = array('' => '-select a category or leave it empty-') + $allowed_value_category['options'];
+	natsort($options);
+	$form['task_category']['category_remove'] = array(
+		'#type' => 'select',
+		'#title' => t('Category to be removed'), 
+		'#required' => true,
+		'#options' => $options,
+		'#description' => t(''),
+	);
+	$field_instance_info = field_info_instance('node', 'field_issue_category', 'oa_worktracker_task');
+	$form['task_category']['category_replace'] = array(
+		'#type' => 'select',
+		'#title' => t('Category to be replaced with'), 
+		'#required' => $field_instance_info['required'],
+		'#options' => $options,
+		'#description' => t(''),
+	);
+	$form['task_category']['process'] = array(
+		'#type' => 'submit',
+		'#value' => 'Process',
+		'#name' => 'task_category_process',
+		'#attributes' => array('onclick' => 'return confirm("Are you sure you wish to continue?");'),
+		'#validate' => array( '_clean_up_task_category_validate'),
+		'#submit' => array('_clean_up_task_category_submit'),
+		'#limit_validation_errors' => array(array('task_category')),
+	);
+	// task type
+	$form['task_type'] = array(
+		'#type' => 'fieldset',
+		'#title' => t('Clean up task types'), 
+		'#collapsible' => TRUE, 
+		'#collapsed' => FALSE,
+		'#group' => 'tabs',
+		'#weight' => 4,
+	);
+	$allowed_value_type = variable_get('oa_worktracker_allowed_values_task_type', array());
+	$options = array('' => '-select a type or leave it empty-') + $allowed_value_type['options'];
+	natsort($options);
+	$form['task_type']['type_remove'] = array(
+		'#type' => 'select',
+		'#title' => t('Type to be removed'), 
+		'#required' => true,
+		'#options' => $options,
+		'#description' => t(''),
+	);
+	$field_instance_info = field_info_instance('node', 'field_oa_worktracker_task_type', 'oa_worktracker_task');
+	$form['task_type']['type_replace'] = array(
+		'#type' => 'select',
+		'#title' => t('Type to be replaced with'), 
+		'#required' => $field_instance_info['required'],
+		'#options' => $options,
+		'#description' => t('Note for workflow setting: If workflow setting for this type is set, the setting for type to remove will be delete. Otherwise, the setting for type to removed will be copied to the setting of this type.'),
+	);
+	$form['task_type']['process'] = array(
+		'#type' => 'submit',
+		'#value' => 'Process',
+		'#name' => 'task_type_process',
+		'#attributes' => array('onclick' => 'return confirm("Are you sure you wish to continue?");'),
+		'#validate' => array( '_clean_up_task_type_validate'),
+		'#submit' => array('_clean_up_task_type_submit'),
+		'#limit_validation_errors' => array(array('task_type')),
+	);
+	
+	// og roles
+	$form['og_role'] = array(
+		'#type' => 'fieldset',
+		'#title' => t('Clean up OG roles (oa_space only)'), 
+		'#collapsible' => TRUE, 
+		'#collapsed' => FALSE,
+		'#group' => 'tabs',
+		'#weight' => 5,
+	);
+	$og_roles = og_roles('node', 'oa_space');
+	$og_roles = array('' => '-select a type or leave it empty-') + $og_roles;
+	natsort($og_roles);
+	$form['og_role']['og_role_remove'] = array(
+		'#type' => 'select',
+		'#title' => t('Role to be removed'), 
+		'#required' => true,
+		'#options' => $og_roles,
+		'#description' => t(''),
+	);
+	$form['og_role']['og_role_replace'] = array(
+		'#type' => 'select',
+		'#title' => t('Role to be replaced with'), 
+		'#required' => false,
+		'#options' => $og_roles,
+		'#description' => t(''),
+	);
+	$form['og_role']['process'] = array(
+		'#type' => 'submit',
+		'#value' => 'Process',
+		'#name' => 'og_role_process',
+		'#attributes' => array('onclick' => 'return confirm("Are you sure you wish to continue?");'),
+		'#validate' => array( '_clean_up_og_role_validate'),
+		'#submit' => array('_clean_up_og_role_submit'),
+		'#limit_validation_errors' => array(array('og_role')),
+	);
+	// spaces
+	$form['oa_space'] = array(
+		'#type' => 'fieldset',
+		'#title' => t('Clean up spaces'), 
+		'#collapsible' => TRUE, 
+		'#collapsed' => FALSE,
+		'#group' => 'tabs',
+		'#weight' => 6,
+	);
+	$options = array('' => '-select a space or leave it empty-');
+	$space_query = db_select('node', 'n')
+		-> fields('n', array('nid', 'title'))
+		-> condition('type', 'oa_space', '=')
+		-> condition('status', NODE_PUBLISHED,'=')
+		-> orderBy('title')
+		-> execute();
+	while($rc = $space_query -> fetchObject()){
+		$space_nid = $rc -> nid;
+		$space_title = $rc -> title;
+		$options[$space_nid] = "$space_title ($space_nid)";
+	}
+	
+	$form['oa_space']['oa_space_remove'] = array(
+		'#type' => 'select',
+		'#title' => t('Space to be removed'), 
+		'#required' => true,
+		'#options' => $options,
+		'#description' => t(''),
+	);
+	$form['oa_space']['oa_space_replace'] = array(
+		'#type' => 'select',
+		'#title' => t('Space to be replaced with'), 
+		'#required' => false,
+		'#options' => $options,
+		'#description' => t('If a apace selected, all the tasks and wikis of space to be remove will be removed to this space. Otherwise, they are deleted. '),
+	);
+	$form['oa_space']['process'] = array(
+		'#type' => 'submit',
+		'#value' => 'Process',
+		'#name' => 'oa_space_process',
+		'#attributes' => array('onclick' => 'return confirm("Are you sure you wish to continue?");'),
+		'#validate' => array( '_clean_up_oa_space_validate'),
+		'#submit' => array('_clean_up_oa_space_submit'),
+		'#limit_validation_errors' => array(array('oa_space')),
+	);
+	
+	//$form['#validate'][] = '_clean_up_custom_fields_validate';
+	//$form['#submit'][] = '_clean_up_custom_fields_submit';
+	//drupal_set_message(nhpid_api_dump($form_state, 'purple', TRUE));
+	return $form;
+}
+function _clean_up_custom_fields_validate($form, &$form_state){
+		drupal_set_message(nhpid_api_dump($form_state, 'purple', TRUE));
+		$field_from = $form_state['values']['custom_fields']['field_from'];
+		$field_to = $form_state['values']['custom_fields']['field_to'];
+		if ($field_to){
+			$field_from_info = field_info_field($field_from);
+			$field_to_info = field_info_field($field_to);
+			//drupal_set_message(nhpid_api_dump($field_from_info, 'purple', TRUE));
+			//drupal_set_message(nhpid_api_dump($field_to_info, 'purple', TRUE));
+			if ($field_from == $field_to){
+				form_set_error('custom_fields][field_from', "I cannot move data from <strong> $field_from </strong> to itself.");
+			}
+			if ($field_from_info['type'] != $field_to_info['type'] || $field_from_info['module'] != $field_to_info['module'] || $field_from_info['cardinality'] != $field_to_info['cardinality']){
+				form_set_error('custom_fields][field_from', "I cannot move data from <strong> $field_from </strong> to <strong>$field_to</strong> since their type, or module, or cardinality are not the same.");
+			}
+		}
+}
+function _clean_up_custom_fields_submit(&$form, &$form_state){
+	$form_state['rebuild'] = true;
+	//drupal_set_message(nhpid_api_dump($form_state, 'purple', TRUE));
+	$field_from = $form_state['values']['custom_fields']['field_from'];
+	$field_to = $form_state['values']['custom_fields']['field_to'];
+	drupal_set_message("Starting cleaning up $field_from...");
+	$conflict_mode = $form_state['values']['custom_fields']['conflict_mode'];
+	$field_from_info = field_info_field($field_from);
+	if ($field_to){
+		drupal_set_message("Changing field structure for $field_to...");
+		$field_to_info = field_info_field($field_to);
+		$field_from_info = field_info_field($field_from);
+		// add allowed values from field_to to field_from
+		$values = &$field_to_info['settings']['allowed_values'];
+		$values = array_merge($values, $field_from_info['settings']['allowed_values']);
+		//drupal_set_message(nhpid_api_dump($field_to_info, 'purple', TRUE));
+		field_update_field($field_to_info);
+		
+		// copy the data of field_from to field_to
+		drupal_set_message("Coping data from $field_from cleaning up $field_from...");
+		$query = "select entity_id from field_data_$field_from where bundle = :bundle";
+		$result = db_query($query, array(':bundle' => 'oa_worktracker_task'));
+		while($rc = $result->fetchObject()){
+			$nid = $rc -> entity_id;
+			$node = node_load($nid);
+			$node -> {$field_to} = array_merge_recursive($node -> {$field_to}, $node -> {$field_from});
+			//drupal_set_message(nhpid_api_dump($node -> {$field_to}, 'purple', TRUE));
+			if ($field_from_info['cardinality'] == 1){
+				foreach($node -> {$field_to} as $lancode => $items){
+					if (count($items) > 1){
+						if ($conflict_mode == 'field_to'){
+							$node -> {$field_to}[$lancode][0] = array_shift($node -> {$field_to}[$lancode]);
+						}
+						else{
+							$node -> {$field_to}[$lancode][0] = array_pop($node -> {$field_to}[$lancode]);
+						}
+					}
+				}
+
+			}
+			unset($node -> {$field_from});
+			//drupal_set_message(nhpid_api_dump($node, 'purple', TRUE));
+			node_save($node);
+			drupal_set_message("Proceed node $nid (" . $node -> title . ")");
+		}
+		
+	}
+	
+	// modify space - custom field mapping
+	drupal_set_message('Modifying custom field settings...');
+	$custom_fields = variable_get('oa_worktracker_customizable_fields', array());
+	if (isset($custom_fields[$field_from])) unset($custom_fields[$field_from]);
+	variable_set('oa_worktracker_customizable_fields',$custom_fields);
+	//drupal_set_message(nhpid_api_dump($custom_fields, 'purple', TRUE));
+	$custom_filters = variable_get('oa_worktracker_customizable_filters', array());
+	if (isset($custom_filters[$field_from . '_value']))unset($custom_filters[$field_from . '_value']);
+	variable_set('oa_worktracker_customizable_filters',$custom_filters);
+	//drupal_set_message(nhpid_api_dump($custom_filters, 'purple', TRUE));
+	$task_custom_fields_allowed_values = variable_get('nhpd_oa_task_custom_fields_allowed_values_setting', array());
+	if (isset($task_custom_fields_allowed_values['all_custom_fields'][$field_from]))unset($task_custom_fields_allowed_values['all_custom_fields'][$field_from]);
+	foreach($task_custom_fields_allowed_values['sections'] as $section_nid => $fileds_allowed){
+		if (isset($task_custom_fields_allowed_values['sections'][$section_nid][$field_from])){
+			unset($task_custom_fields_allowed_values['sections'][$section_nid][$field_from]);
+			if(isset($field_to)) $task_custom_fields_allowed_values['sections'][$section_nid][$field_to] = $field_to;
+		}
+	}
+	foreach($task_custom_fields_allowed_values['task_types'] as $section_nid => $fileds_allowed){
+		if (isset($task_custom_fields_allowed_values['task_types'][$section_nid][$field_from])){
+			unset($task_custom_fields_allowed_values['task_types'][$section_nid][$field_from]);
+			if(isset($field_to)) $task_custom_fields_allowed_values['task_types'][$section_nid][$field_to] = $field_to;
+		}
+	}
+	variable_set('nhpd_oa_task_custom_fields_allowed_values_setting',$task_custom_fields_allowed_values);
+	//drupal_set_message(nhpid_api_dump($task_custom_fields_allowed_values, 'purple', TRUE));
+	// modify related views
+	// Modify users' dynamic field and filter settings for task list and task report.
+	drupal_set_message('Modifying dynamic field and filer setting for all users...');
+	$accounts = entity_load('user');
+	foreach($accounts as $uid => $account){
+		if ($account->uid == 0) continue;
+		if(isset($account->{'data'}['task_list_setting'])){
+			$task_list_setting = &$account->{'data'}['task_list_setting'];
+			foreach($task_list_setting as $nid => $setting){
+				if (isset($setting['fields'][$field_from])){
+					unset($task_list_setting[$nid]['fields'][$field_from]);
+					if(isset($field_to)) $task_list_setting[$nid]['fields'][$field_to] = $field_to;
+				}
+				if (isset($setting['filters'][$field_from . '_value'])){
+					unset($task_list_setting[$nid]['filters'][$field_from . '_value']);
+					if(isset($field_to)) $task_list_setting[$nid]['filters'][$field_to . '_value'] = $field_to . '_value';
+				}
+			}
+		}
+		if(isset($account->{'data'}['task_reporting_setting'])){
+			$task_reporting_setting = &$account->{'data'}['task_reporting_setting']['task_reporting'];
+			if (isset($task_reporting_setting['fields'][$field_from])){
+				unset($task_reporting_setting['fields'][$field_from]);
+				if(isset($field_to)) $task_reporting_setting['fields'][$field_to] = $field_to;
+			}
+			if (isset($task_reporting_setting['filters'][$field_from . '_value'])){
+				unset($task_reporting_setting['filters'][$field_from . '_value']);
+				if(isset($field_to)) $task_reporting_setting['filters'][$field_to . '_value'] = $field_to . '_value';
+			}
+		}
+		
+		//drupal_set_message(nhpid_api_dump($uid, 'purple', TRUE));
+		user_save($account);
+	}
+	//drupal_set_message(nhpid_api_dump($accounts, 'purple', TRUE));
+	//delete field
+	drupal_set_message('Deleting $field_from...');
+	$field_from_instance = field_info_instance('node',$field_from, 'oa_worktracker_task');
+	field_delete_instance($field_from_instance);
+	cache_clear_all();
+	drupal_set_message("Cleaning up $field_from is done.");
+}
+
+function _clean_up_task_status_validate($form, &$form_state){
+	//drupal_set_message(nhpid_api_dump($form_state, 'purple', TRUE));
+	$status_remove = $form_state['values']['task_status']['status_remove'];
+	$status_replace = $form_state['values']['task_status']['status_replace'];
+	if ($status_replace){
+		if ($status_remove == $status_replace){
+			form_set_error('task_status][status_to', "I cannot replace <strong> $status_remove </strong> with itself.");
+		}
+	}
+	$task_status_setting = variable_get('oa_worktracker_allowed_values_task_status', array());
+	if ($status_remove == $task_status_setting['default_value'] && !($status_replace)){
+		form_set_error('task_status][status_to', "Status <strong> $status_remove </strong> is the default status. You have to select a status to replace with.");
+	}
+}
+
+function _clean_up_task_status_submit($form, &$form_state){
+	$status_remove = $form_state['values']['task_status']['status_remove'];
+	$status_replace = $form_state['values']['task_status']['status_replace'];
+	drupal_set_message("Starting cleaning up task status $status_remove...");
+	// workflow
+	$workflow_setting = variable_get('nhpd_oa_task_status_allowed_values_setting', array());
+	foreach($workflow_setting as $type => &$sections_setting){
+		foreach($sections_setting as $section_id => &$section_setting){
+			// allowed statuses
+			$allowed_statuses = &$section_setting['setting']['allowed_statuses'];
+			$key = array_search($status_remove, $allowed_statuses);
+			if ($key !== FALSE){
+				if ($status_replace && array_search($status_replace, $allowed_statuses) !==FALSE){
+					$allowed_statuses[] = $status_replace;
+				}
+				else{
+					unset($allowed_statuses[$key]);
+				}
+			}
+			//General setting
+			$setting = &$section_setting['all_options']['general_setting'];
+			// General setting-- old status, moves new statuses from $status_remove to $status_replace, deletes $status_remove
+			if ($status_replace && !empty($setting[$status_remove])){
+				foreach($setting[$status_remove] as $status => $allowed){
+					if ($status != $status_replace) $setting[$status_replace][$status] = $allowed;
+				}
+			}
+			
+			#####################
+			// General setting -- new status.
+			//If $status_remove is allowed and $status_replace is not allowed, $status_replace is set to allowed.
+			//If $status_remove is not allowed and $status_replace is not allowed, $status_replace is set to not allowed.
+			//If $status_remove is allowed and $status_replace is allowed, $status_replace is set to allowed.
+			//If $status_remove is not allowed and $status_replace is allowed, $status_replace is set to allowed.
+			#####################
+			foreach($setting as $old_status => &$new_statuses){
+				$new_statuses[$status_replace] = (isset($new_statuses[$status_replace]) && $new_statuses[$status_replace]) || (isset($new_statuses[$status_remove]) && $new_statuses[$status_remove]);
+				unset($new_statuses[$status_remove]);
+				//drupal_set_message(nhpid_api_dump(isset($new_statuses[$status_replace]), 'purple', TRUE));
+				//drupal_set_message(nhpid_api_dump(isset($new_statuses[$status_remove]), 'purple', TRUE));
+				//drupal_set_message(nhpid_api_dump("$type, $section_id, $old_status", 'purple', TRUE));
+			}
+			unset($setting[$status_remove]);
+			// author setting
+			$setting = &$section_setting['all_options']['author_setting'];
+			// General setting-- old status, moves new statuses from $status_remove to $status_replace, deletes $status_remove
+			if ($status_replace && !empty($setting[$status_remove])){
+				foreach($setting[$status_replace] as $status => $allowed){
+					if ($status != $status_replace) $setting[$status_replace][$status] =  $allowed;
+				}
+			}
+		
+			#####################
+			// Author setting -- new status.
+			//If $status_remove is allowed and $status_replace is not allowed, $status_replace is set to allowed.
+			//If $status_remove is not allowed and $status_replace is not allowed, $status_replace is set to not allowed.
+			//If $status_remove is allowed and $status_replace is allowed, $status_replace is set to allowed.
+			//If $status_remove is not allowed and $status_replace is allowed, $status_replace is set to allowed.
+			#####################
+			foreach($setting as $old_status => &$new_statuses){
+				$new_statuses[$status_replace] = $new_statuses[$status_replace] = (isset($new_statuses[$status_replace]) && $new_statuses[$status_replace]) || (isset($new_statuses[$status_remove]) && $new_statuses[$status_remove]);
+				unset($new_statuses[$status_remove]);
+			}
+			unset($setting[$status_remove]);
+			// assignee setting
+			$setting = &$section_setting['all_options']['assignee_setting'];
+			// General setting-- old status, moves new statuses from $status_remove to $status_replace, deletes $status_remove
+			if ($status_replace && !empty($setting[$status_remove])){
+				foreach($setting[$status_replace] as $status => $allowed){
+					if ($status != $status_replace) $setting[$status_replace][$status] =  $allowed;
+				}
+			}
+
+			#####################
+			// Assignee setting -- new status.
+			//If $status_remove is allowed and $status_replace is not allowed, $status_replace is set to allowed.
+			//If $status_remove is not allowed and $status_replace is not allowed, $status_replace is set to not allowed.
+			//If $status_remove is allowed and $status_replace is allowed, $status_replace is set to allowed.
+			//If $status_remove is not allowed and $status_replace is allowed, $status_replace is set to allowed.
+			#####################
+			foreach($setting as $old_status => &$new_statuses){
+				$new_statuses[$status_replace] = $new_statuses[$status_replace] = (isset($new_statuses[$status_replace]) && $new_statuses[$status_replace]) || (isset($new_statuses[$status_remove]) && $new_statuses[$status_remove]);
+				unset($new_statuses[$status_remove]);
+			}
+			unset($setting[$status_remove]);
+		}
+	}
+	//drupal_set_message(nhpid_api_dump($workflow_setting, 'purple', TRUE));
+	variable_set('nhpd_oa_task_status_allowed_values_setting', $workflow_setting);
+	// task_status
+	$task_status_setting = variable_get('oa_worktracker_allowed_values_task_status', array());
+	$search = array($status_remove . '|' . $task_status_setting['options'][$status_remove] . "\r\n", $status_remove . '|' . $task_status_setting['options'][$status_remove] . "\n", $status_remove . '|' . $task_status_setting['options'][$status_remove] . "\r");
+	$task_status_setting['options_text'] = str_replace($search, '', $task_status_setting['options_text']);
+	$task_status_setting['options_field'] = str_replace($search, '', $task_status_setting['options_field']);
+	if ($task_status_setting['default_value'] == $status_remove){
+		$task_status_setting['default_value'] = $status_replace;
+		$task_status_setting['default_value_field'] = $status_replace;
+		$task_status_setting['default_value_text'] = $status_replace;
+	}
+	unset($task_status_setting['options'][$status_remove]);
+	//drupal_set_message(nhpid_api_dump($task_status_setting, 'purple', TRUE));
+	variable_set('oa_worktracker_allowed_values_task_status', $task_status_setting);
+	
+	// task fields
+	if ($status_replace) {
+		db_update('field_data_field_oa_worktracker_task_status')
+		->fields(array('field_oa_worktracker_task_status_value' => $status_replace))
+		->condition('field_oa_worktracker_task_status_value', $status_remove)
+		->condition('bundle', 'oa_worktracker_task')
+		->execute();
+	}
+	else{
+		db_delete('field_data_field_oa_worktracker_task_status')
+		->condition('field_oa_worktracker_task_status_value', $status_remove)
+		->condition('bundle', 'oa_worktracker_task')
+		->execute();
+	}
+
+
+	
+	/*
+	foreach($result['node'] as $ids){
+		$task_node = node_load($ids -> nid);
+		$task_node_wrapper = entity_metadata_wrapper('node', $task_node);
+		if ($status_replace) {
+			$task_node_wrapper -> field_oa_worktracker_task_status = $status_replace;
+		}
+		else{
+			unset($task_node_wrapper -> field_oa_worktracker_task_status);
+		}
+		$task_node_wrapper ->save();
+	}
+	*/
+	cache_clear_all();
+	drupal_set_message("Cleaning up task status $status_remove is done.");
+	$form_state['rebuild'] = true;
+}
+
+function _clean_up_task_category_validate($form, &$form_state){
+	//drupal_set_message(nhpid_api_dump($form_state, 'purple', TRUE));
+	$category_remove = $form_state['values']['task_category']['category_remove'];
+	$category_replace = $form_state['values']['task_category']['category_replace'];
+
+	if ($category_replace){
+		if ($category_remove == $category_replace){
+			form_set_error('task_category][category_replace', "I cannot replace <strong> $category_remove </strong> with itself.");
+		}
+	}
+	$task_category_setting = variable_get('oa_worktracker_allowed_values_task_category', array());
+	if ($category_remove == $task_category_setting['default_value'] && !($category_replace)){
+		form_set_error('task_category][category_replace', "Category <strong> $category_remove </strong> is the default category. You have to select a category to replace with.");
+	}
+}
+
+function _clean_up_task_category_submit($form, &$form_state){
+	//drupal_set_message(nhpid_api_dump($form_state, 'purple', TRUE));
+	$category_remove = $form_state['values']['task_category']['category_remove'];
+	$category_replace = $form_state['values']['task_category']['category_replace'];
+	drupal_set_message("Starting cleaning up task category $category_remove...");
+	// task_category setting
+	$category_setting = variable_get('nhpd_oa_task_category_allowed_values_setting', array());
+	unset($category_setting['all_options'][$category_remove]);
+	$setting = &$category_setting['setting'];
+	foreach($setting as $place_nid => &$space_setting){
+		foreach($space_setting as $section_id => &$categories){
+			$key = array_search($category_remove, $categories);
+			if ($key !== FALSE){
+				if ($category_replace && array_search($category_replace, $categories) === FALSE){
+					$categories[$category_replace] = $category_replace;
+				}
+				else{
+					unset($categories[$key]);
+				}
+			}
+		}
+	}
+	//drupal_set_message(nhpid_api_dump($category_setting, 'purple', TRUE));
+	variable_set('nhpd_oa_task_category_allowed_values_setting', $category_setting);
+		// allowed values
+	$task_category_setting = variable_get('oa_worktracker_allowed_values_task_category', array());
+	$search = array($category_remove . '|' . $task_category_setting['options'][$category_remove] . "\r\n", $category_remove . '|' . $task_category_setting['options'][$category_remove] . "\n", $category_remove . '|' . $task_category_setting['options'][$category_remove] . "\r");
+	$task_category_setting['options_text'] = str_replace($search, '', $task_category_setting['options_text']);
+	$task_category_setting['options_field'] = str_replace($search, '', $task_category_setting['options_field']);
+	if ($task_category_setting['default_value'] == $category_remove){
+		$task_category_setting['default_value'] = $category_replace;
+		$task_category_setting['default_value_field'] = $category_replace;
+		$task_category_setting['default_value_text'] = $category_replace;
+	}
+	unset($task_category_setting['options'][$category_remove]);
+	//drupal_set_message(nhpid_api_dump($task_category_setting, 'purple', TRUE));
+	variable_set('oa_worktracker_allowed_values_task_category', $task_category_setting);
+	
+	// task fields
+	if ($category_replace) {
+		db_update('field_data_field_issue_category')
+		->fields(array('field_issue_category_value' => $category_replace))
+		->condition('field_issue_category_value', $category_remove)
+		->condition('bundle', 'oa_worktracker_task')
+		->execute();
+	}
+	else{
+		db_delete('field_data_field_issue_category')
+		->condition('field_issue_category_value', $status_remove)
+		->condition('bundle', 'oa_worktracker_task')
+		->execute();
+	}
+	cache_clear_all();
+	$form_state['rebuild'] = true;
+	drupal_set_message("Cleaning up task category $category_remove is done.");
+}
+
+function _clean_up_task_type_validate($form, &$form_state){
+	//drupal_set_message(nhpid_api_dump($form_state, 'purple', TRUE));
+	$type_remove = $form_state['values']['task_type']['type_remove'];
+	$type_replace = $form_state['values']['task_type']['type_replace'];
+	if ($type_replace){
+		if ($type_remove == $type_replace){
+			form_set_error('task_type][type_replace', "I cannot replace <strong> $type_remove </strong> with itself.");
+		}
+	}
+	$task_type_setting = variable_get('oa_worktracker_allowed_values_task_type', array());
+	if ($type_remove == $task_type_setting['default_value'] && !($type_replace)){
+		form_set_error('task_type][type_rreplace', "Type<strong> $type_remove </strong> is the default type. You have to select a type to replace with.");
+	}
+}
+
+function _clean_up_task_type_submit($form, &$form_state){
+	//drupal_set_message(nhpid_api_dump($form_state, 'purple', TRUE));
+	$type_remove = $form_state['values']['task_type']['type_remove'];
+	$type_replace = $form_state['values']['task_type']['type_replace'];
+	drupal_set_message("Starting cleaning up task type $type_remove...");
+	// workflow
+	// if setting for a og role of $type_replace exists, keeps it. Otherwise replaces it with the setting of the role of $type_remove
+	$workflow_setting = variable_get('nhpd_oa_task_status_allowed_values_setting', array());
+	foreach($workflow_setting[$type_remove] as $og_role => $og_role_setting){
+		if (!isset($workflow_setting[$type_replace][$og_role])){
+			$workflow_setting[$type_replace][$og_role] = $workflow_setting[$type_remove][$og_role];
+		}
+	}
+	
+	unset($workflow_setting[$type_remove]);
+	variable_set('nhpd_oa_task_status_allowed_values_setting', $workflow_setting);
+	//drupal_set_message(nhpid_api_dump($workflow_setting, 'purple', TRUE));
+	// task_type setting
+	$type_setting = variable_get('nhpd_oa_task_type_allowed_values_setting', array());
+	unset($type_setting['all_options'][$type_remove]);
+	$setting = &$type_setting['setting'];
+	foreach($setting as $place_nid => &$space_setting){
+		foreach($space_setting as $section_id => &$types){
+			$key = array_search($type_remove, $types);
+			if ($key !== FALSE){
+				if ($type_replace && array_search($type_replace, $types)!==FALSE){
+					$types[] = $type_replace;
+				}
+				else{
+					unset($types[$key]);
+				}
+			}
+		}
+	}
+	//drupal_set_message(nhpid_api_dump($type_setting, 'purple', TRUE));
+	variable_set('nhpd_oa_task_type_allowed_values_setting', $type_setting);
+	// allowed values
+	$task_type_setting = variable_get('oa_worktracker_allowed_values_task_type', array());
+	$search = array($type_remove . '|' . $task_type_setting['options'][$type_remove] . "\r\n", $type_remove . '|' . $task_type_setting['options'][$type_remove] . "\n", $type_remove . '|' . $task_type_setting['options'][$type_remove] . "\r");
+	$task_type_setting['options_text'] = str_replace($search, '', $task_type_setting['options_text']);
+	$task_type_setting['options_field'] = str_replace($search, '', $task_type_setting['options_field']);
+	if ($type_replace && $task_type_setting['default_value'] == $type_remove){
+		$task_type_setting['default_value'] = $type_replace;
+		$task_type_setting['default_value_field'] = $type_replace;
+		$task_type_setting['default_value_text'] = $type_replace;
+	}
+	unset($task_type_setting['options'][$type_remove]);
+	//drupal_set_message(nhpid_api_dump($task_type_setting, 'purple', TRUE));
+	variable_set('oa_worktracker_allowed_values_task_type', $task_type_setting);
+	// task fields
+	if ($type_replace) {
+		db_update('field_data_field_oa_worktracker_task_type')
+		->fields(array('field_oa_worktracker_task_type_value' => $type_replace))
+		->condition('field_oa_worktracker_task_type_value', $type_remove)
+		->condition('bundle', 'oa_worktracker_task')
+		->execute();
+	}
+	else{
+		db_delete('field_data_field_oa_worktracker_task_type')
+		->condition('field_oa_worktracker_task_type_value', $type_remove)
+		->condition('bundle', 'oa_worktracker_task')
+		->execute();
+	}
+	
+	cache_clear_all();
+	$form_state['rebuild'] = true;
+	drupal_set_message("Cleaning up task type $type_remove is done.");
+}
+
+function _clean_up_og_role_validate($form, &$form_state){
+	//drupal_set_message(nhpid_api_dump($form_state, 'purple', TRUE));
+	$og_role_remove = $form_state['values']['og_role']['og_role_remove'];
+	$og_role_replace = $form_state['values']['og_role']['og_role_replace'];
+	if ($og_role_replace){
+		if ($og_role_remove == $og_role_replace){
+			form_set_error('og_role][og_role_replace', "I cannot replace <strong> $og_role_remove </strong> with itself.");
+		}
+	}
+}
+
+function _clean_up_og_role_submit($form, &$form_state){
+	//drupal_set_message(nhpid_api_dump($form_state, 'purple', TRUE));
+	$og_role_remove = $form_state['values']['og_role']['og_role_remove'];
+	$og_role_replace = $form_state['values']['og_role']['og_role_replace'];
+	drupal_set_message("Starting cleaning up task role $og_role_remove...");
+	// workflow
+	// if setting for a og role of $type_replace exists, keeps it. Otherwise replaces it with the setting of the role of $type_remove
+	$workflow_setting = variable_get('nhpd_oa_task_status_allowed_values_setting', array());
+	foreach($workflow_setting as $type => &$type_setting){
+		if ($og_role_replace && !isset($type_setting[$og_role_replace]) && isset($type_setting[$og_role_remove])){
+			$type_setting[$og_role_replace] = $type_setting[$og_role_remove];
+		}
+		unset($type_setting[$og_role_remove]);
+	}
+	variable_set('nhpd_oa_task_status_allowed_values_setting', $workflow_setting);
+	//drupal_set_message(nhpid_api_dump($workflow_setting, 'purple', TRUE));
+		
+	// OG permission
+	$og_role_remove_permissions = og_role_permissions(array($og_role_remove => $og_role_remove));
+	$permissions = array();
+	foreach($og_role_remove_permissions[$og_role_remove] as $permission => $allowed){
+		if($allowed) $permissions[] = $permission;
+	}
+	$og_role_remove_permission = $og_role_remove_permission[$og_role_remove];
+	if ($og_role_replace) og_role_grant_permissions($og_role_replace, $permissions);
+	og_role_revoke_permissions($og_role_remove, $permissions);
+	og_role_delete($og_role_remove);
+	cache_clear_all();
+	$form_state['rebuild'] = true;
+	drupal_set_message("Cleaning up task role $og_role_remove is done.");
+}
+
+function _clean_up_oa_space_validate($form, &$form_state){
+	//drupal_set_message(nhpid_api_dump($form_state, 'purple', TRUE));
+	$oa_space_remove = $form_state['values']['oa_space']['oa_space_remove'];
+	$oa_space_replace = $form_state['values']['oa_space']['oa_space_replace'];
+	if ($oa_space_replace){
+		if ($oa_space_remove == $oa_space_replace){
+			form_set_error('oa_space][oa_space_replace', "I cannot replace <strong> $oa_space_remove </strong> with itself.");
+		}
+	}
+}
+
+function _clean_up_oa_space_submit($form, &$form_state){
+	$form_state['rebuild'] = true;
+	drupal_set_message(nhpid_api_dump($form_state, 'purple', TRUE));
+	$oa_space_remove = $form_state['values']['oa_space']['oa_space_remove'];
+	$oa_space_replace = $form_state['values']['oa_space']['oa_space_replace'];
+	drupal_set_message("Starting cleaning up space $oa_space_removee...");
+	$task_section_tids = array();
+	$taxonomy_term_query = new EntityFieldQuery;
+	$result = $taxonomy_term_query
+		->entityCondition('entity_type', 'taxonomy_term')
+		->propertyCondition('name', array('Tasks Section', 'Task Section', 'IN')) // in case task section is renamed
+		->execute();
+	foreach($result['taxonomy_term'] as $key => $term){
+		$task_section_tids[] = $term -> tid;
+	}
+	
+	//moving staff from $oa_space_remove to $oa_space_replace
+	// sections;
+	
+	$section_query = new EntityFieldQuery;
+	$result = $section_query->entityCondition('entity_type', 'node')
+		->entityCondition('bundle', 'oa_section')
+		->propertyCondition('status', NODE_PUBLISHED)
+		->fieldCondition('og_group_ref', 'target_id', $oa_space_remove, '=')
+		->execute();
+	//drupal_set_message(nhpid_api_dump("oa_space_replace: $oa_space_replace", 'purple', TRUE));
+	//drupal_set_message(nhpid_api_dump("oa_space_remove: $oa_space_remove", 'purple', TRUE));
+	foreach($result['node'] as $key => $section){
+		$section_nid_replace = null;
+		$section_nid_remove = $section ->nid;
+		$section_node_remove = node_load($section_nid_remove);
+		$section_node_remove_wrapper = entity_metadata_wrapper('node', $section_node_remove);
+		$section_ref_remove = $section_node_remove_wrapper -> field_oa_section -> raw();
+		
+		//drupal_set_message(nhpid_api_dump("oa_section_remove: $section_nid_remove", 'purple', TRUE));
+		if ($oa_space_replace){
+			$section_query2 = new EntityFieldQuery;
+			$result2 = $section_query2->entityCondition('entity_type', 'node')
+			->entityCondition('bundle', 'oa_section')
+			->propertyCondition('status', NODE_PUBLISHED)
+			->fieldCondition('og_group_ref', 'target_id', $oa_space_replace, '=')
+			->fieldCondition('field_oa_section', 'tid', $section_ref_remove, '=')
+			->execute();
+		
+			if (!empty($result2)){
+				$section_nid_replace = array_shift($result2['node'])->nid;
+				//drupal_set_message(nhpid_api_dump("oa_section_replace: $section_nid_replace", 'purple', TRUE));
+			}
+			else{ // moving $section_node_remove from place $oa_space_remove to $oa_space_replace
+				$section_node_remove_wrapper -> og_group_ref = $oa_space_replace;
+				drupal_set_message(nhpid_api_dump($section_node_remove_wrapper, 'purple', TRUE));
+				$section_node_remove_wrapper -> save();
+			}
+		}
+	
+		// moving tasks or wikis
+		$section_query3 = new EntityFieldQuery;
+		$result3 = $section_query3->entityCondition('entity_type', 'node')
+		->entityCondition('bundle', array('oa_worktracker_task', 'nhpd_wiki'), 'IN')
+		->propertyCondition('status', NODE_PUBLISHED)
+		->fieldCondition('og_group_ref', 'target_id', $oa_space_remove, '=')
+		->fieldCondition('oa_section_ref', 'target_id', $section_nid_remove, '=')
+		->execute();
+		//drupal_set_message(nhpid_api_dump($result3, 'purple', TRUE));
+		//return;
+		$count = 0;
+		foreach($result3['node'] as $task_wiki_key => $task_wiki_section){
+			$task_wiki_node_remove_wrapper = entity_metadata_wrapper('node', node_load($task_wiki_section->nid));
+			if ($oa_space_replace){
+				if ($section_nid_replace){
+					$task_wiki_node_remove_wrapper -> oa_section_ref = $section_nid_replace;
+				}
+				$task_wiki_node_remove_wrapper -> og_group_ref = $oa_space_replace;
+				//drupal_set_message(nhpid_api_dump((array)$task_wiki_node_remove_wrapper, 'purple', TRUE));
+				//$section_node_remove_wrapper -> save();
+			}
+			else{ // deleting all tasks and wikis
+				//$section_node_remove_wrapper -> delete();
+			}
+			$count ++;
+			if ($count > 10) break;
+		}
+		//deleting section_remove and space_remove
+		if (!$oa_space_replace){
+			$section_node_remove_wrapper -> delete();
+		}
+		node_delete($oa_space_remove); 
+		
+		// task category, task type, custom field settings
+		if (in_array($section_node_remove_wrapper -> field_oa_section -> raw(),  $task_section_tids)){
+			$type_setting = variable_get('nhpd_oa_task_type_allowed_values_setting', array());
+			$category_setting = variable_get('nhpd_oa_task_category_allowed_values_setting', array());
+			$task_custom_fields_setting = variable_get('nhpd_oa_task_custom_fields_allowed_values_setting', array());
+			if ($oa_space_replace){
+				if($section_nid_replace){
+					$type_setting['setting'][$oa_space_replace][$section_nid_replace] = array_unique(array_merge($type_setting['setting'][$oa_space_remove][$section_nid_remove], $type_setting['setting'][$oa_space_replace][$section_nid_replace]));
+					$category_setting['setting'][$oa_space_replace][$section_nid_replace] = array_unique(array_merge($category_setting['setting'][$oa_space_remove][$section_nid_remove], $category_setting['setting'][$oa_space_replace][$section_nid_replace]));
+					$task_custom_fields_setting['sections'][$section_nid_replace] = array_merge($task_custom_fields_setting['sections'][$section_nid_remove],$task_custom_fields_setting['sections'][$section_nid_replace]);
+				}
+				else{
+					$type_setting['setting'][$oa_space_replace][$section_nid_remove] = $type_setting['setting'][$oa_space_remove][$section_nid_remove];
+					$category_setting['setting'][$oa_space_replace][$section_nid_remove] = $category_setting['setting'][$oa_space_remove][$section_nid_remove];
+					//$task_custom_fields_setting['sections'][$section_nid_remove] = $task_custom_fields_setting['sections'][$section_nid_remove];
+				}
+			}
+			unset($type_setting['setting'][$oa_space_remove]);
+			unset($category_setting['setting'][$oa_space_remove]);
+			unset($task_custom_fields_setting['sections'][$section_nid_remove]);
+			//drupal_set_message(nhpid_api_dump($type_setting, 'purple', TRUE));
+			//drupal_set_message(nhpid_api_dump($category_setting, 'purple', TRUE));
+			//drupal_set_message(nhpid_api_dump($task_custom_fields_setting, 'purple', TRUE));
+			variable_set('nhpd_oa_task_type_allowed_values_setting', $type_setting);
+			variable_set('nhpd_oa_task_category_allowed_values_setting', $category_setting);
+			variable_set('nhpd_oa_task_custom_fields_allowed_values_setting', $task_custom_fields_setting);
+		}
+		// memberships
+		if ($oa_space_replace){
+			$update = db_update('og_membership')
+			->fields(array('gid' => $oa_space_replace))
+			->condition('og.entity_type', 'user')
+			->condition('og.group_type', 'node')
+			->condition('og.gid', $oa_space_remove)
+			-> execute();
+		}
+		else{
+			$delete = db_delete('og_membership')
+			->condition('og.entity_type', 'user')
+			->condition('og.group_type', 'node')
+			->condition('og.gid', $oa_space_remove)
+			-> execute();
+		}
+		/*
+		$query = db_select('og_membership', 'og')
+			->fields('og')
+			->condition('og.entity_type', 'user')
+			->condition('og.group_type', 'node')
+			->condition('og.gid', $oa_space_remove);
+		$result = $query->execute();
+		while ($rc = $result -> fetchObject()){
+			$uid = $rc -> etid;
+			$query2 = db_select('og_membership', 'og')
+				->fields('og', array('id'))
+				->condition('og.entity_type', 'user')
+				->condition('og.group_type', 'node')
+				->condition('og.gid', $oa_space_replace)
+				->condition('og.etid', $uid);
+			if ($query2->execute()->fetchCol()){
+				$update = db_update('og_membership')
+				->fields(array('gid' => $oa_space_replace))
+				->condition('og.entity_type', 'user')
+				->condition('og.group_type', 'node')
+				->condition('og.gid', $oa_space_remove)
+				->condition('og.etid', $uid);
+				//drupal_set_message(nhpid_api_dump($update->__toString(), 'purple', TRUE));
+				//drupal_set_message(nhpid_api_dump($update->arguments(), 'purple', TRUE));
+				//drupal_set_message(nhpid_api_dump($update->nextPlaceholder(), 'purple', TRUE));
+				$update-> execute();
+			}
+		}
+		*/
+	}
+	cache_clear_all();
+}
+
+function oa_clean_up_task_nodes_batch($total_items, &$context){
+	$queue = DrupalQueue::get('oa_task_cleanup');
+	if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['max'] = $total_items;
+    $context['results']['log'] = array();
+  }
+	//drupal_set_message(_dump($queue, 'purple', TRUE));
+	$item = $queue->claimItem();
+	//drupal_set_message(_dump($item, 'purple', TRUE));
+	if ($item) {
+		//drupal_set_message(_dump($item, 'purple', TRUE));
+		$nid = $item->data['nid'];
+		$value_remove = $item->data['value_remove'];
+		$value_replace = $item->data['value_replace'];
+		$field = $item->data['field'];
+		$bundle = $item->data['bundle'];
+		$task_node = node_load($nid);
+		$task_node_wrapper = entity_metadata_wrapper('node', $task_node);
+		if ($status_replace) {
+			$task_node_wrapper -> {$field} = $value_replace;
+		}
+		else{
+			unset($task_node_wrapper -> {$field});
+		}
+		$task_node_wrapper ->save();
+		drupal_set_message(_dump((array)$task_node_wrapper, 'purple', TRUE));
+		$queue->deleteItem($item);
+		//usleep(100);
+	}
+	
+
+	// Provide an estimation of the completion level we've reached.
+	$context['sandbox']['progress'] += 1;
+	$context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+	$context['message'] = t("Cleaning up task nodes... " . 'Processed @current out of @total', array('@current' => $context['sandbox']['progress'], '@total' => $context['sandbox']['max']));
+}
+
+function oa_clean_up_task_nodes_op_finished($success, $results, $operations) {
+  if ($success) {
+    // Here we could do something meaningful with the results.
+    // We just display the number of nodes we processed...
+    $message = count($results) . ' processed.';
+    //field_reference_update_all_cached_option_lists();
+  }
+  else {
+    // An error occurred.
+    // $operations contains the operations that remained unprocessed.
+    $error_operation = reset($operations);
+    $message = 'An error occurred while processing ' . $error_operation[0] . ' with arguments :' . print_r($error_operation[0], TRUE);
+  }// remove temp variable
+	variable_del('chili_oa_migration_ids_to_delete');
+  drupal_set_message($message);
+}

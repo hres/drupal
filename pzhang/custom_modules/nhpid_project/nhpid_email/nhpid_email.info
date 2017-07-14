@@ -1,0 +1,7 @@
+; $Id: nhpid_email.info,v 1.0.0 2010/07/27 15:26:16 peijun zhang $
+name = "NHPID Email"
+description = "This module defines an email function"
+core = "7.x"
+version = "7.x-1.0"
+
+package = NHPID

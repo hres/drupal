@@ -1,0 +1,457 @@
+<?php
+// $Id$
+
+function assessment_central_data_loader_permission() {
+    return array(
+    'assessment central data loading' => array(
+      'title' => t('Loading assessment central data'), 
+      'description' => t(''),
+      ),
+    
+    );
+} 
+
+
+
+function assessment_central_data_loader_menu() {
+
+  $items = array();
+  $root = 'data_loading';
+  $items[$root] = array(
+    'title' => 'Assessment Central Data Loader',
+    'description' => 'Loading data from excel files to drupal',
+    'menu_name' => 'navigation',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('assessment_central_data_loader_form'),
+    'access arguments' => array('assessment central data loading'),
+    'type' => MENU_NORMAL_ITEM,
+   );
+   $items[$root . '/loader'] = array(
+    'title' => 'Assessment Central Data Loader',
+    'weight' => -11,
+    'access arguments' => array('assessment central data loading'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('assessment_central_data_loader_form'),
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  
+  return $items;
+}
+function assessment_central_data_loader_form($form, &$form_state=NULL) {
+  drupal_set_title("Load Assessment Data");
+  $form['help']=array(
+    '#type' => 'item', 
+    '#markup' => "This tool loads assessment central data sheets to drupal",
+  );
+  $form['#attributes'] = array('enctype' => "multipart/form-data");
+  $form['upload_data_file'] = array (
+    '#type' => 'file', 
+    '#title' => t('Upload Assessment Central Excel Data'),
+    '#size' => 100,
+    //'#required' => TRUE,
+  );
+  
+  $re_indexing = !empty($form_state['values']['do_reindexing']) ? $form_state['values']['do_reindexing'] : 0;
+  $form['do_reindexing'] = array(
+    '#type' => 'checkbox', 
+    '#default_value' => $re_indexing,
+    '#title' => "Update Search Index?"
+  );
+  
+  $form['upload-data-file-submit']=array(
+    '#type' => 'submit', 
+    '#value' => t('Upload'), 
+    
+    '#attributes' => array('onclick' => 'return confirm("You are going to delete all NHPID Ingredient data and load new data from data sheets. Are you sure you wish to continue?");'),
+  ); 
+  return $form;
+
+}
+function assessment_central_data_loader_form_submit($form, &$form_state) {
+    drupal_set_message('uploading file...');
+    //drupal_set_message(nhpid_api_dump($form_state, 'red', TRUE));
+    $limits = array ('extensions' => 'xls', 'file_size' => 50000000) ;
+    
+    $validators = array(
+      'assessment_central_upload_nhpid_ingrediets_file_validate' => array($limits['extensions'], $limits['file_size'],),
+    );
+    $uploaded_data_file = 'upload_data_file';
+    $uploaded_data_file_path = file_directory_temp() . "/uploaded_data_file";
+    $uploaded_data_file_path =  "public://uploaded_data_file/";
+    $uploaded_data_file_split_path = $uploaded_data_file_path . '/split';
+    //if (!is_dir($uploaded_data_file_path)) mkdir($uploaded_data_file_path, 0777, true);
+    //if (!is_dir($uploaded_data_file_split_path)) mkdir($uploaded_data_file_split_path, 0777, true);
+    
+    file_prepare_directory($uploaded_data_file_path, FILE_CREATE_DIRECTORY | FILE_MODIFY_PERMISSIONS);
+    if (user_access('upload files') && $file = file_save_upload($uploaded_data_file, $validators, "$uploaded_data_file_path", FILE_EXISTS_REPLACE)) {
+      $file_path = $file -> uri;
+      //drupal_set_message(nhpid_api_dump($file, 'red', TRUE));
+      //$lines_limit = $form_state['values']['lines_limit'];
+      
+      $re_indexing = $form_state['values']['do_reindexing'];
+      //$batch_size = $form_state['values']['batch_size'];
+      aseessment_central_data_loader_parse_excel($file_path);
+      aseessment_central_data_loader_create_fields($re_indexing);
+      //aseessment_central_update_load_ingredient_data_batch($file_path, $re_indexing, $batch_size);
+      //drupal_set_message(nhpid_api_dump("$file, $uploaded_data_file, $uploaded_data_file_path, $file_path", 'red', TRUE));
+    }
+    
+    else {
+      $msg = "File $uploaded_data_file cannot be uploaded.";
+      form_set_error ('', $msg);
+    }
+    $form_state['storage']['values'] = $form_state['values'];
+}
+function aseessment_central_data_loader_parse_excel($file_path) {
+  $temp = false;
+ 
+  ini_set('memory_limit', "2000M");
+  $sheet_table_mapping = array('MI' => 'MI', 'PCI' => 'PCI', 'MI_NOTES' => 'MI_NOTES', 'TAGS' => 'TAGS', 'COMBO_ING' => 'COMBO_ING', 'COMBO_PCI' => 'COMBO_PCI', 'COMBO_NOTES' => 'COMBO_NOTES', 'PCI_TYPE' => 'PCI_TYPE', 'NOTE_TYPE' => 'NOTE_TYPE', );
+  _aseessment_central_data_loader_drop_tables($sheet_table_mapping, $temp);
+  _aseessment_central_data_loader_create_tables($temp);
+  
+  //return;
+  include_once 'PHPExcel/PHPExcel.php';
+  
+  //$cacheMethod = PHPExcel_CachedObjectStorageFactory::cache_in_memory_gzip;
+  $cacheMethod = PHPExcel_CachedObjectStorageFactory::cache_to_phpTemp;
+  
+  $cacheSettings = array( 'memoryCacheSize' => '2GB', 'cacheTime' => 6000);
+  PHPExcel_Settings::setCacheStorageMethod($cacheMethod, $cacheSettings);
+
+  PHPExcel_Cell::setValueBinder(new PHPExcel_Cell_AdvancedValueBinder());
+  
+  
+  $objReader =PHPExcel_IOFactory::createReader('Excel5');
+  $objReader->setReadDataOnly(TRUE);
+  $objPHPExcel = $objReader->load($file_path);
+  
+  foreach($sheet_table_mapping as $sheet_name => $table_name){
+    $sheet = $objPHPExcel -> getSheetByName($sheet_name);
+    $highest_row = $sheet -> getHighestRow();
+    $highest_col = PHPExcel_Cell::columnIndexFromString($sheet -> getHighestColumn());
+    $title_row = 1;
+    $column_index = array();
+    for ($col = 0; $col < $highest_col; $col ++){ // 
+      $col_name = trim($sheet-> getCellByColumnAndRow($col, $title_row) -> getCalculatedValue());
+      $column_index[$col] = $col_name;
+    }
+    $query_values = array();
+    for ($row = $title_row + 1; $row <= $highest_row; $row ++){
+      for ($col = 0; $col < $highest_col; $col ++){ // 
+        $value = trim($sheet-> getCellByColumnAndRow($col, $row) -> getCalculatedValue());
+        $col_name = $column_index[$col];
+        $query_values[':' . $col_name] = $value;
+        
+      }
+      $col_string = implode(',', $column_index);
+      $value_string = ':' . implode(',:', $column_index);
+      $sql = "insert into $table_name ($col_string) values($value_string)";
+      //drupal_set_message(nhpid_api_dump(placeholder_query_2_normal_query($sql,$query_values), 'blue', TRUE));
+      db_query($sql, $query_values);
+    }
+  }
+  //_aseessment_central_data_loader_drop_tables($sheet_table_mapping, $temp);
+}
+
+function _aseessment_central_data_loader_create_tables ($temp = True){
+  $temporary = 'temporary';
+  if (!$temp) $temporary = null;
+  
+  $sql = '# temporary tables for excel data
+# MI
+
+Create temporary table if not exists MI (
+  NHPID_NAME varchar(500) not null,
+  NAME varchar(5000) not null,
+  CNF_USDA varchar(500),
+  NHPID varchar(500),
+  MI_FOLDER varchar(500),
+  primary key(NHPID_NAME)
+);
+delete from MI;
+
+# PCI
+
+Create temporary table if not exists PCI (
+  NHPID_NAME varchar(500) not null,
+  PCI_TYPE varchar(50) not null,
+  NOTES varchar(5000),
+  LINK_TYPE varchar(50),
+  ADDRESS varchar(500)
+);
+delete from PCI;
+
+# MI_NOTES
+
+Create temporary table if not exists MI_NOTES (
+  NHPID_NAME varchar(500) not null,
+  NOTE_TYPE varchar(50) not null,
+  LINK_TYPE varchar(50),
+  NOTES varchar(5000),
+  WARNING varchar(5000),
+  ADDRESS varchar(500)
+);
+delete from MI_NOTES;
+
+# TAGS
+
+Create temporary table if not exists TAGS (
+  NHPID_NAME varchar(500) not null,
+  TAG varchar(50) not null
+);
+delete from TAGS;
+
+# COMBO_ING
+
+Create temporary table if not exists COMBO_ING (
+  NHPID_NAME varchar(500) not null,
+  COMBO_NAME varchar(500) not null
+);
+delete from COMBO_ING;
+
+# COMBO_PCI
+
+Create temporary table if not exists COMBO_PCI (
+  COMBO_NAME varchar(500) not null,
+  PCI_TYPE varchar(50),
+  NOTES varchar(5000),
+  LINK_TYPE varchar(50),
+  ADDRESS varchar(500)
+);
+delete from COMBO_PCI;
+
+# COMBO_NOTES
+
+Create temporary table if not exists COMBO_NOTES (
+  COMBO_NAME varchar(500) not null,
+  NOTE_TYPE varchar(50) not null,
+  LINK_TYPE varchar(50),
+  NOTES varchar(5000),
+  WARNING varchar(5000),
+  ADDRESS varchar(500)
+);
+delete from COMBO_NOTES;
+
+# PCI_TYPE
+
+Create temporary table if not exists PCI_TYPE (
+  PCI_TYPE varchar(50) not null,
+  NOTE varchar(1000) not null
+);
+delete from PCI_TYPE;
+
+# NOTE_TYPE
+
+Create temporary table if not exists NOTE_TYPE (
+  NOTE_TYPE varchar(50) not null,
+  NOTE varchar(1000) not null
+);
+delete from NOTE_TYPE;';
+
+$sql = str_replace('temporary', $temporary, $sql);
+//drupal_set_message(nhpid_api_dump($sql, 'red', TRUE));
+db_query($sql);
+
+}
+
+function _aseessment_central_data_loader_drop_tables(array $tables = array(), $temp = True){
+  if (empty($tables)) $tables = array('MI' => 'MI', 'PCI' => 'PCI', 'MI_NOTES' => 'MI_NOTES', 'TAGS' => 'TAGS', 'COMBO_ING' => 'COMBO_ING', 'COMBO_PCI' => 'COMBO_PCI', 'COMBO_NOTES' => 'COMBO_NOTES', 'PCI_TYPE' => 'PCI_TYPE', 'NOTE_TYPE' => 'NOTE_TYPE', );
+  $temporary = 'temporary';
+  if (!$temp) $temporary = '';
+  foreach($tables as $table){
+    $sql = "drop $temporary table if exists $table";
+    //drupal_set_message(nhpid_api_dump($sql, 'red', TRUE));
+    db_query($sql);
+  }
+}
+function aseessment_central_data_loader_create_fields($reindexing = false){
+  
+  #pci_type
+  $type = 'pci_type';
+  delete_all_nodes_by_type($type);
+  $sql ="select * from PCI_TYPE";
+  $result = db_query($sql);
+  
+  foreach($result as $rc){
+    //drupal_set_message(nhpid_api_dump($rc, 'red', TRUE));
+    $pci_type = trim($rc -> PCI_TYPE);
+    $note = trim($rc -> NOTE);
+    $fields = array();
+    $fields['field_code'][]=array('value' => $pci_type);
+    $fields['field_description'][]=array('value' => $note);
+    $title = $pci_type;
+    _aseessment_central_data_loader_create_node($type, $title, $fields, array(), $reindexing);
+  }
+  
+  #note_type
+  $type = 'note_type';
+  delete_all_nodes_by_type($type);
+  $sql ="select * from NOTE_TYPE";
+  $result = db_query($sql);
+  
+  foreach($result as $rc){
+    //drupal_set_message(nhpid_api_dump($rc, 'red', TRUE));
+    $note_type = trim($rc -> NOTE_TYPE);
+    $note = trim($rc -> NOTE);
+    $fields = array();
+    $fields['field_code'][]=array('value' => $note_type);
+    $fields['field_description'][]=array('value' => $note);
+    $title = $note_type;
+    _aseessment_central_data_loader_create_node($type, $title, $fields, array(), $reindexing);
+  }
+  
+  #mi
+  $type = 'mi';
+  delete_all_nodes_by_type($type);
+  $sql ="select * from MI";
+  $result = db_query($sql);
+  
+  foreach($result as $rc){
+    //drupal_set_message(nhpid_api_dump($rc, 'red', TRUE));
+    $fields = array();
+    $field_collections = array();
+    $nhpid_name = trim($rc -> NHPID_NAME);
+    $fields['field_mi_nhpid_name'][]=array('value' => $nhpid_name);
+    $fields['field_cnf_usda'][]=array('value' => trim($rc -> CNF_USDA));
+    $fields['field_mi_folder'][]=array('value' => trim($rc -> MI_FOLDER));
+    $synonyms = $rc -> NAME ? explode(';', $rc -> NAME) : array();
+    foreach($synonyms as $synonym){
+      $fields['field_nhpid_synonyms'][]=array('value' => trim($synonym));
+    }
+    
+    $title = $nhpid_name;
+    #tags
+    $sql_tags = "select * from TAGS where nhpid_name = :nhpid_name";
+    $result_tags = db_query($sql_tags, array(':nhpid_name' => $nhpid_name));
+    foreach ($result_tags as $rc_tags){
+      $fields['field_tag'][]=array('value' => trim($rc_tags -> TAG));
+    }
+    # field_pci
+    $sql_fc = "select * from PCI where nhpid_name = :nhpid_name";
+    $result_fc = db_query($sql_fc, array(':nhpid_name' => $nhpid_name));
+    $field_collections['field_pci']=array();
+    foreach ($result_fc as $rc_fc){
+      $field_item = array();
+      $field_item['field_pci_type'] = array('value' => trim($rc_fc -> PCI_TYPE));
+      $field_item['field_link_type'] = array('value' => trim($rc_fc -> LINK_TYPE));
+      $field_item['field_address'] = array('value' => trim($rc_fc -> ADDRESS));
+      $field_item['field_note'] = array('value' => trim($rc_fc -> NOTES));
+      $field_collections['field_pci'][]=$field_item;
+    }
+    #field_note
+    $sql_fc = "select * from MI_NOTES where nhpid_name = :nhpid_name";
+    $result_fc = db_query($sql_fc, array(':nhpid_name' => $nhpid_name));
+    $field_collections['field_notes']=array();
+    foreach ($result_fc as $rc_fc){
+      $field_item = array();
+      $field_item['field_note_type'] = array('value' => trim($rc_fc -> NOTE_TYPE));
+      $field_item['field_link_type'] = array('value' => trim($rc_fc -> LINK_TYPE));
+      $field_item['field_address'] = array('value' => trim($rc_fc -> ADDRESS));
+      $field_item['field_note'] = array('value' => trim($rc_fc -> NOTES));
+      $field_item['field_warning'] = array('value' => trim($rc_fc -> WARNING));
+      $field_collections['field_notes'][]=$field_item;
+    }
+    //drupal_set_message(nhpid_api_dump($field_collections, 'blue', TRUE));
+    _aseessment_central_data_loader_create_node($type, $title, $fields, $field_collections, $reindexing);
+  }
+  
+  #combo
+  $type = 'combo';
+  delete_all_nodes_by_type($type);
+  $sql ="select distinct combo_name from COMBO_ING";
+  $combo_names = db_query($sql)->fetchCol();
+  foreach($combo_names as $combo_name){
+    $fields = array();
+    $field_collections = array();
+    $title = $combo_name;
+    $fields['field_combo_name'][]=array('value' => trim($combo_name));
+    $sql ="select nhpid_name from COMBO_ING where combo_name = :combo_name";
+    $nhpid_names = db_query($sql, array(':combo_name' => $combo_name))->fetchCol();
+    foreach($nhpid_names as $nhpid_name){
+      $fields['field_combo_nhpid_name'][]=array('value' => trim($nhpid_name));
+    }
+    # field_pci
+    $sql_fc = "select * from COMBO_PCI where combo_name = :combo_name";
+    $result_fc = db_query($sql_fc, array(':combo_name' => $combo_name));
+    $field_collections['field_pci']=array();
+    foreach ($result_fc as $rc_fc){
+      $field_item = array();
+      $field_item['field_pci_type'] = array('value' => trim($rc_fc -> PCI_TYPE));
+      $field_item['field_link_type'] = array('value' => trim($rc_fc -> LINK_TYPE));
+      $field_item['field_address'] = array('value' => trim($rc_fc -> ADDRESS));
+      $field_item['field_note'] = array('value' => trim($rc_fc -> NOTES));
+      $field_collections['field_pci'][]=$field_item;
+    }
+    #field_note
+    $sql_fc = "select * from COMBO_NOTES where combo_name = :combo_name";
+    $result_fc = db_query($sql_fc, array(':combo_name' => $combo_name));
+    $field_collections['field_notes']=array();
+    foreach ($result_fc as $rc_fc){
+      $field_item = array();
+      $field_item['field_note_type'] = array('value' => trim($rc_fc -> NOTE_TYPE));
+      $field_item['field_link_type'] = array('value' => trim($rc_fc -> LINK_TYPE));
+      $field_item['field_address'] = array('value' => trim($rc_fc -> ADDRESS));
+      $field_item['field_note'] = array('value' => trim($rc_fc -> NOTES));
+      $field_item['field_warning'] = array('value' => trim($rc_fc -> WARNING));
+      $field_collections['field_notes'][]=$field_item;
+    }
+    //drupal_set_message(nhpid_api_dump($field_collections, 'blue', TRUE));
+    _aseessment_central_data_loader_create_node($type, $title, $fields, $field_collections, $reindexing);
+    
+  }
+
+}
+function _aseessment_central_data_loader_create_node($type, $title, $fields, $field_collections = array(), $reindexing = false){
+  global $user;
+  $node = new stdClass();
+  $node->type = $type;
+  $node->title = $title;
+  $node->language = LANGUAGE_NONE;
+  $node->uid = null;
+  node_object_prepare($node);
+  $node->status = 1;
+  $node->promote = 1;
+  //$node->body[$node->language][0]['value'] = $item['field_authorized_name_e'];
+  //$node->body[$node->language][0]['summary'] = 'Lorem ipsum dolor sit amet.';
+  //$node->body[$node->language][0]['format'] = 'raw_html';
+  $wid = workflow_get_workflow_type_map_by_type($type) -> wid;
+  $sid = workflow_get_workflow_states_by_wid_state($wid, 'Published') -> sid;
+  //$node -> workflow = $sid;
+  $node -> is_new = TRUE;
+  foreach ($fields as $field_name => $items){
+    foreach($items as $item){
+      $node -> {$field_name}[$node->language][] = $item;
+    }
+  }
+  $title = nhpid_api_generate_node_title($node, 'assessment_central');
+  $node->title = $title;
+  $body = nhpid_api_generate_node_body($node, 'assessment_central');
+  $node -> body[$node -> language][0]['value'] = $body;
+  $node = node_submit($node);
+  //drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));
+  node_save($node);
+  $node->uid = $user -> uid;
+  workflow_execute_transition($node, $sid, $comment = "Initial data load", $force = TRUE);
+  
+  if ($reindexing) nhpid_api_index_node($node);
+  //drupal_set_message(nhpid_api_dump($node, 'red', TRUE));
+  ## update the ingred_id field of MI nodes
+  if ($type == 'mi') assessment_central_set_mi_ingred_id($node);
+  
+  #add field_collection fields
+  //drupal_set_message(nhpid_api_dump($field_collections, 'blue', TRUE));
+  foreach ($field_collections as $field_name => $fc_field_items){
+    
+    foreach ($fc_field_items as $fc_field_item){
+      $field_collection_item = entity_create('field_collection_item', array('field_name' => $field_name));
+      $field_collection_item->setHostEntity('node', $node);
+      foreach($fc_field_item as $fc_field_name => $item){
+        $field_collection_item -> {$fc_field_name}[$node->language][] = $item;
+      }
+      $field_collection_item->save();
+      //drupal_set_message(nhpid_api_dump($field_collection_item, 'red', TRUE));
+    }
+  }
+  unset($node);
+}

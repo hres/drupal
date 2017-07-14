@@ -1,0 +1,120 @@
+<?php
+// $Id$
+
+
+function nhpd_oa2_unique_tag_permission() {
+    return array(
+    'administer nhpd oa2 unique tag' => array(
+      'title' => t('Administer NHPD OA2 Unique Tag'),
+      'description' => t(''),
+      ),
+
+    );
+} 
+
+/***
+ *hook_views_pre_build
+ *
+ */
+
+
+function nhpd_oa2_unique_tag_node_load($nodes, $types){
+	
+}
+
+function nhpd_oa2_unique_tag_node_view($node,  $view_mode, $langcode){
+  /*switch ($node->type){
+		case 'oa_worktracker_task':
+		case 'nhpd_wiki':
+		$node -> title = nhpd_oa2_get_task_unique_tag($node->nid) . ':'.$node -> title;
+		break;
+	}*/
+}
+
+
+function nhpd_oa2_unique_tag_node_presave($node){
+  $setting = variable_get('nhpd_oa_unique_tag_setting', array());
+	if ($setting['is_on']){
+		$setting_node_types = $setting['node_types'];
+		if (isset($setting_node_types[$node->type])){
+      $node -> title = nhpd_oa2_unique_tag_regenerate_unique_tag($node);
+		}
+	}
+}
+
+/***
+ * hook_menu
+ */ 
+function nhpd_oa2_unique_tag_menu() {
+
+  $items = array();
+
+  $root = 'admin/oa_unique_tag';
+  $items[$root] = array(
+    'title' => 'OA Unique Tag Setting',
+    'description' => 'Settings of unique tags for OA task, etc.',
+    //'menu_name' => 'menu-nhpid-data-entry',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpd_oa2_unique_tag_form'),
+    'access arguments' => array('administer nhpd oa2 unique tag'),
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'forms.inc',
+   );
+
+   $items[$root . '/oa_unique_tag'] = array(
+    'title' => 'OA Unique Tag Setting',
+    'description' => 'Settings of unique tags for OA task, etc.',
+    //'menu_name' => 'menu-nhpid-data-entry',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpd_oa2_quique_tag_form'),
+    'access arguments' => array('administer nhpd oa2 unique tag'),
+       'type' => MENU_DEFAULT_LOCAL_TASK,
+    'file' => 'forms.inc',
+  );
+
+	return $items;
+}
+function nhpd_oa2_unique_tag_get_space_name_abbrev($space_name=null){
+	if(!$space_name){
+		$current_space = node_load(oa_core_get_space_context());
+		$space_name = $current_space -> title;
+	}
+	return preg_replace('/\b(\w)\w*\W*/', '\1', $space_name);
+}
+function nhpd_oa2_unique_tag_get_task_unique_tag($node){
+  if(!$node){
+		$node = node_load(currentnode_nid());
+	}
+	$nid = $node -> nid;
+	if(!$nid){
+		$sql = 'select max(nid) as max_nid from {node}';
+		$result = db_query($sql);
+		$max_nid = $result -> fetchObject() -> max_nid;
+		$nid = $max_nid + 1;
+	}
+	$node_wrapper = entity_metadata_wrapper('node', $node);
+	$space = $node_wrapper -> og_group_ref ->value();
+	$space_title = $space -> title;
+	return nhpd_oa2_unique_tag_get_space_name_abbrev($space_title) . '-' . $nid;
+}
+
+function nhpd_oa2_unique_tag_regenerate_unique_tag($node){
+	$title = $node ->title;
+	$pattern = '/^\w+-' . $node ->nid . '/';
+	$new_tag = nhpd_oa2_unique_tag_get_task_unique_tag($node);
+	if (preg_match($pattern, $title)){
+		$title = preg_replace($pattern, $new_tag, $title, 1);
+	}
+	else {
+		$title = $new_tag .':' . $title;
+	}
+	return $title;
+}
+function nhpd_oa2_unique_tag_remove_unique_tag($node){
+	$title = $node ->title;
+	$pattern = '/^\w+-' . $node ->nid . ':/';
+	if (preg_match($pattern, $title)){
+		$title = preg_replace($pattern, '', $title, 1);
+	}
+	return $title;
+}

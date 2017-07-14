@@ -1,0 +1,2963 @@
+<?php
+// $Id: nhpid_admin.module,v 1.0.0 2010/07/27 15:26:16 peijun zhang $
+
+include_once 'PHPExcel/PHPExcel.php';
+//include_once 'Date.php';
+//require_once 'Spreadsheet/Excel/Writer.php';
+/*
+$freemem = get_sysmeminfo() -> MemFree;
+if (!$freemem) $freemem = '1000M';
+ini_set('memory_limit', $freemem);
+*/
+set_time_limit(64000);
+/*
+$cacheMethod = PHPExcel_CachedObjectStorageFactory::cache_in_memory_gzip;
+$cacheSettings = array( 'memoryCacheSize' => '5GB', 'cacheTime' => 6000);
+PHPExcel_Settings::setCacheStorageMethod($cacheMethod, $cacheSettings);
+
+PHPExcel_Cell::setValueBinder(new PHPExcel_Cell_AdvancedValueBinder());
+*/
+
+//drupal_set_message(nhpid_api_dump(ini_get_all(), 'red', TRUE));
+
+define('EXCEL_FILE_DIR_ROOT', '/home/peijun/project/drupal/new_datasheets');
+define('MULTI_VALUED_FIELD_MARK', "*");
+define('MULTI_VALUED_FIELD_DELIMITER', ";");
+define('FIELD_NAME_ROOT', 'field_');
+global $user;
+
+/**
+ * @global int $user_uid Logged in user's uid
+ */ 
+$user_uid;
+
+$user_uid =  $user -> uid;
+
+
+
+/**
+* Valid permissions for this module
+* @return array An array of valid permissions for the nhpid_list_items module
+*/
+function assessment_central_admin_permission() {
+    return array(
+    'administer assessment_central_admin' => array(
+      'title' => t('Use Assessment Central admin tools'), 
+      //'description' => t(),
+      ),
+    );
+} // function nhpid_perm
+
+function assessment_central_admin_menu() {
+
+  $items = array();
+
+  $items['admin/config/development/assessment_central_admin'] = array(
+    'title' => 'Assessment Central Admin',
+    'description' => 'Administration tools for Assessment Central',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('assessment_central_admin_form'),
+    'access arguments' => array('administer assessment_central_admin'),
+    'type' => MENU_NORMAL_ITEM,
+   );
+ return $items;
+}
+
+function assessment_central_admin_form($form, &$form_state = NULL) {
+  $action_option = array('select_task' => 'Select A Task',
+                //'clear_data' => 'Clear NHPID Data', 
+                //'load_data' => 'Load NHPID Data From Data Sheets',
+                //'validate_data' => 'Validate NHPID Field Mapping',
+                //'mapping_report' => 'Report Mapping Result',
+                //'node_structure_report' => 'Report Node Structure',
+                'display_node' => 'Display A Node',
+                'display_all_node_by_type' => 'Display All Nodes by Type',
+                //'display_node_type_mapping' => 'Display Node Type Mapping',
+                'delete_all_nodes_by_type' => 'Delete All Nodes by type',
+                //'copy_field'  => 'Copy data from a field to another field',
+                //'change_state' => 'Change workflow state of nodes by node type',
+                'code_testing'  => 'Test php code',
+                //'back_up_variable' => 'Back up Variabls',
+                //'batch_testing'  => 'Test Batch API'
+                 );
+
+  $action_default = !empty($form_state['values']['action']) ? $form_state['values']['action'] : ''; 
+  $action = null;
+  if (isset($form_state['values'])) $action = $form_state['values']['action'];
+  $form['#attributes'] = array('enctype' => "multipart/form-data");
+   $form['action'] = array(
+    '#type' => 'select', 
+    '#title' => t('Actions'), 
+    '#default_value' => $action_default,
+    '#options' => $action_option,
+    '#description' => t('Select an action.'),
+    '#attributes' => array('onchange' => 'this.form.submit();'),
+  );
+  
+  $form['next'] = array(
+    '#type' => 'submit',
+    '#value' => 'Next >>',
+    '#attributes' => array('onclick' => 'return confirm("Are you sure you wish to continue?");'),
+  );
+  if ($action) {
+    timer_start('nhpid_init');
+    switch ($action) {
+      case 'clear_data':
+        $form[] = clear_data($form_state);
+        break;
+      case 'display_node':
+        $form[] = display_node_form($form_state);
+        break;
+      case 'display_all_node_by_type':
+        $form[] =display_all_node_by_type($form_state);
+        break;
+      case 'display_node_type_mapping':
+        display_node_type_mapping();
+        break;
+      case 'node_structure_report':
+        $form[] =node_structure_report($form_state);
+        break;
+      case 'delete_all_nodes_by_type':
+        $form[] =delete_all_nodes_by_type_form($form_state);
+        break;  
+      case 'copy_field':
+        $form[] =copy_data_from_field1_to_field2_form($form_state);
+        break;
+      case 'change_state':
+        $form[] =change_workflow_state_of_nodes_by_type_form($form_state);
+        break;  
+      case 'load_data':
+        // grant field permissions
+        //drupal_goto('nhpid_admin2.php');
+        $form[] =load_data($form_state);
+        
+        break;
+        
+      case 'mapping_report':
+        $form[] =mapping_report($form_state);
+        break;
+      case 'validate_data':
+        $form[] =validate_data($form_state);
+        break;
+      case 'code_testing':
+        $form[] =code_testing($form_state);
+        break;
+      case 'back_up_variable':
+        $form[] =back_up_variable($form_state);
+        break;
+      case 'batch_testing':
+        $form[] =batch_testing();
+        break;
+      default:
+        //exit (0);
+    
+    }
+    
+    $end_remark = "Done.";
+    $end_remark = $end_remark . nhpid_api_dump("Total time in min: " . timer_read('nhpid_init')/(60*1000), 'blue', TRUE );
+    timer_stop('nhpid_init');
+    $form['end_remark'] = array(
+      '#type' => 'item',
+      '#value' => $end_remark, );
+  }
+  return $form;
+}
+function assessment_central_admin_form_submit($form, &$form_state) {
+  $form_state['rebuild'] = TRUE;
+  $form_state['storage']['values'] = $form_state['values'];
+   
+}
+
+function readdata($file_path, $content_type_only = FALSE) {
+  drupal_set_message(nhpid_api_dump($file_path, 'purple', TRUE));
+  $objReader =PHPExcel_IOFactory::createReader('Excel5');
+  $objReader->setReadDataOnly(TRUE);
+  $objPHPExcel = $objReader->load($file_path);
+  $sheetnames = $objPHPExcel -> getSheetNames();
+  drupal_set_message(nhpid_api_dump($sheetnames, 'purple', TRUE));
+  $sheets = Array();
+  $key = 1;
+  //foreach ($sheetnames as $sheetname)
+  foreach ($objPHPExcel -> getWorksheetIterator() as $objWksheet) {
+    $sheetname = $objWksheet -> getTitle();
+    //$objWksheet = $objPHPExcel -> getSheetByName($sheetname);
+    if ($objWksheet -> getCell('A1') -> getCalculatedValue() == 'drupal content type') {
+      $sheets[$key]['content_type'] = trim($objWksheet -> getCellByColumnAndRow(0, 2) -> getCalculatedValue());
+      $sheets[$key]['sheet_name'] = trim($sheetname);
+      if ($content_type_only == FALSE) {
+        $sheets[$key]['first_data_col'] = trim($objWksheet -> getCellByColumnAndRow(1, 2) -> getCalculatedValue());
+        $sheets[$key]['last_data_col'] = trim($objWksheet -> getCellByColumnAndRow(2, 2) -> getCalculatedValue());
+        $sheets[$key]['title_col'] = trim($objWksheet -> getCellByColumnAndRow(3, 2) -> getCalculatedValue());
+        $sheets[$key]['title_drupal_field'] = trim($objWksheet -> getCellByColumnAndRow(lettercol2numericcol($sheets[$key]['title_col']), 3) -> getCalculatedValue());
+        $sheets[$key]['field_name_row'] = trim($objWksheet -> getCellByColumnAndRow(4, 2) -> getCalculatedValue());
+        $sheets[$key]['first_data_row'] = trim($objWksheet -> getCellByColumnAndRow(5, 2) -> getCalculatedValue());
+        $sheets[$key]['body_col'] = trim($objWksheet -> getCellByColumnAndRow(6, 2) -> getCalculatedValue());
+        $sheets[$key]['body_drupal_field'] = trim($objWksheet -> getCellByColumnAndRow(lettercol2numericcol($sheets[$key]['body_col']), 3) -> getCalculatedValue());
+        $sheets[$key]['data_form_group_title'] = trim($objWksheet -> getCellByColumnAndRow(7, 2) -> getCalculatedValue());
+        $sheets[$key]['data_form_group_content_type'] = trim($objWksheet -> getCellByColumnAndRow(8, 2) -> getCalculatedValue());
+        $sheets[$key]['data_form_title'] = trim($objWksheet -> getCellByColumnAndRow(9, 2) -> getCalculatedValue());
+        $sheets[$key]['data_form_content_type'] = trim($objWksheet -> getCellByColumnAndRow(10, 2) -> getCalculatedValue());
+        $sheets[$key]['skip_flag_col'] = trim($objWksheet -> getCellByColumnAndRow(11, 2) -> getCalculatedValue());
+        $sheets[$key]['title_col_2'] = trim($objWksheet -> getCellByColumnAndRow(12, 2) -> getCalculatedValue());
+        $sheets[$key]['title_2_drupal_field'] = trim($objWksheet -> getCellByColumnAndRow(lettercol2numericcol($sheets[$key]['title_col_2']), 3) -> getCalculatedValue());
+        $sheets[$key]['numRows'] = $objWksheet -> getHighestRow( );
+        if ($sheets[$key]['numRows'] == 0 ) $sheets[$key]['numRows'] = 65536; // Reader bug: if sheet is 65536 row long, it returns rowNumber 0
+        $sheets[$key]['data_sheet'] = $objWksheet;
+      }
+      $key ++;
+    }
+  }
+  return $sheets;
+}
+
+
+function load_data($form_state = NULL) {
+  $freemem = get_sysmeminfo() -> MemFree;
+  ini_set('memory_limit', $freemem);
+  grant_field_permissions();
+  global $user;
+  $user_uid = $user -> uid;
+  $field_name_root= FIELD_NAME_ROOT;
+  $multi_code_value_delimiter =MULTI_VALUED_FIELD_DELIMITER;
+  $multi_code_valued_field_mark = MULTI_VALUED_FIELD_MARK;
+  $form = array();
+  $form['help']=array(
+    '#type' => 'item', 
+    '#value' => '<strong> Danger!!! </strong> This will delete all existing NHPID data. <br> This may take a long time.', 
+  );
+  $data_file_types = array('none' => '--Select one--',  'original' => 'Original data files processed by mapping header coping script.', 'exported' => 'Exported data files with mapping header from Drupal.');
+  $data_file_types_default = !empty($form_state['values']['data_file_type']) ? $form_state['values']['data_file_type'] : ''; 
+  $re_indexing = !empty($form_state['values']['do_reindexing']) ? $form_state['values']['do_reindexing'] : 0; 
+  $form['data_file_type']=array(
+    '#type' => 'select', 
+    '#title' => t('Select data file type'), 
+    '#options' => $data_file_types,
+    '#description' => t('Select data file type.'),
+    '#default_value' => $data_file_types_default,
+  );
+  $form['do_reindexing'] = array(
+    '#type' => 'checkbox', 
+    '#default_value' => $re_indexing,
+    '#title' => "Update Search Index?"
+  );
+  $form['action-submit']=array(
+    '#type' => 'submit', 
+    '#value' => t('Submit'), 
+    '#attributes' => array('onclick' => 'return confirm("You are going to delete all NHPID data and load new data from data sheets. Are you sure you wish to continue?");'),
+  );
+ 
+  if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+    if (($form_state['values']['data_file_type'] == 'original')) {
+      //clearup_data_batch();
+      $re_indexing = $form_state['values']['do_reindexing'];
+      loaddata_batch($re_indexing); 
+    }
+    else if (($form_state['values']['data_file_type'] == 'exported')) {
+      $form['#attributes'] = array('enctype' => "multipart/form-data");
+      $form['upload_data_file'] = array (
+        '#type' => 'file', 
+        '#title' => t('Upload exported data file'),
+        '#size' => 100,
+        //'#required' => TRUE,
+      );
+      
+      /*$form['data_file_on_server'] = array (
+        '#type' => 'textfield', 
+        '#title' => t('Or, select exported data file on the server.'),
+        '#size' => 100,
+      );*/
+      $lines_limits = array('200' => 200, '500' => 500, '1000' => 1000, '2000' => 2000, '0' => 'Unlimited',);
+      $lines_limit = !is_null($form_state['values']['lines_limit']) ? $form_state['values']['lines_limit'] : '0';
+      $form['lines_limit'] = array(
+        '#type' => 'select', 
+        '#title' => t('Select a number'), 
+        '#options' => $lines_limits,
+        '#default_value' => $lines_limit,
+        '#description' => t('Some data sheets are too large to load as a whole. You may want to cut them into small chunks. Select a line limit.'),
+      );
+      
+      $form['upload-data-file-submit']=array(
+        '#type' => 'submit', 
+        '#value' => t('Upload'), 
+        
+        '#attributes' => array('onclick' => 'return confirm("You are going to delete all NHPID data and load new data from data sheets. Are you sure you wish to continue?");'),
+      ); 
+    }
+  }
+  if (($form_state['clicked_button']['#id'] == 'edit-upload-data-file-submit')) {
+    //define your limits for the submission here
+    //$form_state['storage']['values'] = $form_state['values'];
+    
+    drupal_set_message('uploading file...');
+    //drupal_set_message(nhpid_api_dump($form_state, 'red', TRUE));
+    $limits = array ('extensions' => 'xls', 'file_size' => 50000000) ;
+    
+    $validators = array(
+      'upload_export_file_validate' => array($limits['extensions'], $limits['file_size'],),
+    );
+    $uploaded_data_file = 'upload_data_file';
+    $uploaded_data_file_path = file_directory_temp() . "/uploaded_data_file";
+    $uploaded_data_file_split_path = $uploaded_data_file_path . '/split';
+    if (!is_dir($uploaded_data_file_path)) mkdir($uploaded_data_file_path, 0777, true);
+    if (!is_dir($uploaded_data_file_split_path)) mkdir($uploaded_data_file_split_path, 0777, true);
+    
+    $data_files_split = glob("$uploaded_data_file_split_path/*.xls"); 
+    foreach($data_files_split as $file) {
+      unlink($file); 
+    }
+ 
+    if (user_access('upload files') && $file = file_save_upload($uploaded_data_file, $validators, $uploaded_data_file_path, FILE_EXISTS_REPLACE)) {
+      $file_path = $file -> filepath;
+      $lines_limit = $form_state['values']['lines_limit'];
+      //drupal_set_message(nhpid_api_dump($file_path, 'red', TRUE));
+      split_uploaded_data_file_single_pass($file_path, $uploaded_data_file_split_path, $lines_limit);
+      $re_indexing = $form_state['values']['do_reindexing'];
+      load_split_data_batch($uploaded_data_file_split_path, $re_indexing);
+      //drupal_set_message(nhpid_api_dump("$file, $uploaded_data_file, $uploaded_data_file_path, $file_path", 'red', TRUE));
+    }
+    
+    else {
+      $msg = "File $data_file cannot be uploaded.";
+      form_set_error ($data_file, $msg);
+    }
+    
+  }
+  return $form;
+}
+
+function upload_export_file_validate($file, $extensions, $file_size){
+  drupal_set_message('validating file...');
+  $errors = array();
+  $ext = pathinfo($file ->filename, PATHINFO_EXTENSION);
+  //drupal_set_message("$ext, $extensions, $file_size");
+  if ($ext != $extensions ) $errors[] = 'Only MS Excel 5 format (.xls) is allowed.';
+  if ($file -> filesize > $file_size) $errors[] = "File is too large (" . $file -> filesize . "). Max limit is $file_size.";
+  return $errors;
+}
+function split_uploaded_data_file_single_pass__($file_path, $split_folder) {
+  //drupal_set_message(nhpid_api_dump($file_path, 'red', TRUE));
+  $objReader =PHPExcel_IOFactory::createReader('Excel5');
+  $objReader->setReadDataOnly(TRUE);
+  $objPHPExcel = $objReader->load($file_path);
+  $sheetnames = $objPHPExcel -> getSheetNames();
+  
+  //drupal_set_message(nhpid_api_dump($sheetnames, 'purple', TRUE));
+  foreach ($sheetnames as $sheetname) {
+    //$sheet = $objPHPExcel -> getSheetByName($sheetname);
+    $file_path_split = $split_folder . "/$sheetname.xls";
+    $objWksheet = $objPHPExcel -> getSheetByName($sheetname);
+    $excel = new PHPExcel();
+    $excel->removeSheetByIndex();
+    //$active_sheet->setTitle();
+    $active_sheet = $excel->addExternalSheet($objWksheet, 0);
+    //$active_sheet = $objWksheet -> copy();
+    $excelWriter = PHPExcel_IOFactory::createWriter($excel, 'Excel5');
+    $file_path_split = $split_folder . "/$sheetname.xls";
+    $excelWriter->save($file_path_split);
+    $excel->disconnectWorksheets();
+   
+  }
+  $objPHPExcel->disconnectWorksheets();
+}
+function split_uploaded_data_file_single_pass($file_path, $split_folder, $lines_limit = null) {
+  //drupal_set_message(nhpid_api_dump("$file_path, $split_folder", 'red', TRUE));
+  $objReader =PHPExcel_IOFactory::createReader('Excel5');
+  $objReader->setReadDataOnly(FALSE);
+  $objPHPExcel = $objReader->load($file_path);
+  $sheetnames = $objPHPExcel -> getSheetNames();
+  
+  //drupal_set_message(nhpid_api_dump($sheetnames, 'purple', TRUE));
+  foreach ($sheetnames as $sheetname) {
+    //$sheet = $objPHPExcel -> getSheetByName($sheetname);
+    if ($sheetname == 'summary') continue;
+    $objWksheet = $objPHPExcel -> setActiveSheetIndexByName($sheetname);
+    //$arrayWksheet = $objWksheet -> toArray(null, false);
+    //print_r($arrayWksheet);
+   
+    $num_header_rows = 4;
+    $num_rows = $objWksheet->getHighestRow();
+    $num_cols = $objWksheet->getHighestColumn();
+    $num_cols = lettercol2numericcol($num_cols);
+    $num_data_rows = $num_rows - $num_header_rows;
+    $sheet_lines_limit = $lines_limit;
+    ## Due to the memory limit (2G) of server, big sheets have to be split to small ones. Current limit is 2000 lines of data
+    //drupal_set_message(nhpid_api_dump("$num_rows,$num_data_rows,$lines_limit", 'green', TRUE));
+    if ($lines_limit < 1) {
+      $sheet_lines_limit = $num_data_rows;
+    }
+    else {
+      //drupal_set_message(nhpid_api_dump($lines_limit, 'green', TRUE));
+      $files = floor($num_data_rows/$sheet_lines_limit);
+    }
+    print "$sheetname, $num_rows, $files\n";
+    
+    //continue;
+    for($file = 0; $file <= $files; $file ++) {
+      $file_path_split = $split_folder . "/$sheetname" . '_' . $file . ".xls";
+  
+      $excel = new PHPExcel();
+      $active_sheet=$excel -> getActiveSheet();
+      $active_sheet ->setTitle($sheetname);
+      ## header rows
+      for($row = 1; $row <= $num_header_rows; $row ++) {
+        for($col = 0; $col <= $num_cols; $col ++) {
+          $active_sheet -> setCellValueByColumnAndRow($col, $row, $objWksheet -> getCellByColumnAndRow($col, $row) -> getCalculatedValue());
+        }
+      }
+      
+      ## data rows  
+      for($row = $num_header_rows + 1; $row < $sheet_lines_limit + $num_header_rows + 1; $row ++){
+     
+        $line_values = '';
+        for($col = 0; $col <= $num_cols; $col ++){
+          if ($cell = $objWksheet -> getCellByColumnAndRow($col, $file * $sheet_lines_limit + $row)){
+            $value =  $cell-> getCalculatedValue();
+            $format = $objWksheet ->getStyleByColumnAndRow($col, $file * $sheet_lines_limit + $row)->getNumberFormat() -> getFormatCode();
+            $line_values = $line_values . $value;
+            $active_sheet -> setCellValueByColumnAndRow($col, $row, $value);
+            $active_sheet -> getStyleByColumnAndRow($col,$row)->getNumberFormat()->setFormatCode($format);
+          }
+        }
+      }
+      //continue;
+      $excelWriter = PHPExcel_IOFactory::createWriter($excel, 'Excel5');
+      $excelWriter->save($file_path_split);
+   }
+  }
+}
+
+function load_split_data_batch($split_folder, $re_indexing) {
+  $operations = array();
+  $excel_files = array();
+  //$excel_files = glob("$split_folder/*.xls"); 
+  $message = '';
+  readfile_recursion($split_folder, $excel_files);
+  sort($excel_files);
+  //drupal_set_message(nhpid_api_dump($excel_files, 'green', TRUE));
+  //drupal_set_message(nhpid_api_dump($excel_files, 'green', TRUE));
+  /*** clear up nhpid data first, but not all data, only nodes to be re-loaded. ****/
+  for ($i = 0; $i<count($excel_files); $i++) {
+    $operations[] = array('clear_up_nhpid_node_data', array($message, $excel_files, $i));
+  }
+  
+  for ($i = 0; $i<count($excel_files); $i++) {
+    $operations[] = array('loaddata_file', array($message, $excel_files, $i, $re_indexing));
+  }
+  ## build depended node relationship
+  $nhpid_data_node_types = get_all_depending_node_types();
+  foreach ($nhpid_data_node_types as $node_type){
+    $operations[] = array('rebuild_depended_node_relationship', array($message, $node_type));
+  }
+  $batch = array(
+    'operations' => $operations,
+    'finished' => 'batch_op_finished',
+    // We can define custom messages instead of the default ones.
+    'title' => t('Processing clearing /loading data'),
+    'init_message' => t('Clearing up data is starting.'),
+    'progress_message' => t('Processed @current out of @total steps.'),
+    'error_message' => t('Data loading has encountered an error.'),
+  );
+  
+  
+  batch_set($batch);
+  batch_process();
+
+}
+function split_uploaded_data_file_batch($file_path, $split_folder) {
+  //drupal_set_message(nhpid_api_dump($file_path, 'red', TRUE));
+  $objReader =PHPExcel_IOFactory::createReader('Excel5');
+  $objReader->setReadDataOnly(TRUE);
+  $objPHPExcel = $objReader->load($file_path);
+  $sheetnames = $objPHPExcel -> getSheetNames();
+  
+  //drupal_set_message(nhpid_api_dump($sheetnames, 'purple', TRUE));
+  foreach ($sheetnames as $sheetname) {
+    //$sheet = $objPHPExcel -> getSheetByName($sheetname);
+    $objWksheet = $objPHPExcel -> getSheetByName($sheetname);
+    $operations[] = array('split_uploaded_data_file', array($split_folder, $sheetname, &$objWksheet));
+  }
+  $batch = array(
+    'operations' => $operations,
+    'finished' => 'batch_op_finished',
+    // We can define custom messages instead of the default ones.
+    'title' => t('Splitting data file'),
+    'init_message' => t('Splitting starting...'),
+    'progress_message' => t('Processed @current out of @total sheets.'),
+    'error_message' => t('Splitting has encountered an error.'),
+  );
+  
+  batch_set($batch);
+  batch_process();
+  //$excel->disconnectWorksheets();
+}
+function split_uploaded_data_file($split_folder, $sheetname, &$objWksheet, $content) {
+ 
+  //$objWksheet = $objPHPExcel -> getSheetByName($sheetname);
+  //drupal_set_message(nhpid_api_dump($sheetname, 'purple', TRUE));
+  $file_path_split = $split_folder . "/$sheetname.xls";
+  $excel = new Spreadsheet_Excel_Writer($file_path_split);
+  $active_sheet =  $excel->addWorksheet($sheetname);
+  $active_sheet ->setInputEncoding('UTF-8'); 
+  $last_row = $objWksheet -> getHighestRow();
+  $last_col = lettercol2numericcol($objWksheet -> getHighestColumn());
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['current_file'] = 0;
+    $context['sandbox']['max'] = $last_row * $last_col ? $last_row * $last_col : 1;
+  }
+  $context['results'][] = "$sheetname : " . $last_row;
+  
+  for ($row_index = 1; $row_index <= $last_row; $row_index ++) {
+    for ($col_index = 0; $col_index <= $last_col; $col_index ++) {
+      $value = $objWksheet -> getCellByColumnAndRow($col_index, $row_index ) -> getCalculatedValue();
+      
+      $active_sheet->write($row_index , $col_index, $value);
+      //drupal_set_message(nhpid_api_dump($value, 'purple', TRUE));
+      
+  
+      // Update our progress information.
+      $message = "Processing $sheetname: the $row_index row of $last_row.";
+      $context['sandbox']['progress']++;
+      $context['sandbox']['current_file'] = 1;
+      $context['message'] = $message;
+    }
+  }
+  //drupal_set_message(nhpid_api_dump($context, 'purple', TRUE));
+  $excel -> close();  
+    
+    
+  
+
+  // Inform the batch engine that we are not finished,
+  // and provide an estimation of the completion level we reached.
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+  
+  
+}
+
+function validate_data($form_state = NULL) {
+  $multi_code_valued_field_mark = MULTI_VALUED_FIELD_MARK;
+  $form = array();
+  $excel_data = array();
+  $form['help']=array(
+    '#type' => 'item', 
+    '#value' => 'This may take a long time.', 
+  );
+  $form['action-submit']=array(
+    '#type' => 'submit', 
+    '#value' => t('Submit'), 
+    //'#attributes' => array('onclick'=>'return confirm("You are going to delete all NHPID data. Are you sure you wish to continue?");'),
+  );
+ 
+  if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+   
+    $excel_files = array();
+    $output = '';
+    readfile_recursion(EXCEL_FILE_DIR_ROOT, $excel_files);
+    $output = $output . "Excel files to read:";
+    $output = $output . nhpid_api_dump($excel_files, 'purple', TRUE);
+    foreach ($excel_files as $file) {
+      $sheets = readdata($file);
+      foreach ($sheets as $sheet) {
+        // create data node
+        $type = $sheet['content_type'];
+        $first_data_col = $sheet['first_data_col'];
+        $field_name_row = $sheet['field_name_row'];
+        $title_col = $sheet['title_col'];
+        $title_col_2 = $sheet['title_col_2'];
+        $body_col = $sheet['body_col'];
+        $last_data_col = $sheet['last_data_col'];
+        $first_data_row = $sheet['first_data_row'];
+        $skip_flag_col = $sheet['skip_flag_col'];
+        $data_sheet = $sheet['data_sheet'];
+        $field_names = Array();
+    
+        $sheet_records = 0;
+        $mapped_records = 0;
+        for ($i = $first_data_row; $i <= ($sheet['numRows']); $i++) {
+          if (!(bool)($data_sheet -> getCellByColumnAndRow(lettercol2numericcol($skip_flag_col), $i) -> getCalculatedValue())) {
+            if (($data_sheet -> getCellByColumnAndRow(lettercol2numericcol($title_col), $i) -> getCalculatedValue() . $data_sheet -> getCellByColumnAndRow(lettercol2numericcol($title_col_2), $i) -> getCalculatedValue())) {
+              $sheet_records ++;
+            }
+           }
+       }
+    
+       $sql = "SELECT count(nid) as records FROM {node} WHERE type='%s'";
+        //dump($sql);
+        $result = db_query($sql, $type);
+        $records = db_fetch_array($result);
+        $mapped_records = $records['records'];
+    
+        $output = $output . "file: $file_path <br>";
+        $output = $output . "content type: $type <br>";
+        $output = $output . "First Data Column: $first_data_col <br>";
+        $output = $output . "Last data column: $last_data_col <br>";
+        $output = $output . "title column: $title_col <br>";
+        $output = $output . "Second tilte column: $title_col_2 <br>";
+        $output = $output . "Skip flag column: $skip_flag_col<br>";
+        $output = $output . "Body column: $body_col <br>";
+        $output = $output . "Records to be mapped: $sheet_records <br>";
+        $output = $output . "Records mapped: $mapped_records <br>";
+    
+        $field_names = Array();
+        $drupal_field_names = Array();
+        $result = Array();
+        for ($j = lettercol2numericcol($first_data_col); $j <= lettercol2numericcol($last_data_col); $j++) {
+          $field_name = $data_sheet -> getCellByColumnAndRow($j, $field_name_row) -> getCalculatedValue();
+          $field_name = trim($field_name, $multi_code_valued_field_mark);
+          if (trim($field_name)) {
+            $full_field_name = $field_name_root . $field_name;
+            array_push($field_names, $field_name);
+          }
+        }
+        
+        $output = $output . nhpid_api_dump("Data sheet fields:", 'purple', TRUE) ;
+        $output = $output . nhpid_api_dump($field_names, 'purple', TRUE);
+    
+        //print "$sql <br>";
+        $fields = get_all_fields_of_node_type($type);
+        foreach ($fields as $field) {
+          $value = str_replace($field_name_root, '', $field['field_name']);
+          array_push($drupal_field_names, $value);
+        }
+        $output = $output . nhpid_api_dump("Drupal fields:", 'purple', TRUE);
+        $output = $output . nhpid_api_dump($drupal_field_names, 'purple', TRUE);
+        $diffs1= array_diff($field_names, $drupal_field_names);
+        $diffs2= array_diff($drupal_field_names, $field_names);
+    
+        $output = $output .  "fields not mapped: <br>";
+        $output = $output . nhpid_api_dump($diffs1, 'red', TRUE);
+        $output = $output .  "fields mapped wrongly: <br>";
+        $output = $output . nhpid_api_dump($diffs2, 'red', TRUE);
+    
+      }
+    }
+    $form['result'] = array(
+      '#type' => 'item', 
+      '#value' => "$output", 
+    );
+  }
+  return $form;
+}
+
+
+function mapping_report($form_state = NULL) {
+  $multi_code_valued_field_mark = MULTI_VALUED_FIELD_MARK;
+  //drupal_set_message($multi_code_valued_field_mark);
+  global $base_root;
+  $form = array();
+  $excel_data = array();
+  $form['help']=array(
+    '#type' => 'item', 
+    '#value' => "Please make sure all recently loaded data sheets are in the fold EXCEL_FILE_DIR_ROOT on $base_root. <br> This may take a long time.", 
+  );
+  $form['action-submit']=array(
+    '#type' => 'submit', 
+    '#value' => t('Submit'), 
+    //'#attributes' => array('onclick'=>'return confirm("You are going to delete all NHPID data. Are you sure you wish to continue?");'),
+  );
+ 
+  if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+   
+    //drupal_set_message($excel_file_dir);
+    $excel_files = array();
+    $output = '';
+    readfile_recursion(EXCEL_FILE_DIR_ROOT, $excel_files);
+    $output = $output . "Excel files to read:";
+    $output = $output . nhpid_api_dump($excel_files, 'purple', TRUE);
+    foreach ($excel_files as $file) {
+       $sheets = readdata($file);
+       //drupal_set_message(nhpid_api_dump($sheets, 'red', TRUE));
+      foreach ($sheets as $key => $sheet) {
+        $type = $sheet['content_type'];
+        $first_data_col = $sheet['first_data_col'];
+        $field_name_row = $sheet['field_name_row'];
+        $title_col = $sheet['title_col'];
+        $title_col_2 = $sheet['title_col_2'];
+        $body_col = $sheet['body_col'];
+        $last_data_col = $sheet['last_data_col'];
+        $first_data_row = $sheet['first_data_row'];
+        $col_title_row = $first_data_row - 1;
+        $skip_flag_col = $sheet['skip_flag_col'];
+        $data_sheet = $sheet['data_sheet'];
+        $sheet_name  = $sheet['sheet_name'];
+        $field_names = Array();
+        $file_name = basename($file);
+    
+        $sheet_records = 0;
+        $mapped_records = 0;
+    
+        $not_mapped_titles = '';
+        for ($i = $first_data_row; $i <= ($sheet['numRows']); $i++) {
+          if (!(bool)($data_sheet -> getCellByColumnAndRow(lettercol2numericcol($skip_flag_col), $i) -> getCalculatedValue())) {
+            $title = trim($data_sheet -> getCellByColumnAndRow(lettercol2numericcol($title_col), $i) -> getCalculatedValue());
+            //nhpid_api_dump("title 2: $title_col_2");
+            if ((bool)$title_col_2) {
+              if ($data_sheet -> getCellByColumnAndRow(lettercol2numericcol($title_col_2), $i) -> getCalculatedValue()) {
+                $title = $title . '_' . trim($data_sheet -> getCellByColumnAndRow(lettercol2numericcol($title_col_2), $i) -> getCalculatedValue());
+              }
+            }
+    
+            if ((bool)$title) {
+              $sheet_records ++;
+              //print "title: ";
+              //nhpid_api_dump("title: $title", 'red');
+              $title = ascii2utf8($title);
+              $node = node_load(array("title" => $title, "type" => $type));
+              if (!(bool)$node) {
+                $not_mapped_titles = $not_mapped_titles . $title . "; ";
+              }
+            }
+           }
+       }
+    
+       $sql = "SELECT count(nid) as records FROM {node} WHERE type='%s'";
+        //dump($sql);
+        $result = db_query($sql, $type);
+        $records = db_fetch_array($result);
+        $mapped_records = $records['records'];
+    
+    
+        $excel_data[$type]['sheet_name'] = $type;
+        $excel_data[$type]['header'] = array('file_name' => 'File name',
+                                              'sheet_name' => 'Sheet_name',
+                                              'content_type' => 'Content type',
+                                              'title_col' => 'Title_column',
+                                              'title_col2' => 'Second Title Column',
+                                              'first_data_col' => 'First Data Column',
+                                              'last_data_col' => 'Last Data Column',
+                                              'body_col' => 'Body Column',
+                                              'skip_flag_col' => 'Skip Flag Column',
+                                              'records_to_be_mapped' => 'Records to be mapped',
+                                              'records_mapped' => 'Records mapped',
+                                              'records_not_mapped' => 'Records not mapped');
+        $excel_data[$type]['data'][] = array('file_name' => $file_name,
+                                              'sheet_name' => $sheet_name,
+                                              'content_type' => $type,
+                                              'title_col' => $title_col,
+                                              'title_col2' => $title_col_2,
+                                              'first_data_col' => $first_data_col,
+                                              'last_data_col' => $last_data_col,
+                                              'body_col' => $body_col,
+                                              'skip_flag_col' => $skip_flag_col,
+                                              'records_to_be_mapped' => $sheet_records,
+                                              'records_mapped' => $mapped_records,
+                                              'records_not_mapped' => $not_mapped_titles);
+       //drupal_set_message(nhpid_api_dump($excel_data[$type]['data'], 'red', TRUE));
+        $output = $output . theme_table($excel_data[$type]['header'], $excel_data[$type]['data']);
+        
+        $field_names = Array();
+        $col_titles = Array();
+        $ori_col_titles = Array();
+        $col_numbers = Array();
+        $drupal_field_names = Array();
+        $result = Array();
+        for ($j = lettercol2numericcol($first_data_col); $j <= lettercol2numericcol($last_data_col); $j++) {
+          $field_name_raw = $data_sheet -> getCellByColumnAndRow($j, $field_name_row) -> getCalculatedValue();
+          $field_name = trim($field_name_raw, $multi_code_valued_field_mark);
+          if (trim($field_name)) {
+            $full_field_name = $field_name_root . $field_name;
+            array_push($field_names, $field_name);
+            $col_title_name = $data_sheet -> getCellByColumnAndRow($j, $col_title_row) -> getCalculatedValue();
+            array_push($ori_col_titles, $col_title_name);
+            if (stristr($field_name_raw, $multi_code_valued_field_mark)) $col_title_name = $col_title_name . $multi_code_valued_field_mark;
+            array_push($col_titles, $col_title_name);
+            array_push($col_numbers, $j);
+          }
+    
+        }
+        $data = get_node_type_mapping($type, TRUE);
+        //drupal_set_message(nhpid_api_dump($field_names, 'red', TRUE));
+        //drupal_set_message(nhpid_api_dump($col_titles, 'red', TRUE));
+        //drupal_set_message(nhpid_api_dump($col_numbers, 'red', TRUE));
+    
+        //nhpid_api_dump($data);
+        $table_data = array();
+    
+        for ($i = 0; $i < count($field_names); $i ++) {
+          $field_name = $field_names[$i];
+          $col_title = $col_titles[$i];
+          $ori_col_title = $ori_col_titles[$i];
+          $col_num = $col_numbers[$i];
+          $col_letter = numericcol2lettercol($col_num);
+          //nhpid_api_dump("field_$field_name", 'green');
+          $table_data["field_$field_name"]['Column number']  = $col_num;
+          $table_data["field_$field_name"]['Column letter']  = $col_letter;
+          $table_data["field_$field_name"]['Column Title']  = $col_title;
+          $table_data["field_$field_name"] = is_array($data["field_$field_name"])? array_merge($table_data["field_$field_name"], $data["field_$field_name"]): $table_data["field_$field_name"];
+          //$table_data["field_$field_name"][] = $data["field_$field_name"];
+          // update excel_drupal_filed_mapping table
+           
+           $sql = "insert into {excel_drupal_field_mapping}  (node_type, drupal_field_name, excel_field_name, col_order) values ('%s', '%s', '%s', %d ) ON DUPLICATE KEY UPDATE excel_field_name ='%s', col_order= %d";
+           //drupal_set_message(nhpid_api_dump(placeholder_query_2_normal_query($sql, $type, "field_$field_name", $ori_col_title, $i, $ori_col_title, $i)));
+           db_query($sql, $type, "field_$field_name", $ori_col_title, $i, $ori_col_title, $i)  or die('Query failed: ' . db_error() . " \n" . $query . "\n");      
+        }
+        //drupal_set_message(nhpid_api_dump($table_data, 'red', TRUE));
+        $field_names = array_keys($table_data);
+        foreach (array_keys($table_data[$field_names[0]]) as $key) {
+          $keys[$key] = $key;
+        }
+        //nhpid_api_dump($table_data, 'red');
+        $output = $output . theme_table($keys, $table_data);
+        $excel_data[$type . '_fields']['sheet_name'] = $type . ' fields';
+        $excel_data[$type . '_fields']['header'] = $keys;
+        $excel_data[$type . '_fields']['data'] = $table_data;
+      }
+    }
+    $path = file_directory_path() . "/" . "nhpid_mapping.xls";
+    $path = generate_excel($path, $excel_data);
+    if ($path) {
+      $output = $output . l("Download Excel file", $path);
+    }
+    $form['result'] = array(
+      '#type' => 'item', 
+      '#value' => "$output", 
+    );
+  }
+  return $form;
+  
+}
+
+function node_structure_report($form_state = NULL) {
+ 
+  $form = array();
+  $excel_data = array();
+  $form['help']=array(
+    '#type' => 'item', 
+    '#value' => "This may take a long time.", 
+  );
+  $types = get_all_assessment_central_data_node_types();
+  $default_types = array();
+  foreach ($types as $type => $value) {
+    $default_types[$type] = $type;
+  }
+  
+  //drupal_set_message(nhpid_api_dump($types, 'red', TRUE));
+  //drupal_set_message(nhpid_api_dump($default_types, 'green', TRUE));
+  $selected_node_types = !empty($form_state['values']['node_types']) ? $form_state['values']['node_types'] : $default_types;
+  
+  
+  $form['node_types'] = array(
+    '#type' => 'checkboxes', 
+    '#title' => t('Select Node types'), 
+    '#options' => $types,
+    '#default_value' => $selected_node_types,
+    '#checkall' => TRUE,
+    '#required' => true,
+    '#description' => t('Select one or more node types'),
+  );
+  
+  $form['action-submit']=array(
+    '#type' => 'submit', 
+    '#value' => t('Submit'), 
+    //'#attributes' => array('onclick'=>'return confirm("You are going to delete all NHPID data. Are you sure you wish to continue?");'),
+  );
+ 
+  if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+   
+   $node_types = $form_state['values']['node_types'];
+   $data = array();
+   $excel_data = array();
+   foreach ($node_types as $node_type){
+    if (!$node_type) continue;
+    $node_info = content_types($node_type);
+    $data[$node_type]['type'] = $node_info['type'];
+    $data[$node_type]['name'] = $node_info['name'];
+    $node_unique = is_assessment_central_data_node_type($node_type);
+    $data[$node_type]['unique_node'] = $node_unique;
+    $data[$node_type]['title_label'] = $node_info['title_label'];
+    $data[$node_type]['body_label'] = $node_info['body_label'];
+    $body_field = variable_get('nhpid_' . $node_type . "_body_field", '');
+    $title_field1= variable_get('nhpid_' . $node_type . "_title_field1", '');
+    $title_field2= variable_get('nhpid_' . $node_type . "_title_field2", '');
+    $data[$node_type]['body_field'] = $body_field;
+    $data[$node_type]['title_field1'] = $title_field1;
+    $data[$node_type]['title_field2'] = $title_field2;
+    ksort ($node_info['fields']);
+    foreach ($node_info['fields'] as $field){
+      $field_name = $field['field_name'];
+      $data[$node_type]['fields'][$field_name]['field_name'] = $field['field_name'];
+      $data[$node_type]['fields'][$field_name]['type'] = $field['type'];
+      $data[$node_type]['fields'][$field_name]['module'] = $field['module'];
+      $data[$node_type]['fields'][$field_name]['required'] = $field['required'];
+      $data[$node_type]['fields'][$field_name]['multiple'] = $field['multiple'];
+      $data[$node_type]['fields'][$field_name]['active'] = $field['active'];
+      $data[$node_type]['fields'][$field_name]['locked'] = $field['locked'];
+      $data[$node_type]['fields'][$field_name]['max_length'] = $field['max_length'];
+      $data[$node_type]['fields'][$field_name]['allowed_values'] = $field['allowed_values'];
+      $data[$node_type]['fields'][$field_name]['allowed_values_php'] = $field['allowed_values_php'];
+      $data[$node_type]['fields'][$field_name]['widget_label'] = $field['widget']['label'];
+      $data[$node_type]['fields'][$field_name]['widget_type'] = $field['widget']['type'];
+      
+      $depended_fields = get_all_depended_node_fields($node_type, $field_name);
+      $depended_fields_str = '';
+      if ($depended_fields){
+        $depended_fields_str =  nhpid_api_dump($depended_fields, 'black', true);
+      }
+      $data[$node_type]['fields'][$field_name]['depended_fields'] = $depended_fields_str;
+      $unique = nhpid_is_a_unique_field_in_node_type($field_name, $node_type);
+      $data[$node_type]['fields'][$field_name]['unique'] = $unique;
+      $required = nhpid_is_nhpid_data_field_required ($node_type, $field_name);
+      $data[$node_type]['fields'][$field_name]['nhpid_required'] = $required;
+      $allowed_len = nhpid_get_nhpid_data_field_allowed_length($node_type, $field_name);
+      $data[$node_type]['fields'][$field_name]['allowed_length'] = $allowed_len;
+      
+    }
+   }
+   foreach ($data as $node_type => $node_type_data){
+      $node_name = $node_type_data['name'];
+      $form[$node_type] = array(
+        '#type' => 'fieldset', 
+        '#title' => t("$node_name ($node_type)"), 
+        '#collapsible' => TRUE, 
+        '#collapsed' => FALSE,
+      );
+      $header_rows = array(
+        array(array('header' => TRUE, 'data' => 'Node Type'), $node_type),
+        array(array('header' => TRUE, 'data' => 'Node Name'), $node_name),
+        array(array('header' => TRUE, 'data' => 'Unique Node'), $node_type_data['unique_node']),
+        array(array('header' => TRUE, 'data' => 'Title Label'), $node_type_data['title_label']),
+        array(array('header' => TRUE, 'data' => 'Body label'), $node_type_data['body_label']),
+        array(array('header' => TRUE, 'data' => 'Body Field'), $node_type_data['body_field']),
+        array(array('header' => TRUE, 'data' => 'Title Field 1'), $node_type_data['title_field1']),
+        array(array('header' => TRUE, 'data' => 'Title Field 2'), $node_type_data['title_field12']),
+      
+      );
+      $form[$node_type]['node_info'] = array(
+        '#type' => 'item', 
+        '#title' => t("Content Type Information"), 
+        '#value' => theme_table(array(), $header_rows ),
+      );
+      
+      $fields_rows = array();
+      $excel_rows = array();
+      $fields_header = array('field_name' => 'Field Name', 'field_type' => 'Field Type', 'field_module' => 'Field Module', 'required' => 'Required', 'multiple' => 'Multiple', 'active' => 'Active', 'locked' => 'Locked', 'allowed_values' => 'Allowed Values', 'allowed_values_php' => 'Allowed Values PHP', 'widget_label' => 'Widget Label', 'widget_type' => 'Widget Type', 'nhpid_required' => 'NHPID Required', 'nhpid_allowed_length' => 'NHPID Allowed Length', 'uniqueness' => 'Uniqueness', 'depended_fields' => 'Depended Fields');
+      $excel_header = array('node_type' => 'Node Type', 'node_name' => 'Node Name', 'unique_node' => 'Unique Node', 'title_label' => 'Title Label', 'body_label' => 'Body Label', 'body_field' => 'Body Field', 'title_field1' => 'Title Field 1', 'title_field2' => 'Title Field 2',);
+      $excel_header = array_merge($fields_header, $excel_header);
+      $excel_header_data = array('node_type' => $node_type, 'node_name' => $node_name, 'unique_node' => $node_type_data['unique_node'], 'title_label' => $node_type_data['title_label'], 'body_label' => $node_type_data['body_label'], 'body_field' => $node_type_data['body_field'], 'title_field1' => $node_type_data['title_field1'], 'title_field2' => $node_type_data['title_field2'],);
+      foreach ($node_type_data['fields'] as $field){
+        $row = array('field_name' => $field['field_name'],'field_type' => $field['type'],'field_module' => $field['module'],'required' => $field['required'],'multiple' => $field['multiple'],'active' => $field['active'],'locked' => $field['locked'],'allowed_values' => $field['allowed_values'],'allowed_values_php' => $field['allowed_values_php'],'widget_label' => $field['widget_label'],'widget_type' => $field['widget_type'],'nhpid_required' => $field['nhpid_required'],'nhpid_allowed_length' => $field['allowed_length'],'uniqueness' => $field['unique'],'depended_fields' => $field['depended_fields'], );
+        $fields_rows[] = $row;
+        $excel_rows[] = array_merge($row, $excel_header_data);
+      }
+      $form[$node_type]['fields_info'] = array(
+        '#type' => 'item', 
+        '#title' => t("Fields Information"),
+        '#value' => theme_table($fields_header, $fields_rows ),
+      );
+      $excel_data[$node_type]['sheet_name'] = $node_type;
+      $excel_data[$node_type]['header'] = $excel_header;
+      $excel_data[$node_type]['data'] = $excel_rows;
+   }
+   $path = file_directory_path() . "/" . "nhpid_node_structure.xls";
+    $path = generate_excel($path, $excel_data);
+    if ($path) {
+      $form['dowload_excel'] = array(
+          '#type' => 'item', 
+          '#value' => l("Download Excel file", $path),
+        );
+    }
+
+  }
+  return $form;
+   
+   /*
+    foreach ($excel_files as $file) {
+       $sheets = readdata($file);
+       //drupal_set_message(nhpid_api_dump($sheets, 'red', TRUE));
+      foreach ($sheets as $key => $sheet) {
+        $type = $sheet['content_type'];
+        $first_data_col = $sheet['first_data_col'];
+        $field_name_row = $sheet['field_name_row'];
+        $title_col = $sheet['title_col'];
+        $title_col_2 = $sheet['title_col_2'];
+        $body_col = $sheet['body_col'];
+        $last_data_col = $sheet['last_data_col'];
+        $first_data_row = $sheet['first_data_row'];
+        $col_title_row = $first_data_row - 1;
+        $skip_flag_col = $sheet['skip_flag_col'];
+        $data_sheet = $sheet['data_sheet'];
+        $sheet_name  = $sheet['sheet_name'];
+        $field_names = Array();
+        $file_name = basename($file);
+    
+        $sheet_records = 0;
+        $mapped_records = 0;
+    
+        $not_mapped_titles = '';
+        for ($i = $first_data_row; $i <= ($sheet['numRows']); $i++) {
+          if (!(bool)($data_sheet -> getCellByColumnAndRow(lettercol2numericcol($skip_flag_col), $i) -> getCalculatedValue())) {
+            $title = trim($data_sheet -> getCellByColumnAndRow(lettercol2numericcol($title_col), $i) -> getCalculatedValue());
+            //nhpid_api_dump("title 2: $title_col_2");
+            if ((bool)$title_col_2) {
+              if ($data_sheet -> getCellByColumnAndRow(lettercol2numericcol($title_col_2), $i) -> getCalculatedValue()) {
+                $title = $title . '_' . trim($data_sheet -> getCellByColumnAndRow(lettercol2numericcol($title_col_2), $i) -> getCalculatedValue());
+              }
+            }
+    
+            if ((bool)$title) {
+              $sheet_records ++;
+              //print "title: ";
+              //nhpid_api_dump("title: $title", 'red');
+              $title = ascii2utf8($title);
+              $node = node_load(array("title" => $title, "type" => $type));
+              if (!(bool)$node) {
+                $not_mapped_titles = $not_mapped_titles . $title . "; ";
+              }
+            }
+           }
+       }
+    
+       $sql = "SELECT count(nid) as records FROM {node} WHERE type='%s'";
+        //dump($sql);
+        $result = db_query($sql, $type);
+        $records = db_fetch_array($result);
+        $mapped_records = $records['records'];
+    
+    
+        $excel_data[$type]['sheet_name'] = $type;
+        $excel_data[$type]['header'] = array('file_name' => 'File name',
+                                              'sheet_name' => 'Sheet_name',
+                                              'content_type' => 'Content type',
+                                              'title_col' => 'Title_column',
+                                              'title_col2' => 'Second Title Column',
+                                              'first_data_col' => 'First Data Column',
+                                              'last_data_col' => 'Last Data Column',
+                                              'body_col' => 'Body Column',
+                                              'skip_flag_col' => 'Skip Flag Column',
+                                              'records_to_be_mapped' => 'Records to be mapped',
+                                              'records_mapped' => 'Records mapped',
+                                              'records_not_mapped' => 'Records not mapped');
+        $excel_data[$type]['data'][] = array('file_name' => $file_name,
+                                              'sheet_name' => $sheet_name,
+                                              'content_type' => $type,
+                                              'title_col' => $title_col,
+                                              'title_col2' => $title_col_2,
+                                              'first_data_col' => $first_data_col,
+                                              'last_data_col' => $last_data_col,
+                                              'body_col' => $body_col,
+                                              'skip_flag_col' => $skip_flag_col,
+                                              'records_to_be_mapped' => $sheet_records,
+                                              'records_mapped' => $mapped_records,
+                                              'records_not_mapped' => $not_mapped_titles);
+       //drupal_set_message(nhpid_api_dump($excel_data[$type]['data'], 'red', TRUE));
+        $output = $output . theme_table($excel_data[$type]['header'], $excel_data[$type]['data']);
+        
+        $field_names = Array();
+        $col_titles = Array();
+        $ori_col_titles = Array();
+        $col_numbers = Array();
+        $drupal_field_names = Array();
+        $result = Array();
+        for ($j = lettercol2numericcol($first_data_col); $j <= lettercol2numericcol($last_data_col); $j++) {
+          $field_name_raw = $data_sheet -> getCellByColumnAndRow($j, $field_name_row) -> getCalculatedValue();
+          $field_name = trim($field_name_raw, $multi_code_valued_field_mark);
+          if (trim($field_name)) {
+            $full_field_name = $field_name_root . $field_name;
+            array_push($field_names, $field_name);
+            $col_title_name = $data_sheet -> getCellByColumnAndRow($j, $col_title_row) -> getCalculatedValue();
+            array_push($ori_col_titles, $col_title_name);
+            if (stristr($field_name_raw, $multi_code_valued_field_mark)) $col_title_name = $col_title_name . $multi_code_valued_field_mark;
+            array_push($col_titles, $col_title_name);
+            array_push($col_numbers, $j);
+          }
+    
+        }
+        $data = get_node_type_mapping($type, TRUE);
+        //drupal_set_message(nhpid_api_dump($field_names, 'red', TRUE));
+        //drupal_set_message(nhpid_api_dump($col_titles, 'red', TRUE));
+        //drupal_set_message(nhpid_api_dump($col_numbers, 'red', TRUE));
+    
+        //nhpid_api_dump($data);
+        $table_data = array();
+    
+        for ($i = 0; $i < count($field_names); $i ++) {
+          $field_name = $field_names[$i];
+          $col_title = $col_titles[$i];
+          $ori_col_title = $ori_col_titles[$i];
+          $col_num = $col_numbers[$i];
+          $col_letter = numericcol2lettercol($col_num);
+          //nhpid_api_dump("field_$field_name", 'green');
+          $table_data["field_$field_name"]['Column number']  = $col_num;
+          $table_data["field_$field_name"]['Column letter']  = $col_letter;
+          $table_data["field_$field_name"]['Column Title']  = $col_title;
+          $table_data["field_$field_name"] = is_array($data["field_$field_name"])? array_merge($table_data["field_$field_name"], $data["field_$field_name"]): $table_data["field_$field_name"];
+          //$table_data["field_$field_name"][] = $data["field_$field_name"];
+          // update excel_drupal_filed_mapping table
+           
+           $sql = "insert into {excel_drupal_field_mapping}  (node_type, drupal_field_name, excel_field_name, col_order) values ('%s', '%s', '%s', %d ) ON DUPLICATE KEY UPDATE excel_field_name ='%s', col_order= %d";
+           //drupal_set_message(nhpid_api_dump(placeholder_query_2_normal_query($sql, $type, "field_$field_name", $ori_col_title, $i, $ori_col_title, $i)));
+           db_query($sql, $type, "field_$field_name", $ori_col_title, $i, $ori_col_title, $i)  or die('Query failed: ' . db_error() . " \n" . $query . "\n");      
+        }
+        //drupal_set_message(nhpid_api_dump($table_data, 'red', TRUE));
+        $field_names = array_keys($table_data);
+        foreach (array_keys($table_data[$field_names[0]]) as $key) {
+          $keys[$key] = $key;
+        }
+        //nhpid_api_dump($table_data, 'red');
+        $output = $output . theme_table($keys, $table_data);
+        $excel_data[$type . '_fields']['sheet_name'] = $type . ' fields';
+        $excel_data[$type . '_fields']['header'] = $keys;
+        $excel_data[$type . '_fields']['data'] = $table_data;
+      }
+    }
+    $path = file_directory_path() . "/" . "nhpid_mapping.xls";
+    $path = generate_excel($path, $excel_data);
+    if ($path) {
+      $output = $output . l("Download Excel file", $path);
+    }
+    $form['result'] = array(
+      '#type' => 'item', 
+      '#value' => "$output", 
+    );
+  }
+  return $form;
+  */
+}
+
+
+
+function getvalue($k) {
+    global $rarray;
+
+    reset($rarray);
+    foreach ($rarray as $l) {
+        if (preg_match("/\[$k\] => (.+)/", $l, $m)) {
+            return $m[1];
+        }
+    }
+    return '';
+}
+
+function ascii2utf8($text) {
+
+  if ((bool)$text ==FALSE) return $text;
+  // only bm_convert_encoding can encode chr(146), right side single quotation mark
+  
+  $encoding = mb_detect_encoding($text, "Windows-1252, Windows-1251,  ISO-8859-1, ASCII, UTF-8", TRUE);
+  $is_utf8 = mb_check_encoding($text, 'UTF-8');
+
+  //drupal_set_message("$text");
+  //drupal_set_message("encoding: $encoding");
+  if (!$is_utf8) {
+ 
+    $text =  mb_convert_encoding($text,  "UTF-8", $encoding);
+    //$text =  mb_convert_encoding($text,  "UTF-8", 'auto');
+  }
+  //drupal_set_message(nhpid_api_dump($text, 'blue', TRUE));
+  
+  return $text;
+}
+function utf82ascii($text) {
+
+  if ((bool)$text ==FALSE) return $text;
+  global $fh;
+
+  //$encoding = mb_detect_encoding($text, "ASCII, UTF-8, ISO-8859-1", TRUE);
+  $is_utf8 = mb_check_encoding($text, 'UTF-8');
+
+  if ($is_utf8) {
+    //$text = iconv("Windows-1252", "UTF-8//TRANSLIT", $text);
+    //$text = iconv("ISO-8859-1", "UTF-8//TRANSLIT", $text);
+    $text =  mb_convert_encoding($text,  "ASCII", "UTF-8");
+  }
+
+  //log_data($fh, $text, 'purple');
+  //dump($text, 'purple');
+  return $text;
+}
+
+function get_node_nid($node_title, $node_type) {
+  $node;
+  if ($node_type) {
+    $node = node_load(array("title" => $node_title, "type" => $node_type));
+  }
+  else {
+    //$node = node_load(array("title" => $node_title, "type" => $node_type));
+  }
+  return $node -> nid;
+  unset($node);
+}
+
+// $type: node type, $defaultparent: defaultparent nid; $parent: can be parent 0 or 1; $child: can be child 0 or 1; $createmenu: Automatacally create menu items, optional_no, optional_yes, never, always
+function set_nh_variable($type, $defaultparent, $parent, $child, $createmune='optional_no') {
+  $name_defaultparent = "nh_defaultparent_" . $type;
+  $name_parent = "nh_parent_" . $type;
+  $name_child = "nh_child_" . $type;
+  $name_createmenu = "nh_createmenu_t" . $type;
+  variable_set($name_defaultparent, $defaultparent);
+  variable_set($name_parent, $parent);
+  variable_set($name_child, $child);
+  variable_set($name_createmenu, $createmune);
+}
+
+function set_workflow_state($nid, $sid, $uid, $stamp = NULL) {
+  if (!$stamp) $stamp = time();
+  $sql = "select nid from {workflow_node} where nid = %d";
+  $nid = db_fetch_array(db_query($sql, $nid));
+  $args = array();
+  if ($nid['nid']) {
+    $nid = $nid['nid'];
+    $sql = "update {workflow_node} set sid = %d, uid = %d, stamp = %d where nid = %d";
+    $args = array($sid, $uid, $stamp, $nid);
+  }
+
+  else {
+    $sql = "insert into {workflow_node}(nid, sid, uid, stamp) values(%d, %d, %d, %d)";
+    $args = array($nid, $sid, $uid, $stamp);
+  }
+  //drupal_set_message ($sql);
+  db_query($sql, $args)  or drupal_set_message('Query failed: ' . db_error() . " \n" . $query . "\n");
+}
+
+// excel column letter to number. number is 0 based. Used for PHPExcel package.
+function lettercol2numericcol($letters) {
+  if (ctype_digit($letters) || is_int($letters)) {
+    return intval($letters);
+  }
+
+  $letters = strtoupper(trim($letters));
+  $arr = str_split($letters);
+  $arr = array_reverse($arr);
+  $number = 0;
+  for ($i = 0; $i < count($arr); $i ++) {
+    $arr[$i] = ord($arr[$i]) - 64;
+    $number = $number + ($arr[$i] * pow(26, $i));
+  }
+  return $number -1;
+}
+
+function numericcol2lettercol($number) {
+  $letters = '';
+  if (ctype_alpha($number)) {
+    return $number;
+  }
+  elseif (is_int($number) or ctype_alnum($number) ) {
+    $number = intval($number) + 1;
+    if ($number/26 <= 1) $letters = chr($number + 64);
+    while ($number/26 > 1) {
+      $remainder = $number % 26;
+      $div = floor($number / 26);
+      if ($remainder != 0) $letters = chr($remainder + 64) . $letters;
+      if ($div < 26 ) $letters = chr($div + 64) . $letters;
+      $number = $div;
+      //dump($number);
+    }
+
+    return $letters;
+  }
+  else {
+    die("Cannot convert $number to letters");
+  }
+
+}
+
+function dump($data, $color='blue') {
+  print "<pre style='color:$color;'>";
+  //print var_name($data);
+  print_r($data);
+  print "</pre>";
+}
+function var_name(&$var, $scope=0) {
+    $old = $var;
+    if (($key = array_search($var = 'unique' . rand() . 'value', !$scope ? $GLOBALS : $scope)) && $var = $old) return $key;
+}
+// ****************** fix_latin ***************************
+function init_byte_map() {
+  global $byte_map;
+  for ($x=128;$x<256;++$x) {
+    $byte_map[chr($x)]=utf8_encode(chr($x));
+  }
+  $cp1252_map=array(
+    "\x80" => "\xE2\x82\xAC",    // EURO SIGN
+    "\x82" => "\xE2\x80\x9A",  // SINGLE LOW-9 QUOTATION MARK
+    "\x83" => "\xC6\x92",      // LATIN SMALL LETTER F WITH HOOK
+    "\x84" => "\xE2\x80\x9E",  // DOUBLE LOW-9 QUOTATION MARK
+    "\x85" => "\xE2\x80\xA6",  // HORIZONTAL ELLIPSIS
+    "\x86" => "\xE2\x80\xA0",  // DAGGER
+    "\x87" => "\xE2\x80\xA1",  // DOUBLE DAGGER
+    "\x88" => "\xCB\x86",      // MODIFIER LETTER CIRCUMFLEX ACCENT
+    "\x89" => "\xE2\x80\xB0",  // PER MILLE SIGN
+    "\x8A" => "\xC5\xA0",      // LATIN CAPITAL LETTER S WITH CARON
+    "\x8B" => "\xE2\x80\xB9",  // SINGLE LEFT-POINTING ANGLE QUOTATION MARK
+    "\x8C" => "\xC5\x92",      // LATIN CAPITAL LIGATURE OE
+    "\x8E" => "\xC5\xBD",      // LATIN CAPITAL LETTER Z WITH CARON
+    "\x91" => "\xE2\x80\x98",  // LEFT SINGLE QUOTATION MARK
+    "\x92" => "\xE2\x80\x99",  // RIGHT SINGLE QUOTATION MARK
+    "\x93" => "\xE2\x80\x9C",  // LEFT DOUBLE QUOTATION MARK
+    "\x94" => "\xE2\x80\x9D",  // RIGHT DOUBLE QUOTATION MARK
+    "\x95" => "\xE2\x80\xA2",  // BULLET
+    "\x96" => "\xE2\x80\x93",  // EN DASH
+    "\x97" => "\xE2\x80\x94",  // EM DASH
+    "\x98" => "\xCB\x9C",      // SMALL TILDE
+    "\x99" => "\xE2\x84\xA2",  // TRADE MARK SIGN
+    "\x9A" => "\xC5\xA1",      // LATIN SMALL LETTER S WITH CARON
+    "\x9B" => "\xE2\x80\xBA",  // SINGLE RIGHT-POINTING ANGLE QUOTATION MARK
+    "\x9C" => "\xC5\x93",      // LATIN SMALL LIGATURE OE
+    "\x9E" => "\xC5\xBE",      // LATIN SMALL LETTER Z WITH CARON
+    "\x9F" => "\xC5\xB8"       // LATIN CAPITAL LETTER Y WITH DIAERESIS
+  );
+  foreach ($cp1252_map as $k => $v) {
+    $byte_map[$k]=$v;
+  }
+}
+
+function fix_latin($instr) {
+  if (mb_check_encoding($instr, 'UTF-8')) return $instr; // no need for the rest if it's all valid UTF-8 already
+  global $nibble_good_chars, $byte_map;
+  $outstr='';
+  $char='';
+  $rest='';
+  while ((strlen($instr))>0) {
+    if (1==preg_match($nibble_good_chars, $input, $match)) {
+      $char=$match[1];
+      $rest=$match[2];
+      $outstr .= $char;
+    }
+    elseif (1==preg_match('@^(.)(.*)$@s', $input, $match)) {
+      $char=$match[1];
+      $rest=$match[2];
+      $outstr .= $byte_map[$char];
+    }
+    $instr=$rest;
+  }
+  return $outstr;
+}
+
+$byte_map=array();
+init_byte_map();
+$ascii_char='[\x00-\x7F]';
+$cont_byte='[\x80-\xBF]';
+$utf8_2='[\xC0-\xDF]' . $cont_byte;
+$utf8_3='[\xE0-\xEF]' . $cont_byte .'{2}';
+$utf8_4='[\xF0-\xF7]' . $cont_byte .'{3}';
+$utf8_5='[\xF8-\xFB]' . $cont_byte .'{4}';
+$nibble_good_chars = "@^($ascii_char+|$utf8_2|$utf8_3|$utf8_4|$utf8_5)(.*)$@s";
+
+// *******************************************
+
+
+function readfile_recursion($root, &$files) {
+  if (is_dir($root)) {
+    //dump ($root);
+    if ($dh = opendir($root)) {
+        while (($file = readdir($dh)) !== FALSE) {
+           if (is_dir("$root/$file")) {
+            if (!(preg_match("/^\./", $file))) {
+              //dump("folder: $file");
+              readfile_recursion("$root/$file", $files);
+            }
+          }
+          else {
+            if (( str_replace('.xls', '', $file) !== $file)) {
+              //dump($root . '/' . $file);
+              array_push($files, $root . '/' . $file);
+            }
+          }
+
+        }
+        closedir($dh);
+    }
+  }
+}
+
+function read_monograph_appendices($mono_workbok_path) {
+  $append_files_path = dirname($mono_workbok_path) . "/Appendices";
+  $node_type = 'mono_monograph';
+  $sql = "SELECT nid FROM {node} WHERE type='%s'";
+
+  $result = db_query($sql, $node_type);
+  $deleted_count = 0;
+  while ($row = db_fetch_object($result)) {
+    $nid = $row -> nid;
+    $node = node_load(array("nid" => $nid));
+    if (!($node -> field_monograph_url_e[0]['value'])) {
+      $code = $node ->field_code[0]['value'];
+      $english_append_file = $append_files_path . "/$code" . "_E.htm";
+      //dump($english_append_file);
+      //var_dump(is_file($english_append_file));
+      if (is_file($english_append_file)) {
+        $english_append_file_content = file_get_contents($english_append_file);
+        //dump($english_append_file_content);
+        $english_append_file_content = ascii2utf8($english_append_file_content);
+        //dump($english_append_file_content, 'red');
+        $node -> field_monograph_url_e[0]['value'] = $english_append_file_content;
+      }
+      $french_append_file = $append_files_path . "/$code" . "_F.htm";
+      //dump($french_append_file);
+      //var_dump(is_file($french_append_file));
+      if (is_file($french_append_file)) {
+        $french_append_file_content = file_get_contents($french_append_file);
+        //dump($french_append_file_content, 'green');
+        $french_append_file_content = ascii2utf8($french_append_file_content);
+        //dump($french_append_file_content, 'purple');
+        $node -> field_monograph_url_f[0]['value'] = $french_append_file_content;
+      }
+      node_save($node);
+      //dump($node);
+    }
+  }
+}
+function log_data($fh, $data, $color = 'blue') {
+  $out = "<pre style='color:$color;'>";
+  $out = $out . print_r($data, TRUE);
+  $out = $out . "</pre>";
+  fwrite($fh, $out);
+}
+
+function display_node_form($form_state=NULL) {
+  $nid = !empty($form_state['values']['nid']) ? $form_state['values']['nid'] : ''; 
+  $vid = !empty($form_state['values']['vid']) ? $form_state['values']['vid'] : ''; 
+  $node_type = !empty($form_state['values']['node_type']) ? $form_state['values']['node_type'] : ''; 
+  $node_title = !empty($form_state['values']['node_title']) ? $form_state['values']['node_title'] : ''; 
+  
+  $form = array();
+  //$form['#redirect'] = 'admin/settings/nhpid_admin';
+  $form['nid']=array(
+    '#type' => 'textfield', 
+    '#title' => t('nid'), 
+    '#default_value' => $nid, 
+    '#size' => 60, 
+    '#maxlength' => 100, 
+    '#required' => FALSE,
+  );
+  $form['node_type']=array(
+    '#type' => 'textfield', 
+    '#title' => t('Node Type'), 
+    '#default_value' => $node_type, 
+    '#size' => 60, 
+    '#maxlength' => 100, 
+    '#required' => FALSE,
+  );
+  $form['node_title']=array(
+    '#type' => 'textfield', 
+    '#title' => t('Node Title'), 
+    '#default_value' => $node_title, 
+    '#size' => 60, 
+    '#maxlength' => 100, 
+    '#required' => FALSE,
+  );
+  $form['vid']=array(
+    '#type' => 'textfield', 
+    '#title' => t('vid'), 
+    '#default_value' => $vid, 
+    '#size' => 60, 
+    '#maxlength' => 100, 
+    '#required' => FALSE,
+  );
+  $form['action-submit']=array(
+    '#type' => 'submit', 
+    '#value' => t('Submit'), 
+  );
+ 
+  if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+    if ($nid) {
+      $node = node_load($nid, $vid);
+    }
+    else {
+      //$node = node_load(array("type" => $node_type, "title" => $node_title), $vid);
+    }
+    if ((bool)$node) {
+     $output = nhpid_api_dump($node, 'green', true);
+    }
+    else {
+      $output =  "Node (nid=$nid) is not found.";
+    }
+    if ($output) {
+      $form['result']=array(
+      '#type' => 'item', 
+      '#title' => 'Result',
+      '#markup' => $output, 
+      );
+    }
+    
+  }
+  return $form;
+}
+
+
+
+function display_all_node_by_type($form_state=NULL) {
+  $node_type = !empty($form_state['values']['node_type']) ? $form_state['values']['node_type'] : ''; 
+  
+  $node_types = get_all_assessment_central_data_node_types();
+  
+  $form['node_type'] = array(
+    '#type' => 'select', 
+    '#title' => t('Node type'), 
+    '#default_value' => $node_type,
+    '#options' => $node_types,
+    '#description' => t('Select a node type.'),
+    //'#attributes' => array('onchange' => 'this.form.submit();'),
+  );
+  
+  $form['action-submit']=array(
+    '#type' => 'submit', 
+    '#value' => t('Submit'), 
+  );
+  //$form['action']=array(
+  //  '#type' => 'hidden', 
+  //  '#value' => $form_state['values']['action'], 
+  //);
+  if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+
+    if ($node_type) {
+      $data = get_all_node_by_type($node_type);
+      $field_names = array_keys($data);
+      $keys = array_keys($data[$field_names[0]]);
+    
+      $output = theme_table($keys, $data);
+      $form['result']=array(
+        '#type' => 'item', 
+        '#title' => 'Result',
+        '#value' => $output, 
+        );
+    }
+  }
+  return $form;
+}
+
+/****
+ * not functional
+*/ 
+
+function alter_node_field($feild_name) {
+  $field_name = $_POST['field_name'];
+  $sub_action =  $_POST['sub_action'];
+  $selected = '';
+  $sql = "SELECT field_name FROM {content_node_field} order by field_name";
+
+  $result = db_query($sql);
+  print
+  "<form action='' method='post'>
+  Node type: <select name='field_name'>";
+  while ($row = db_fetch_object($result)) {
+     $name = $row -> field_name;
+     $selected = '';
+     if ($name == $field_name) $selected = 'selected';
+    print "<option value='$name' $selected>$name</option>\n";
+  }
+  print
+  "</select>
+  <input type=hidden name=action value='alter_node_field'>
+  <input type='submit' />
+  </form>";
+
+
+  if (!$field_name) return;
+
+  $data = array();
+  $line = array();
+
+  $sql = "SELECT * FROM {content_node_field}  WHERE field_name='%s'";
+
+  $result = db_fetch_object(db_query($sql, $field_name));
+  nhpid_api_dump($result);
+  $global_settings = unserialize($result -> global_settings);
+  nhpid_api_dump($global_settings);
+  $allowed_values = $global_settings['allowed_values'];
+  $allowed_values_php =$global_settings['allowed_values_php'];
+  //nhpid_api_dump($allowed_values_php);
+  $required  = $result ->required;
+  //nhpid_api_dump("Required: $required");
+  if ($required) $required_checked = 'checked';
+  $multiple = $result -> multiple;
+  if ($multiple) $multiple_checked = 'checked';
+  $active  = $result ->active;
+  if ($active) $active_checked = 'checked';
+  $locked  = $result ->locked;
+  if ($locked) $locked_checked = 'checked';
+
+  print "<form action='' method='post'>
+      Allowed values <textarea name='allowed_values' rows='4' cols='60'>$allowed_values</textarea><br>
+      Allowed values PHP <textarea name='allowed_values_php'  rows='4' cols='60'>$allowed_values_php</textarea><br>
+      Required <input type='checkbox' name='required' value=1 $required_checked/><br>
+      Multiple <input type='checkbox' name='multiple' value=1 $multiple_checked/><br>
+      Active <input type='checkbox' name='active' value=1 $active_checked/><br>
+      Locked <input type='checkbox' name='locked' value=1 $locked_checked/><br>
+      <input type=hidden name=action value='alter_node_field'/>
+      <input type=hidden name=field_name value='$field_name'>
+      <input type=hidden name=sub_action value='update'/>
+      <input type='submit' />
+      </form>";
+
+  if ($field_name and $sub_action) {
+    $allowed_values =  $_POST['allowed_values'];
+    $allowed_values_php = $_POST['allowed_values_php'];
+    $required  =  $_POST['required']? 1:0;
+    $multiple =  $_POST['multiple']? 1:0;
+    $active  =  $_POST['active']? 1:0;
+    $locked  =  $_POST['locked']? 1:0;
+
+    $sql = "SELECT * FROM {content_node_field}  WHERE field_name='%s'";
+
+    $field = db_fetch_object(db_query($sql, $field_name));
+    $global_settings = unserialize($result -> global_settings);
+
+    $global_settings['allowed_values'] = $allowed_values;
+    $global_settings['allowed_values_php']=$allowed_values_php;
+    $global_settings = serialize($global_settings);
+    nhpid_api_dump($global_settings);
+    $global_settings = addslashes($global_settings );
+    nhpid_api_dump($global_settings);
+    $sql = "update {content_node_field} set global_settings = '%s', required = '%d', multiple='%d', active='%d', locked='%d' where field_name ='%s', ";
+    nhpid_api_dump($sql);
+    $result = db_query($sql, $required, $global_settings, $multiple, $active, $locked, $field_name);
+    if ($reault) nhpid_api_dump("Node field $field_name has been  updated.");
+  }
+}
+
+
+function display_node_type_mapping() {
+
+  $sql = "SELECT type, name FROM {node_type} order by name";
+
+  $result = db_query($sql);
+  print
+  "<form action='' method='post'>
+  Node type: <select name='node_type'>";
+  while ($row = db_fetch_object($result)) {
+    $type = $row -> type;
+    $name = $row -> name;
+    print "<option value='$type'>$name</option>\n";
+  }
+  print
+  "</select>
+  <input type=hidden name=action value='display_node_type_mapping'>
+  <input type='submit' />
+  </form>";
+
+  $node_type = $_POST['node_type'];
+  if (!$node_type) return;
+  $data = get_node_type_mapping($node_type, TRUE);
+  $field_names = array_keys($data);
+  $keys = array_keys($data[$field_names[0]]);
+
+  $table = theme_table($keys, $data);
+  print $table;
+
+}
+
+function delete_all_nodes_by_type_form($form_state = NULL) {
+  $node_types = get_all_assessment_central_data_node_types();
+  $node_type = !empty($form_state['values']['node_type']) ? $form_state['values']['node_type'] : ''; 
+  $form = array();
+  $form['node_type'] = array(
+    '#type' => 'select', 
+    '#title' => t('Node Type'), 
+    '#options' => $node_types,
+    '#multiple' => FALSE,
+    '#default_value' => $node_type,
+    '#description' => t('Select node type.'),
+  );
+  
+  $form['action-submit']=array(
+    '#type' => 'submit', 
+    '#value' => t('Submit'), 
+    '#attributes' => array('onclick' => 'return confirm("You are going to delete all nodes of type you selected. Are you sure you wish to continue?");'),
+  );
+ 
+  if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+
+    if ($node_type)
+    $deleted = delete_all_nodes_by_type($node_type);
+    $form['result'] = array(
+      '#type' => 'item', 
+      '#markup' => "$deleted nodes of $node_type has been deleted.", 
+    );
+  }
+  return $form;
+}
+
+function copy_data_from_field1_to_field2_form($form_state = NULL) {
+  $node_types = get_all_assessment_central_data_node_types();
+  $node_type = !empty($form_state['values']['node_type']) ? $form_state['values']['node_type'] : ''; 
+  $form = array();
+  $form['node_type'] = array(
+    '#type' => 'select', 
+    '#title' => t('Node Type'), 
+    '#options' => $node_types,
+    '#multiple' => FALSE,
+    '#default_value' => $node_type,
+    '#description' => t('Select node type.'),
+  );
+  $form['select-type'] = array(
+    '#type' => 'submit',
+    '#value' => 'Select a type', );
+  if ((($form_state['clicked_button']['#id'] == 'edit-select-type') or (($form_state['clicked_button']['#id'] == 'edit-action-submit')) ) and ($node_type)) {
+    $mapped_fields = get_node_type_mapping($node_type);
+    $field_from = !empty($form_state['values']['field_from']) ? $form_state['values']['field_from'] : ''; 
+    $field_to = !empty($form_state['values']['field_to']) ? $form_state['values']['field_to'] : ''; 
+    //drupal_set_message(nhpid_api_dump($mapped_fields, 'red', TRUE));
+    foreach ($mapped_fields as $key => $field) {
+      
+      $fields[$key] =  $field['field_label'] . ':'  . $field['field_name'] . "(" . $field['type'] .':' . $field['widget_type'] . ')';
+    }
+    $form['field_from'] = array(
+      '#type' => 'select', 
+      '#title' => t('From field'), 
+      '#options' => $fields,
+      '#multiple' => FALSE,
+      '#default_value' => $field_from,
+      '#description' => t('Select field you want to copy from.'),
+    );
+    
+    $form['field_to'] = array(
+      '#type' => 'select', 
+      '#title' => t('From field'), 
+      '#options' => $fields,
+      '#multiple' => FALSE,
+      '#default_value' => $field_to,
+      '#description' => t('Select field you want to copy to.'),
+    );
+     $form['action-submit']=array(
+    '#type' => 'submit', 
+    '#value' => t('Submit'), 
+    '#attributes' => array('onclick' => 'return confirm("You are going to copy values from a field to another. Are you sure you wish to continue?");'),
+  );
+ 
+    if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+  
+      if ($node_type and $field_from and $field_to) {
+        $sql = "select nid from {node} where type = '%s'";
+        //drupal_set_message($sql);
+        $result = db_query($sql, $node_type);
+        $count = 0;
+        while ($nid = db_fetch_array($result)) {
+          $node = node_load(array("nid" => $nid['nid']));
+          $code = "\$node ->" . $field_to . "=\$node ->" . $field_from .';';
+          //drupal_set_message($code);
+          eval($code);
+          node_save($node);
+          $count ++;
+        }
+
+        $form['result'] = array(
+          '#type' => 'item', 
+          '#value' => "$count nodes of $node_type has been changed.", 
+        );
+      }
+      
+    }
+  }
+  
+  return $form;
+
+}
+function change_workflow_state_of_nodes_by_type_form($form_state = NULL) {
+  $node_types = get_all_assessment_central_data_node_types();
+  $node_type = !empty($form_state['values']['node_type']) ? $form_state['values']['node_type'] : ''; 
+  $form = array();
+  $form['node_type'] = array(
+    '#type' => 'select', 
+    '#title' => t('Node Type'), 
+    '#options' => $node_types,
+    '#multiple' => FALSE,
+    '#default_value' => $node_type,
+    '#description' => t('Select node type.'),
+  );
+  $wfs =  workflow_get_states(NHPID_WORKFLOW);
+  $wf_default = null;
+  foreach ($wfs as $key => $wf) {
+    if ($wf == 'Published') $wf_default = $key;
+  }
+  $wf_state = !empty($form_state['values']['wk_state']) ? $form_state['values']['wk_state'] : $wfs;
+  $form['wk_state'] = array(
+    '#type' => 'checkboxes', 
+    '#title' => t('Current workflow states'), 
+    '#options' => $wfs,
+    //'#multiple' => TRUE,
+    '#checkall' => TRUE,
+    '#required' => true,
+    '#default_value' => $wf_state,
+    '#description' => t('Select one or more workflow states.'),
+  );
+  $new_wf_state = !empty($form_state['values']['new_wk_state']) ? $form_state['values']['new_wk_state'] : $wf_default;
+  $form['new_wk_state'] = array(
+    '#type' => 'select', 
+    '#title' => t('New workflow state'), 
+    '#options' => $wfs,
+    '#multiple' => FALSE,
+    '#required' => true,
+    '#default_value' => $wf_default,
+    '#description' => t('Select one workflow states.'),
+  );
+  
+  $form['action-submit']=array(
+    '#type' => 'submit', 
+    '#value' => t('Submit'), 
+    '#attributes' => array('onclick' => 'return confirm("You are going to change the workflow states of all nodes of your selected type. Are you sure you wish to continue?");'),
+  );
+ 
+  if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+    $node_type = $form_state['values']['node_type'];
+    $current_workflow_states = $form_state['values']['wk_state'];
+    $new_workflow_state = $form_state['values']['new_wk_state'];
+    $nids = get_all_nids_by_type($node_type);
+    foreach($nids as $nid){
+      $node = node_load($nid);
+      if (in_array(workflow_node_current_state($node), array_keys($current_workflow_states))){
+        workflow_execute_transition($node, $new_workflow_state, 'Changed by Drupal', true);
+      }
+    }
+    $new_state_name = workflow_get_state_name($new_workflow_state);
+    drupal_set_message(count($nids) . " nodes of node type <em>$node_type</em> have been changed to <em>$new_state_name</em>.");
+ 
+  }
+
+  
+  return $form;
+
+}
+function code_testing($form_state = NULL) {
+  $allowed_users = array('peijun');
+  global $user;
+  if (!(in_array($user -> name, $allowed_users))) {
+    $form['permission'] = array(
+      '#title' => 'Permission', 
+      '#type' => 'item', 
+      '#value' => 'Sorry, you are not allowed to run this function.', 
+    );
+    return $form;
+  }
+  $code = !empty($form_state['values']['code']) ? $form_state['values']['code'] : 'return phpinfo();'; 
+  $form = array();
+  $form['help'] = array(
+    '#type' => 'item', 
+    '#title' => "Input or paste PHP code without &lt;?php ?&gt; delimiters" 
+  );
+  $form['code'] = array(
+    '#type' => 'textarea', 
+    '#title' => t('PHP code'), 
+    '#default_value' => $code,
+    '#required' => TRUE,
+    '#rows' => 20,
+  );
+  $form['action-submit']=array(
+    '#type' => 'submit', 
+    '#value' => t('Submit'), 
+  );
+  if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+    
+    $error = null;
+    $code = $form_state['values']['code'];
+
+    $output = '';
+    try {
+      $output = eval($code);
+    }
+    catch (Exception $e) {
+      $error = $e -> getMessage();
+    }
+    $output = nhpid_api_dump($output, 'purple', TRUE);
+    $error = $error? $error : 'Code is good.';
+    //drupal_set_message($output);
+    $form['error'] = array(
+      '#title' => 'Error Message', 
+      '#type' => 'item', 
+      '#markup' => $error, 
+    );
+    $form['result'] = array(
+      '#title' => 'Result', 
+      '#type' => 'item', 
+      '#markup' => $output, 
+    );
+  }
+  return $form;
+}
+function back_up_variable($form_state = NULL) {
+  $allowed_users = array('peijun');
+  global $user;
+  if (!(in_array($user -> name, $allowed_users))) {
+    $form['permission'] = array(
+      '#title' => 'Permission', 
+      '#type' => 'item', 
+      '#value' => 'Sorry, you are not allowed to run this function.', 
+    );
+    return $form;
+  }
+  $name = !empty($form_state['values']['name']) ? $form_state['values']['name'] : 'nhpid_%'; 
+  $form = array();
+  $form['help'] = array(
+    '#type' => 'item', 
+    '#title' => "Input a the name of a variable. Wildcard acceptable." 
+  );
+  $form['name'] = array(
+    '#type' => 'textfield', 
+    '#title' => t('Variable Name'), 
+    '#default_value' => $name,
+    '#required' => TRUE,
+ 
+  );
+  $form['action-submit']=array(
+    '#type' => 'submit', 
+    '#value' => t('Submit'), 
+  );
+  if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+    $name = $form_state['values']['name'];
+
+    $output = '';
+    $sql = "select name, value from {variable} where name like '%s'";
+    $result = db_query($sql, $name);
+    while ($rs = db_fetch_object($result)){
+      $name = $rs -> name;
+      $value = $rs -> value;
+      $output = $output . "INSERT INTO variable (name, value) VALUES('$name', '$value') ON DUPLICATE KEY UPDATE value='$value'; <br>";
+      //$output = $output . "variable_set('$name', '$value'); <br>";
+    }
+   
+    $form['result'] = array(
+      '#title' => 'Result', 
+      '#type' => 'item', 
+      '#value' => $output, 
+    );
+  }
+  return $form;
+}
+function clearup_data_batch__() {
+  $operations = array();
+  $excel_files = array();
+  $message = '';
+  readfile_recursion(EXCEL_FILE_DIR_ROOT, $excel_files);
+  sort($excel_files);
+  //drupal_set_message(nhpid_api_dump($excel_files, 'green', TRUE));
+  /*** clear up nhpid data first, but not all data, only nodes to be re-loaded. ****/
+  for ($i = 0; $i<count($excel_files); $i++) {
+    $operations[] = array('clear_up_nhpid_node_data', array(&$message, $excel_files, $i));
+  }
+  $batch = array(
+    'operations' => $operations,
+    'finished' => 'batch_clearup_finished',
+    // We can define custom messages instead of the default ones.
+    'title' => t('Processing clearing up old data'),
+    'init_message' => t('Clearing up data is starting.'),
+    'progress_message' => t('Processed @current out of @total files.'),
+    'error_message' => t('Data clearup has encountered an error.'),
+    'progressive' => FALSE,
+  );
+  
+  batch_set($batch);
+  batch_process();
+}
+function loaddata_batch($re_indexing) {
+  $operations = array();
+  $excel_files = array();
+  $message = '';
+  readfile_recursion(EXCEL_FILE_DIR_ROOT, $excel_files);
+  sort($excel_files);
+  //drupal_set_message(nhpid_api_dump($excel_files, 'green', TRUE));
+   /*** clear up nhpid data first, but not all data, only nodes to be re-loaded. ****/
+  for ($i = 0; $i<count($excel_files); $i++) {
+    $operations[] = array('clear_up_nhpid_node_data', array($message, $excel_files, $i));
+  }
+  
+  for ($i = 0; $i<count($excel_files); $i++) {
+    $operations[] = array('loaddata_file', array($message, $excel_files, $i, $re_indexing));
+  }
+  ## build depended node relationship
+  $nhpid_data_node_types = get_all_depending_node_types();
+  foreach ($nhpid_data_node_types as $node_type){
+    $operations[] = array('rebuild_depended_node_relationship', array($message, $node_type));
+  }
+  
+  $batch = array(
+    'operations' => $operations,
+    'finished' => 'batch_op_finished',
+    // We can define custom messages instead of the default ones.
+    'title' => t('Processing clearing up/loading data'),
+    'init_message' => t('Clearing up data is starting.'),
+    'progress_message' => t('Processed @current out of @total steps.'),
+    'error_message' => t('Data loading has encountered an error.'),
+  );
+  
+  batch_set($batch);
+  batch_process();
+  
+  
+
+}
+function grant_content_type_permissions($type) {
+  $observer_perms = Array("access content");
+  $authenticated_user_perms = $observer_perms;
+  array_push($authenticated_user_perms, "create $type content", "edit any $type content", "edit own $type content");
+  $data_coordinator_perms = $authenticated_user_perms;
+  array_push($data_coordinator_perms, "delete any $type content");
+  
+  //$data_entry_perms = $authenticated_user_perms;
+  permissions_revoke_permissions('authenticated user', $authenticated_user_perms);
+  permissions_grant_permissions('data entry', $authenticated_user_perms);
+  permissions_grant_permissions('observer', $obsrver_perms);
+  permissions_grant_permissions('data coordinator', $data_coordinator_perms);
+  permissions_grant_permissions('administrator', $data_coordinator_perms);
+  //dump($observer_perms);
+  //dump($authenticated_user_perms);
+  //dump($data_coordinator_perms);
+}
+
+function grant_field_permissions() {
+  $sql = "select field_name from {content_node_field}";
+  //dump($sql);
+  $result = db_query($sql);
+  $observer_perms = Array();
+  $other_perms = Array();
+  while ($row = db_fetch_array($result)) {
+    $field_name = $row['field_name'];
+    array_push($observer_perms, "view $field_name");
+    array_push($other_perms, "edit $field_name", "view $field_name");
+  }
+  permissions_revoke_permissions('authenticated user', $other_perms);
+  permissions_grant_permissions('data entry', $other_perms);
+  permissions_grant_permissions('observer', $observer_perms);
+  permissions_grant_permissions('data coordinator', $other_perms);
+  permissions_grant_permissions('administrator', $other_perms);
+  //dump($observer_perms);
+  //dump($other_perms);
+}
+
+
+function parse_multi_valued_field($str) {
+  $multi_code_value_delimiter = MULTI_VALUED_FIELD_DELIMITER;
+  $pattern = '/\[[^\]]+\]/';
+  $replace = '~~~';
+  
+  $NA_pattern = '/(^|;\s*)*(NA)(;\s*|$)/';
+  //drupal_set_message(nhpid_api_dump($str, 'green', TRUE));
+  //$str = preg_replace($NA_pattern , '$1NA[]$3', $str);
+  //drupal_set_message(nhpid_api_dump($str, 'purple', TRUE));
+  preg_match_all($pattern, $str, $matches, PREG_SET_ORDER);
+  foreach ($matches as $val) {
+      $replaced = str_replace($multi_code_value_delimiter, $replace, $val[0]);
+      $str = str_replace($val[0], $replaced, $str);
+      
+  }
+
+  $array = explode($multi_code_value_delimiter, $str);
+  $array = remove_array_empty_element($array);
+  
+  $needle = array();
+  foreach ($array as $value) {
+    array_push($needle, $replace);
+  }
+  $array = array_map('replace_back_to_semicolon', $array, $needle);
+  //drupal_set_message(nhpid_api_dump($array, 'red', TRUE));
+  return $array;
+}
+function replace_back_to_semicolon($item, $needle) {
+  $multi_code_value_delimiter = MULTI_VALUED_FIELD_DELIMITER;
+  return trim(str_replace($needle, $multi_code_value_delimiter, $item));
+}
+
+
+function loaddata_file($message, $files, $i, $re_indexing, $context) {
+  // Use the $context['sandbox'] at your convenience to store the
+  // information needed to track progression between successive calls.
+  $message = '';
+  $sheets = readdata($files[$i]);
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['current_file'] = 0;
+    $context['sandbox']['max'] = count($sheets);
+  }
+    $message = $message . nhpid_api_dump("Loading files...", 'purple', TRUE);
+    $message = $message . nhpid_api_dump("Files to load:", 'purple', TRUE);
+    $message = $message . nhpid_api_dump($files, 'purple', TRUE);
+    $message = $message . nhpid_api_dump("File just processed:", 'brown', TRUE);
+    $message = $message . nhpid_api_dump("$i: " . $files[$i], 'brown', TRUE);
+    drupal_set_message(nhpid_api_dump("Files to load:", 'purple', TRUE));
+    drupal_set_message(nhpid_api_dump($files, 'purple', TRUE));
+    drupal_set_message(nhpid_api_dump("File just processed:", 'brown', TRUE));
+    drupal_set_message(nhpid_api_dump("$i: " . $files[$i], 'brown', TRUE));
+    
+    foreach ($sheets as $sheet) {
+      _loaddata_file(array($sheet), $files[$i], $message, $re_indexing);
+
+      // Store some result for post-processing in the finished callback.
+      $context['results'][] = "$file : " . count($sheets);
+  
+      // Update our progress information.
+      $context['sandbox']['progress']++;
+      $context['sandbox']['current_file'] = 1;
+      $context['message'] = $message;
+    }
+
+  // Inform the batch engine that we are not finished,
+  // and provide an estimation of the completion level we reached.
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+}
+function loaddata_sheet(&$message, $files, $i, $sheet, $context, $re_indexing) {
+  // Use the $context['sandbox'] at your convenience to store the
+  // information needed to track progression between successive calls.
+  //$message;
+  
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['current_file'] = 0;
+    $context['sandbox']['max'] = 1;
+  }
+ 
+    $message = $message . nhpid_api_dump("Files to be load:", 'green', TRUE);
+    $message = $message . nhpid_api_dump($files, 'purple', TRUE);
+    $message = $message . nhpid_api_dump("File just processed:", 'purple', TRUE);
+    $message = $message . nhpid_api_dump($files[$i], 'purple', TRUE);
+    $message = $message . nhpid_api_dump($sheet['sheet_name'], 'purple', TRUE);
+    $sheets = array($sheet);
+    _loaddata_file($sheets, $files[$i], $message, $re_indexing);
+
+    // Store some result for post-processing in the finished callback.
+    $context['results'][] = "$file : " . count($sheets);
+
+    // Update our progress information.
+    $context['sandbox']['progress']++;
+    $context['sandbox']['current_file'] = 1;
+    $context['message'] = $message;
+  
+
+  // Inform the batch engine that we are not finished,
+  // and provide an estimation of the completion level we reached.
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+}
+/**
+ * Batch 'finished' callback used by both batch 1 and batch 2
+ */
+function batch_clearup_finished___($success, $results, $operations) {
+  if ($success) {
+    // Here we could do something meaningful with the results.
+    // We just display the number of nodes we processed...
+    $message = count($results) . ' processed.';
+  }
+  else {
+    // An error occurred.
+    // $operations contains the operations that remained unprocessed.
+    $error_operation = reset($operations);
+    $message = 'An error occurred while processing ' . $error_operation[0] . ' with arguments :' . print_r($error_operation[0], TRUE);
+  }
+  //loaddata_batch();
+  drupal_set_message($message);
+}
+
+function batch_op_finished($success, $results, $operations) {
+  if ($success) {
+    // Here we could do something meaningful with the results.
+    // We just display the number of nodes we processed...
+    $message = count($results) . ' processed.';
+  }
+  else {
+    // An error occurred.
+    // $operations contains the operations that remained unprocessed.
+    $error_operation = reset($operations);
+    $message = 'An error occurred while processing ' . $error_operation[0] . ' with arguments :' . print_r($error_operation[0], TRUE);
+  }
+  drupal_set_message($message);
+}
+
+function _loaddata_file($sheets, $file_path, &$message=NULL, $re_indexing = NULL){
+	global $user;
+  $user_uid = $user -> uid;
+  $field_name_root= FIELD_NAME_ROOT;
+  $multi_code_value_delimiter =MULTI_VALUED_FIELD_DELIMITER;
+  $multi_code_valued_field_mark = MULTI_VALUED_FIELD_MARK;
+	foreach ($sheets as $sheet)
+  {
+		//drupal_set_message(nhpid_api_dump($sheet, 'purple', TRUE));
+		//create data form group node and menu
+    $dataform_grp_title = $sheet['data_form_group_title'];
+    $dataform_grp_content_type = $sheet['data_form_group_content_type'];
+    $parent_nid = get_node_nid('NHPID Data Entry', 'nhpid_data_entry');
+    $parent_menu ="NHPID Data Entry";
+    $nh_children_view = 'nodehierarchy_children_teasers';
+    $form_group_node = _loaddata($message, NULL, $dataform_grp_content_type, $dataform_grp_title, NULL, 1, $user_uid, 0, 0, 0, TRUE, $parent_nid,$parent_menu,$nh_children_view);
+    // self node hierarchy variable
+    //drupal_set_message(nhpid_api_dump('Form group node', 'red', TRUE));
+    //drupal_set_message(nhpid_api_dump($form_group_node, 'red', TRUE));
+    set_nh_variable($dataform_grp_content_type, $parent_nid, 1, 1, 'always');
+
+    //create data form  node and menu
+    $dataform_title = $sheet['data_form_title'];
+    $dataform_content_type = $sheet['data_form_content_type'];
+    //$parent_nid = get_node_nid($dataform_grp_title, $dataform_grp_content_type);
+    $parent_nid = $form_group_node -> nid;
+    $parent_menu = $dataform_grp_title;
+    $nh_children_view = 'nodehierarchy_children_teasers';
+    $form_node = _loaddata($message, NULL, $dataform_content_type, $dataform_title, NULL, 1, $user_uid, 0, 0, 0, TRUE, $parent_nid,$parent_menu,$nh_children_view);
+   
+    set_nh_variable($dataform_content_type, $parent_nid, 1, 1, 'always');
+
+
+    // create node list_xxx
+    $list_title = "List " . $dataform_title;
+    $list_type = 'list_records';
+    //$parent_nid = get_node_nid($dataform_title, $dataform_content_type);
+    $parent_nid = $form_node -> nid;
+    $parent_menu = $dataform_title;
+    $nh_children_view = 'nodehierarchy_children_list';
+    $list_node = _loaddata($message, NULL, $list_type, $list_title, NULL, 1, $user_uid, 0, 0, 0, TRUE, $parent_nid,$parent_menu,$nh_children_view);
+    //dump($list_node);
+
+    // self node hierarchy variable
+    set_nh_variable($list_type, $parent_nid, 1, 1, 'always');
+
+    // alter child node type node hierarchy variable
+    $node_type = $sheet['content_type'];
+    $createmune = 'never';
+    set_nh_variable($node_type, $list_node -> nid, 0, 1, $createmune);
+
+    // create menu Add New XXX
+    $parent_menu = $dataform_title;
+    $menu_name='menu-nhpid-data-entry';
+    $parent_menu = $dataform_title;
+    $type = $sheet['content_type'];
+    $sql = "SELECT mlid FROM {menu_links} WHERE menu_name='$menu_name' and link_title = '$parent_menu'";
+    //dump($sql);
+    //$plid = db_fetch_array(db_query("SELECT plid FROM {menu_links} WHERE menu_name='%s' and link_title = '%s'", $menu_name, $parent_menu));
+    $mlid = db_fetch_array(db_query($sql));
+		// *** delete existing menu item
+		$link_path = 'node/add/' . str_replace('_', '-', $type); // Drupal 6 automatically convert underscores to dask in path .
+		menu_link_delete(NULL, $link_path);
+
+    $new_menu = array(
+    'menu_name' => $menu_name,
+    'link_path' => $link_path,
+    'link_title' => 'Add ' . $dataform_title,
+    'plid' => $mlid['mlid'],
+    'weight' => 0,
+    //'customized' => true, // ?
+    );
+    //dump ($new_menu);
+    if( $existing_item = db_fetch_array(db_query("SELECT mlid FROM {menu_links} WHERE link_path = '%s' AND plid = %d", 'node/' . $node->nid, $new_menu['plid']))) {
+      $new_menu['mlid']=$existing_item['mlid'];
+    }
+    if (!menu_link_save($new_menu)) {
+      drupal_set_message(t('There was an error saving the auto-menu link.'), 'error');
+    }
+    //continue;
+
+    // create data node
+    $type = $sheet['content_type'];
+    $first_data_col = lettercol2numericcol($sheet['first_data_col']);
+    $field_name_row = $sheet['field_name_row'];
+    $title_col = lettercol2numericcol($sheet['title_col']);
+    $title_col_2 = lettercol2numericcol($sheet['title_col_2']);
+    $body_col = lettercol2numericcol($sheet['body_col']);
+    $title_drupal_field = $sheet['title_drupal_field'];
+    $title_2_drupal_field = $sheet['title_2_drupal_field'];
+    $body_drupal_field = $sheet['body_drupal_field'];
+    $last_data_col = lettercol2numericcol($sheet['last_data_col']);
+    $first_data_row = $sheet['first_data_row'];
+    $skip_flag_col = lettercol2numericcol($sheet['skip_flag_col']);
+    $col_title_row = $first_data_row - 1;
+    $data_sheet = $sheet['data_sheet'];
+    $field_names = Array();
+    $ori_col_titles = array();
+    $mapping_field_names = array();
+    // add type as nhpid_data_node type
+    nhpid_set_data_node_type($type);
+    //drupal_set_message(nhpid_api_dump("$first_data_row, $type, $title_col", 'purple', TRUE));
+    //drupal_set_message(nhpid_api_dump($sheet['numRows'], 'purple', TRUE));
+
+    // save title drupal field and body drupal field as drupal variables, for using to generating node title and body automatically
+
+    variable_set($type . "_title_field1", $title_drupal_field? trim($field_name_root . $title_drupal_field, $multi_code_valued_field_mark): '');
+    variable_set($type . "_title_field2", $title_2_drupal_field? trim($field_name_root . $title_2_drupal_field, $multi_code_valued_field_mark) : '');
+    variable_set($type . "_body_field", $body_drupal_field? trim($field_name_root . $body_drupal_field, $multi_code_valued_field_mark) : '');
+
+    // mapping workflow to type
+    $workflow ="NHPID Data Workflow";
+    _map_workflow_type($workflow, $node_type);
+
+    // grant content_type permisssions
+    grant_content_type_permissions($node_type);
+
+    // render filed name
+    for ($j = $first_data_col; $j <= $last_data_col; $j++) {
+  		$field_name = $data_sheet -> getCellByColumnAndRow($j,$field_name_row) -> getCalculatedValue();
+  		$ori_col_title = $data_sheet -> getCellByColumnAndRow($j,$col_title_row) -> getCalculatedValue();
+      if (trim($field_name))
+      {
+  		  $field_names[$field_name_root . $field_name] = $j;
+  		  $ori_col_titles[$field_name_root . trim($field_name, $multi_code_valued_field_mark)] = $ori_col_title;
+  		  $mapping_field_names[$field_name_root . trim($field_name, $multi_code_valued_field_mark)] = $field_name;
+  		}
+  	}
+  	
+  	/** update excel_drupal_filed_mapping table
+     **/
+     $sql = "delete from excel_drupal_field_mapping  where node_type = '$type'";
+
+     //$sql = "insert into excel_drupal_field_mapping  (node_type, drupal_field_name, excel_field_name) values ('$type', 'field_$field_name', '$ori_col_title' ) ON DUPLICATE KEY UPDATE excel_field_name ='$ori_col_title'";
+     //nhpid_api_dump($sql);
+     db_query($sql)  or die ('Query failed: ' . db_error() . " \n" . $sql . "\n");
+     $i = 0;
+     foreach ($ori_col_titles as $field_name => $ori_col_title){
+        $sql = "insert into {excel_drupal_field_mapping}  (node_type, drupal_field_name, excel_field_name, col_order, data_group_title, data_group_type, data_form_title, data_form_type, mapping_field_name) values ('%s', '%s', '%s', %d, '%s', '%s', '%s', '%s', '%s' ) ON DUPLICATE KEY UPDATE excel_field_name ='%s', col_order= %d";
+        //drupal_set_message(placeholder_query_2_normal_query($sql, $type, "field_$field_name", $ori_col_title, $i, $ori_col_title, $i));
+        $mapping_field_name = $mapping_field_names[$field_name];
+        db_query($sql, $type, $field_name, $ori_col_title, $i, $dataform_grp_title, $dataform_grp_content_type, $dataform_title, $dataform_content_type, $mapping_field_name, $ori_col_title, $i)  or die('Query failed: ' . db_error() . " \n" . $sql . "\n");   
+        $i ++;   
+     }   
+     
+     
+    
+    //print_r ($field_names);
+    // delete existing data
+    //delete_all_nodes_by_type($type); // moved to batch operation clear_up_nhpid_node_data
+    //********* reader data
+
+
+    $empty_row_count = 0;
+    for ($i = $first_data_row; $i <= $sheet['numRows']; $i++){
+      $flexi_dependency_fields = array();
+      $dependencies = array();
+      $other_dependencies = array();
+      if (!trim(($data_sheet -> getCellByColumnAndRow($skip_flag_col,$i) -> getCalculatedValue()))){
+        $fields = Array();
+        $title = trim($data_sheet -> getCellByColumnAndRow($title_col,$i) -> getCalculatedValue());
+        $title_2 = trim($data_sheet -> getCellByColumnAndRow($title_col_2,$i) -> getCalculatedValue());
+        if ($title_2)
+        {
+          $title = $title . '_' . $title_2;
+        }
+        $title = ascii2utf8($title);
+        //dump("title: $title, $i, ");
+        //drupal_set_message(nhpid_api_dump("title: $title, $i, ", 'purple', TRUE));
+        $body;
+        if ($body_col)
+        {
+          $body = trim($data_sheet -> getCellByColumnAndRow($body_col,$i) -> getCalculatedValue());
+        }
+        $body = ascii2utf8($body);
+        //print "$type: $title: $body <br>\n";
+        foreach ($field_names as $field_name => $col_num){
+          //dump($field_name);
+          //$value = trim($data_sheet -> getCellByColumnAndRow($col_num,$i) -> getCalculatedValue());
+          $node_field_name = '';
+          $cell = $data_sheet -> getCellByColumnAndRow($col_num,$i);
+          $value = trim($cell -> getCalculatedValue());
+          ## change checked 'x' to 'X' for check columns such as preparation code in preparation group sheet
+          if ($value == 'x') $value ='X';
+          $is_DateTime =  nhpid_excel_data_is_date($cell); //PHPExcel_Shared_Date::isDateTime($cell);
+          //nhpid_api_dump ($is_DateTime);
+          //nhpid_api_dump (PHPExcel_Shared_Date::isDateTime($data_sheet -> getCellByColumnAndRow($col_num,$i)));
+
+          //print "$field_name: $value <br>\n";
+          $values = Array();
+          $splits = Array();
+          if (substr($field_name,-1,1)==$multi_code_valued_field_mark) // field value is multi-codes;
+          {
+            $field_name = trim($field_name, $multi_code_valued_field_mark);
+            //dump($field_name);
+            
+            $splits = Array();
+            $splits = parse_multi_valued_field($value);
+            //nhpid_api_dump($splits, 'red');
+          }
+          
+          else
+          {
+            $splits[] = $value;
+          }
+          foreach ($splits as $val)
+          {
+            $val = ascii2utf8(trim($val));
+            
+            //nhpid_api_dump($field_name, 'blue', false);
+            switch($field_name){
+              case 'field_its_ids':
+                $values[] =array('title' => $val); // cck link type used 'title' instead 'value'.
+                $node_field_name = $field_name;
+                break;
+              // dependency fields are parsed to two fields: field_xxx_depencey and other_dependency.
+              // field field_com_xxx_dependency is a computed field used to export data
+              case 'field_com_duration_dependency':
+              case 'field_com_dose_dependency':
+              case 'field_com_use_dependency':
+              case 'field_com_risk_dependency':
+              case 'field_com_for_use_dependency':
+                $flexi_field_name = '';
+                $flexi_node_type ='';
+                $flexi_node_dependency_field_name = "";
+                switch ($field_name){
+                  case 'field_com_duration_dependency':
+                    $flexi_field_name = 'field_flexi_duration_dependency';
+                    $flexi_node_type ='flexi_duration_dependency';
+                    $flexi_node_dependency_field_name = "field_duration_dependency";
+                    break;
+                  case 'field_com_dose_dependency':
+                    $flexi_field_name = 'field_flexi_dose_dependency';
+                    $flexi_node_type ='flexi_dose_dependency';
+                    $flexi_node_dependency_field_name = "field_dose_dependency";
+                    break;
+                  case 'field_com_use_dependency':
+                    $flexi_field_name = 'field_flexi_use_dependency';
+                    $flexi_node_type ='flexi_use_dependency';
+                    $flexi_node_dependency_field_name = "field_use_dependency";
+                    break;
+                  case 'field_com_risk_dependency':
+                    $flexi_field_name = 'field_flexi_risk_dependency';
+                    $flexi_node_type ='flexi_risk_dependency';
+                    $flexi_node_dependency_field_name = "field_risk_dependency";
+                    break;
+                  case 'field_com_for_use_dependency':
+                    $flexi_field_name = 'field_flexi_dir_4_use_dependency';
+                    $flexi_node_type ='flexi_dir_for_use_dependency';
+                    $flexi_node_dependency_field_name = "field_for_use_dependency";
+                    break;
+                }
+                
+                if (stristr ($val, 'OTHER-')){
+                  $other_dependencies[]  = array('value' => $val);
+                  //nhpid_api_dump($val, 'red');
+                  
+                }
+                else
+                {
+                  $dependencies[]  = array('value' => $val);
+                }
+                $flexi_dependency_fields[$flexi_field_name]['type']=$flexi_node_type;
+                $flexi_dependency_fields[$flexi_field_name]['value'][$flexi_node_dependency_field_name]=$dependencies;
+                $flexi_dependency_fields[$flexi_field_name]['value']['field_other_dependency']=$other_dependencies;
+                //nhpid_api_dump($flexi_dependency_fields, 'red');
+                $values[0] = $flexi_dependency_fields[$flexi_field_name];
+                $node_field_name = $flexi_field_name;
+                break;
+              // two-part fields (fields contain a free-text part and multivalued code part in format: free-text[CODE[;CODE;...]])
+              // The data are parsed to flexi_fields 
+              // node: square braket '[]' is part of cheimical names
+              case 'field_com_chem_mn_sc_org_parts':
+
+                $flexi_field_name = 'field_flexi_chem_mn_sc_org_part';
+                $flexi_type = 'flexi_chem_mon_src_org_org_part';
+                $flexi_org_name_field_name = 'field_org_or_org_group_name';
+                $flexi_part_field_name = 'field_single_org_part';
+                $flexi_code_field_name = 'field_mono_citation';
+                
+                $code_part_delimiter_pos = strrpos($val, '[');
+                $free_text = substr($val, 0, $code_part_delimiter_pos );
+                $dash_pos = strrpos($free_text, '-');
+                $org_name = trim(substr($free_text,0, $dash_pos));
+                $part = trim(substr($free_text,$dash_pos+1));
+                $codes = array();
+                $codes = explode(';', trim(substr($val, $code_part_delimiter_pos + 1), ']'));
+                $flexi_item = array();
+                $flexi_item['type'] = $flexi_type;
+                $flexi_value = array();
+                $flexi_value[$flexi_org_name_field_name][0]['value'] = $org_name;
+                $flexi_value[$flexi_part_field_name][0]['value'] = $part;
+                $flexi_codes = array();
+                foreach ($codes as $code){
+                  $flexi_codes[] = array('value' => $code);
+                }
+                $flexi_value[$flexi_code_part_name] = $flexi_codes;
+                $flexi_item['value'] = $flexi_value;
+                $values[] = $flexi_item;
+                $node_field_name = $flexi_field_name;
+                //nhpid_api_dump($values, 'purple');
+
+                break;
+              case 'field_com_chem_mon_src_ad_scs_e':
+              
+              case 'field_com_chem_mon_src_ad_scs_f':
+              switch ($field_name){
+                case 'field_com_chem_mon_src_ad_scs_e':
+                  $flexi_field_name = 'field_flexi_chem_mon_src_ad_sc_e';
+                  $flexi_type = 'flexi_chem_mon_src_add_srcs';
+                  $flexi_free_text_part_name = 'field_sources';
+                  $flexi_code_part_name = 'field_mono_citation';
+                  break;
+                case 'field_com_chem_mon_src_ad_scs_f':
+                  $flexi_field_name = 'field_flexi_chem_mon_src_ad_sc_f';
+                  $flexi_type = 'flexi_chem_mon_src_add_srcs';
+                  $flexi_free_text_part_name = 'field_sources';
+                  $flexi_code_part_name = 'field_mono_citation';
+                  break;
+                }
+                $code_part_delimiter_pos = strrpos($val, '[');
+                
+                $free_text = trim(substr($val, 0, $code_part_delimiter_pos ));
+                $sources = array();
+                $flexi_sources = array();
+                $sources = explode('/',$free_text);
+                $dash_pos = strrpos($free_text, '-');
+                $codes = array();
+                $codes = explode(';', trim(substr($val, $code_part_delimiter_pos + 1), ']'));
+                $flexi_item = array();
+                $flexi_item['type'] = $flexi_type;
+                $flexi_value = array();
+                $flexi_value[$flexi_org_name_field_name][0]['value'] = $org_name;
+                $flexi_value[$flexi_part_field_name][0]['value'] = $part;
+                $flexi_codes = array();
+                foreach ($codes as $code){
+                  $flexi_codes[] = array('value' => $code);
+                }
+                foreach ($sources as $src){
+                  $flexi_sources[] = array('value' => $src);
+                }
+                $flexi_value[$flexi_code_part_name] = $flexi_codes;
+                $flexi_value[$flexi_free_text_part_name ] = $flexi_sources;
+                $flexi_item['value'] = $flexi_value;
+                $values[] = $flexi_item;
+                $node_field_name = $flexi_field_name;
+                break;
+              case 'field_com_common_names':
+              case 'field_com_proper_names':
+              case 'field_com_cas_numbers':
+              case 'field_com_synonyms_e':
+              case 'field_com_synonyms_f':
+              case 'field_com_taxa':
+              
+              case 'field_com_common_names_e':
+              case 'field_com_common_names_f':
+              case 'field_com_proper_names_e':
+              case 'field_com_proper_names_f':
+              
+              
+              case 'field_com_chem_mon_src_adt_ings':
+              case 'field_com_chem_mon_src_ings':
+              case 'field_com_org_mono_src_parts':
+              
+              
+              case 'field_com_excluded_list':
+              case 'field_com_included_list':
+                
+                switch ($field_name){
+                  // flexi fields using flexi_with_code_ref
+                  case 'field_com_common_names':
+                    $flexi_field_name = 'field_flexi_common_name';
+                    $flexi_type = 'flexi_with_code_ref';
+                    $flexi_free_text_part_name = 'field_free_text_part';
+                    $flexi_code_part_name = 'field_code_ref_code';
+                    break;
+                  case 'field_com_proper_names':
+                    $flexi_field_name = 'field_flexi_proper_name';
+                    $flexi_type = 'flexi_with_code_ref';
+                    $flexi_free_text_part_name = 'field_free_text_part';
+                    $flexi_code_part_name = 'field_code_ref_code';
+                    break;
+                  case 'field_com_cas_numbers':
+                    $flexi_field_name = 'field_flexi_cas_number';
+                    $flexi_type = 'flexi_with_code_ref';
+                    $flexi_free_text_part_name = 'field_free_text_part';
+                    $flexi_code_part_name = 'field_code_ref_code';
+                    break;
+                  case 'field_com_synonyms_e':
+                    $flexi_field_name = 'field_flexi_synonym_e';
+                    $flexi_type = 'flexi_with_code_ref';
+                    $flexi_free_text_part_name = 'field_free_text_part';
+                    $flexi_code_part_name = 'field_code_ref_code';
+                    break;
+                  case 'field_com_synonyms_f':
+                    $flexi_field_name = 'field_flexi_synonym_f';
+                    $flexi_type = 'flexi_with_code_ref';
+                    $flexi_free_text_part_name = 'field_free_text_part';
+                    $flexi_code_part_name = 'field_code_ref_code';
+                    break;
+                  case 'field_com_taxa':
+                    $flexi_field_name = 'field_flexi_taxon';
+                    $flexi_type = 'flexi_with_code_ref';
+                    $flexi_free_text_part_name = 'field_free_text_part';
+                    $flexi_code_part_name = 'field_code_ref_code';
+                    break;
+                  
+                  // flexi fields using flexi_with_mono_citations
+                  case 'field_com_common_names_e':
+                    $flexi_field_name = 'field_flexi_common_name_e';
+                    $flexi_type = 'flexi_free_text_mono_citation';
+                    $flexi_free_text_part_name = 'field_free_text_part';
+                    $flexi_code_part_name = 'field_mono_citation';
+                    break;
+                  case 'field_com_common_names_f':
+                    $flexi_field_name = 'field_flexi_common_name_f';
+                    $flexi_type = 'flexi_free_text_mono_citation';
+                    $flexi_free_text_part_name = 'field_free_text_part';
+                    $flexi_code_part_name = 'field_mono_citation';
+                    break;
+                  case 'field_com_proper_names_e':
+                    $flexi_field_name = 'field_flexi_proper_name_e';
+                    $flexi_type = 'flexi_free_text_mono_citation';
+                    $flexi_free_text_part_name = 'field_free_text_part';
+                    $flexi_code_part_name = 'field_mono_citation';
+                    break;
+                  case 'field_com_proper_names_f':
+                    $flexi_field_name = 'field_flexi_proper_name_f';
+                    $flexi_type = 'flexi_free_text_mono_citation';
+                    $flexi_free_text_part_name = 'field_free_text_part';
+                    $flexi_code_part_name = 'field_mono_citation';
+                    break;
+                 
+                  
+                  case 'field_com_chem_mon_src_adt_ings':
+                    $flexi_field_name = 'field_flexi_chem_mon_src_adt_ing';
+                    $flexi_type = 'flexi_chem_mon_src_ing';
+                    $flexi_free_text_part_name = 'field_flexi_approved_ing_name';
+                    $flexi_code_part_name = 'field_mono_citation';
+                    break;
+                  case 'field_com_chem_mon_src_ings':
+                    $flexi_field_name = 'field_flexi_chem_mon_src_ing';
+                    $flexi_type = 'flexi_chem_mon_src_ing';
+                    $flexi_free_text_part_name = 'field_flexi_approved_ing_name';
+                    $flexi_code_part_name = 'field_mono_citation';
+                    break;
+                  case 'field_com_org_mono_src_parts':
+                    $flexi_field_name = 'field_flexi_org_mon_src_part';
+                    $flexi_type = 'flexi_chem_mon_src_ing';
+                    $flexi_free_text_part_name = 'field_free_text_part';
+                    $flexi_code_part_name = 'field_mono_citation';
+                    break;
+                  
+                  // flexi fields using flexi_for_org_group
+                  case 'field_com_excluded_list':
+                    $flexi_field_name = 'field_flexi_excluded_item';
+                    $flexi_type = 'flexi_for_org_group';
+                    $flexi_free_text_part_name = 'field_taxonomical_name';
+                    $flexi_code_part_name = 'field_taxonomical_node';
+                    break;
+                  case 'field_com_included_list':
+                    $flexi_field_name = 'field_flexi_included_item';
+                    $flexi_type = 'flexi_for_org_group';
+                    $flexi_free_text_part_name = 'field_taxonomical_name';
+                    $flexi_code_part_name = 'field_taxonomical_node';
+                    break;
+                
+                }
+                $code_part_delimiter_pos = strrpos($val, '[');
+                $free_text = substr($val, 0, $code_part_delimiter_pos );
+                $codes = array();
+                $codes = explode(';', trim(substr($val, $code_part_delimiter_pos + 1), ']'));
+                $flexi_item = array();
+                $flexi_item['type'] = $flexi_type;
+                $flexi_value = array();
+                $flexi_value[$flexi_free_text_part_name][0]['value'] = $free_text;
+                $flexi_codes = array();
+                foreach ($codes as $code){
+                  $flexi_codes[] = array('value' => $code);
+                }
+                $flexi_value[$flexi_code_part_name] = $flexi_codes;
+                $flexi_item['value'] = $flexi_value;
+                $values[] = $flexi_item;
+                $node_field_name = $flexi_field_name;
+                //nhpid_api_dump($values, 'purple');
+                break;
+              case 'field_date':
+              case 'field_website_access_date':
+              case 'field_work_date':
+                $date_value = null;
+                if ($value){
+                  if (is_numeric($value)) $value = PHPExcel_Shared_Date::ExcelToPHP($value); // from Excel date to PHP date
+                  $dateObj = new Date($value);
+                  $dateObj -> setTZbyID('EST');
+                  //$dateObj -> addSeconds(18000); //Not quite understood why. when convert timestamp to date, the date is alway 5 hrs earlier than expected. Got the same results using different data/time package and an online tool: http://www.epochconverter.com/
+                 
+                  $dateObj -> convertTZByID('UTC'); // Drupal stores date/time as UTC
+                  //nhpid_api_dump($dateObj -> getTime());
+                  $date_value = $dateObj -> getTime();
+                }
+                
+                $values[] = array('value' => $date_value);
+                $node_field_name = $field_name;
+                break;
+              case 'field_com_subingredient_sources':
+                $flexi_field_name = 'field_flexi_subingredient_source';
+                $flexi_type = 'flexi_subingredient_source';
+                $flexi_org_name_field_name = 'field_org_or_org_group_name';
+                $flexi_part_field_name = 'field_single_org_part';
+                $flexi_item = array();
+                $dash_pos = strrpos($val, '-');
+                $org_name = trim(substr($val,0, $dash_pos));
+                $part = trim(substr($val,$dash_pos+1));
+                $flexi_item['type'] = $flexi_type;
+                $flexi_value = array();
+                $flexi_value[$flexi_org_name_field_name][0]['value'] = $org_name;
+                $flexi_value[$flexi_part_field_name][0]['value'] = $part;
+                
+                $flexi_item['value'] = $flexi_value;
+                $values[] = $flexi_item;
+                $node_field_name = $flexi_field_name;
+                //nhpid_api_dump($values, 'purple');
+                break;
+              default:
+                $values[] = array('value' => $val);
+                $node_field_name = $field_name;
+            }
+    
+          }
+          if ($other_dependency_values) $fields['field_other_dependency'] = $other_dependency_values;
+          $fields[$node_field_name] = $values;
+ 
+        }
+        //nhpid_api_dump('fields:', 'red', false);
+        //nhpid_api_dump($fields, 'blue', false);
+        if ($title){
+          $empty_row_count = 0;
+        }
+        else {
+          $empty_row_count ++;
+        }
+
+        if ($empty_row_count > 3) break; // if three empty rows in row, stop reading sheet.
+        if ($title){
+          $data_node = _loaddata($message, $fields, $type, $title, $body, 1, $user_uid, 0, 2 );
+          //$message = $message . nhpid_api_dump('data node', 'red', TRUE);
+          //$message = $message . nhpid_api_dump($data_node, 'red', TRUE);
+          if ($re_indexing) nhpid_api_index_node($data_node);
+          unset($data_node);
+        }
+        else {
+          //print "$type: No title. Cannot load data.<br>";
+          //print "<pre>";
+          //print_r ($fields);
+          //reset ($fields);
+          //print "</pre>";
+        }
+        //nhpid_api_dump( "Memory usage is: " . memory_get_usage(), 'purple', false);
+      }
+      unset($flexi_dependency_fields);
+      unset($dependencies);
+      unset($other_dependencies);
+      unset($fields);
+      unset($values);
+      unset($splits);
+    }
+
+    // Monograph url appendices
+    if ($type == 'mono_monograph')
+    {
+      //read_monograph_appendices($file_path);
+    }
+    //nhpid_api_dump( "Memory usage is: " . memory_get_usage(), 'purple', false);
+  }
+}
+
+function _loaddata(&$message, $fields, $type, $title, $body, $status=1, $uid=1, $promote=0, $comment=0,$format=0, $revision = TRUE, $parent= NULL, $parent_menu=NULL, $nh_children_view = NULL, $teaser = NULL) {
+
+    //check if node exits
+    //dump ("Uid: $uid");
+    //return;
+    drupal_set_message(nhpid_api_dump ("Loading $type: $title", "green", TRUE));
+    $message = $message . nhpid_api_dump ("Loading $type: $title", "green", TRUE);
+    $nid = get_node_nid($title, $type);
+    //print "$type Is unique:" . nhpid_api_is_unique_node_type($type) . "<br>\n";
+    if ($nid and nhpid_api_is_unique_node_type($type))
+    {
+      $node = node_load(array("nid" => $nid));
+      return $node;
+    }
+    // ship nhpid menu nodes
+    $menu_node_types = array('list_records', 'nhpid_data_entry', 'nhpid_data_form', 'nhpid_data_form_group');
+    if ($nid and  in_array($type, $menu_node_types)) {
+      $node = node_load(array("nid" => $nid));
+      return $node;
+    }
+
+    //global $taxonomies, $rarray;
+
+    $mynode = array();
+    $mynode = (object)$mynode;
+    //$mynode['title'] = $title;
+    //$mynode['type'] = $type;
+    //$mynode['body'] = $body;
+    
+    $mynode -> title = $title;
+    $mynode -> type = $type;
+    $mynode -> body = $body;
+    //nhpid_api_dump($mynode, 'green', false);
+
+    //  published=1 or unpublished=0 content
+    //$mynode['status'] = $status;
+    $mynode -> status = $status;
+
+    //  uid is user id, the user id 1 being the id of the one who makes first id after
+    //  a drupal installation, uid 1 has all prvilleged, make sure your user id comes
+    //   with all privileges,preferably use userid 1 to save yourself from the hassle.
+    //$mynode['uid'] = $uid;
+    $mynode -> uid = $uid;
+
+    //  promote =0 doesn't promote the content to the front page
+    //  whereas promote=1 promotes the content to the front page
+    //$mynode['promote'] = $promote;
+    $mynode -> promote = $promote;
+
+    //  comment 0=off , comment 1=readonly, comment 2=allowed
+    //$mynode['comment'] = $comment;
+    $mynode -> comment = $comment;
+
+    //  inputformat, format=0 means Filtered HTML,format=1 means PHP code , format=2 means Full HTML
+    //$mynode['format'] = $format;
+    $mynode -> format = $format;
+    // Revision, TRUE/FALSE this is a new revision (if TRUE, will be saved as a separate entry in the database).
+    //$mynode['revision'] = $revision;
+    $mynode -> revision = $revision;
+
+    //parent
+    //dump("parent: $parent" );
+    if ($parent)
+    {
+      //$mynode['parent'] = $parent;
+      $mynode -> parent = $parent;
+    }
+
+    //teaser
+    if ($$teaser)
+    {
+      //$mynode['teaser'] = $teaser;
+      $mynode -> teaser = $teaser;
+    }
+
+    // nh_children_view
+    if ($nh_children_view)
+    {
+      //$mynode['nh_children_view'] = $nh_children_view;
+      $mynode -> nh_children_view = $nh_children_view;
+    }
+    // fields
+    if ($fields){
+      foreach ($fields as $key => $value)
+      {
+        // $mynode[$key] = $value;
+        if ($key) $mynode -> $key = $value;
+        //print "$key => $value <br>";
+      }
+      //nhpid_api_dump($fields, 'red', false);
+    }
+    //nhpid_api_dump($mynode, 'green', false);
+    //nhpid_api_dump($mynode, 'red', false);
+    //$mynode['is_new'] = true;
+    //***  Create the node and save it
+    //nhpid_api_dump($mynode, 'red', false);
+      $newnode = node_submit($mynode);
+      
+      $title = $mynode -> title; // title can be changed after submit based on auto_title_and auto_body settings
+      //drupal_set_message(nhpid_api_dump ($newnode, 'green', TRUE));
+      node_save($newnode);
+    // *********************workflow ***************************
+    $sql = "select wid from workflow_type_map where type like '$type'";
+    $result = db_query($sql);
+    $wid = db_fetch_array($result);
+    if ($wid['wid'])
+    {
+      $result = db_query("select sid from workflow_states where state like 'Published'");
+      $sid = db_fetch_array($result);
+      //set_workflow_state($newnode ->nid, $sid['sid'], $uid);
+      workflow_execute_transition($newnode, $sid['sid'], 'Initial data loading', true); ## module workflow function
+
+    }
+
+     // *********************** menu ***************************
+    if ($parent_menu)
+    {
+      add_menu($newnode, $parent_menu);
+    }
+    // ******************** comment *****************************
+    if ($comment != 0)
+    {
+	    Global $user;
+	    $comment_fields = array();
+			$comment_fields['values']['author'] = $user->name;
+			$comment_fields['values']['subject'] = "Data History";
+			$comment_fields['values']['comment'] = 'Initial data transfer';
+			$comment_fields['values']['nid'] = $newnode ->nid;
+			$comment_fields['values']['op'] = t('Save');
+			comment_form_submit("comment_form", $comment_fields);
+			unset($comment_fields);
+		}
+
+
+    //  Hack to get values from object to prove it really worked
+    //dump ($newnode, 'green');
+    $node = node_load(array("nid" => $newnode -> nid));
+
+
+    //if (false){
+    if (!$node) {
+        $message = $message . "WARNING - no object created";
+        drupal_set_message("WARNING - no object created");
+        //nhpid_api_dump("fields;", 'blue', false);
+        //nhpid_api_dump($fields, 'blue', false);
+        $message = $message . nhpid_api_dump("initial node object:", 'red', TRUE);
+        drupal_set_message(nhpid_api_dump("initial node object:", 'red', TRUE));
+        $message = $message . nhpid_api_dump($mynode, 'red', TRUE);
+        drupal_set_message(nhpid_api_dump($mynode, 'red', TRUE));
+        //nhpid_api_dump('Initial node object', 'green', false);
+        //nhpid_api_dump($o, 'green', false);
+        $message = $message . nhpid_api_dump('Saved node', 'purple', TRUE);
+        drupal_set_message(nhpid_api_dump('Saved node', 'purple', TRUE));
+        $message = $message . nhpid_api_dump($newnode, 'purple', TRUE);
+        drupal_set_message(nhpid_api_dump($newnode, 'purple', TRUE));
+    }
+    else {
+        $message = $message . "==> Created Node '" . $node -> nid . "' (" . $node ->title . ")";
+        //drupal_set_message("Created '" . $node -> nid . "' (" . $node ->title . ")");
+        
+        
+    }
+    $message = $message . nhpid_api_dump( "Memory usage is: " . round(memory_get_usage()/1048576, 6) . 'Mb', 'blue', TRUE);
+    //$message = $message . nhpid_api_dump( "Memory deployed is : " . ini_get('memory_limit'), 'blue', TRUE);
+    node_load(FALSE, NULL, TRUE);
+    unset($node);
+    unset($mynode);
+    return $newnode;
+
+}
+
+
+
+function clear_up_nhpid_node_data($message, $files, $i, $context) {
+  // Use the $context['sandbox'] at your convenience to store the
+  // information needed to track progression between successive calls.
+  //$message;
+  $sheets = readdata($files[$i], TRUE);
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['current_file'] = 0;
+    $context['sandbox']['max'] = count($sheets);
+  }
+   
+    foreach ($sheets as $sheet) {
+      $type = $sheet['content_type'];
+      $deleted = delete_all_nodes_by_type($type);
+      $message = $message . nhpid_api_dump("clear up old data...", 'purple', TRUE);
+      $message = $message . nhpid_api_dump("$deleted nodes of $type have been deleted.", 'purple', TRUE);
+
+      // Store some result for post-processing in the finished callback.
+      $context['results'][] = $file[$i] . ': ' . count($sheets);
+  
+      // Update our progress information.
+      $context['sandbox']['progress']++;
+      $context['sandbox']['current_file'] = 1;
+      $context['message'] = $message;
+    }
+  //drupal_set_message(nhpid_api_dump($context, 'purple', TRUE));  
+  // Inform the batch engine that we are not finished, 
+  // and provide an estimation of the completion level we reached.
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+
+}
+
+function rebuild_depended_node_relationship($message, $depending_node_type, $context) {
+  
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['max'] = 1;
+  }
+   
+  nhpid_rebuild_all_depended_node_relationships($depending_node_type);
+  $message = $message . nhpid_api_dump("Rebuilt depended node relationships to node type <em> $depending_node_type </em>", 'purple', TRUE);
+  drupal_set_message(nhpid_api_dump("Rebuilt depended node relationships to node type <em> $depending_node_type </em>", 'purple', TRUE));
+  // Store some result for post-processing in the finished callback.
+
+  // Update our progress information.
+  $context['sandbox']['progress']++;
+  $context['sandbox']['current_file'] = 1;
+  $context['message'] = $message;
+
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+
+}

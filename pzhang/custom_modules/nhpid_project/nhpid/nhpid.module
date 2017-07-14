@@ -1,0 +1,1365 @@
+<?php
+// $Id$
+define('NHPID_AUTO_WORKFLOW_MSG', 'Changed based on the NHPID dependency rule automatically by Drupal');
+define('BODY_DEFAULT', "You do not need to input anything. I'll generate a proper text later. If you change it to anything else, I will accept it.");
+define('TITLE_DEFAULT', "I will generate a meaningful title later. Whatever you enter here will be ignored.");
+define("SYSTEM_LOCK_VARIABLE", 'nhpiddms_system_lock');
+include_once('InFlect.php');
+
+
+function nhpid_cron(){
+ //delete older files in public folder
+ $folder = drupal_realpath("public://");
+ $files = nhpid_api_delete_older_files($folder, 5);
+ if ($files) watchdog('cron', 'The public file system has been cleaned up. The following files have been deleted: @files', array('@files' => implode(", ", $files) ));
+
+ // update calculated field values
+ nhpid_api_save_all_calculated_field_values(array(), true);
+ watchdog('cron', 'The calculated field values have been updated.');
+}
+function nhpid_init(){
+	//$path = drupal_get_path('module', 'assessment_central');
+	//drupal_add_css($path .'/nhpid.css');
+	//drupal_add_js($path .'/nhpid.js');
+	global $user;
+	if (!nhpid_system_lock_access()){
+	  drupal_set_message("Data exporting is in progress or the system is persistently locked. You are not allowed to edit contents nor to add new contents at this moment.", 'warning', false);
+	}
+  $locker_uid = variable_get(SYSTEM_LOCK_VARIABLE, null);
+	if ($locker_uid != 0){
+	  $email_link = null;
+    $release_link = null;
+	  if ($user->uid != $locker_uid){
+			$locker = user_load($locker_uid);
+			$locker_name = $locker -> name;
+	    if (user_access('access nhpid email') and $locker-> uid != $user -> uid) $email_link = l("Ask info", "nhpid_email/$locker_uid", array('attributes' => array('target' => '_blank')));
+	  }
+		else{
+	    $locker_name = 'you';
+		}
+    if (user_access('administer nhpid')){
+      $release_link = l("Release.", "admin/rule_management/lock_system", array('attributes' => array('target' => '_blank')));
+		}
+    drupal_set_message("<em>The system is locked persistently by $locker_name.</em></span> $email_link $release_link", 'warning', false);
+	}
+	###// Detects user's browser
+	$javascript_browser_name = 'if (navigator.appName.indexOf("Internet Explorer") != -1) {alert("I find that your browser is Microsoft Insternet Explorer, which may not be compatible to the settings of some Drupal themes. If you find that the content cannot be properly displayed, please change your theme or your browser, such as Chrome or Firefox.")};  ';
+
+	//if (!$user -> uid or (isset($user-> login) and isset($user -> timestamp) and $user-> login >= $user -> timestamp)) {
+	if (!$user -> uid){
+	  drupal_add_js($javascript_browser_name, 'inline');
+	}
+}
+function nhpid_node_view_alter(&$build){
+	// alter create new child list
+	$bundle = $build['#bundle'];
+  $links = get_add_node_links();
+	$link_str = null;
+	if(nhpid_api_is_a_nhpid_data_node_type($bundle) and is_array($links)){
+	  foreach ($links as $link) {
+	    $link_str = $link_str . l($link['link_text'], $link['link_url'], array('html' => true, 'attributes' => array('target' => '_blank'))) . ' ';
+	  }
+	}
+	$build['nodehierarchy_children_links']=$link_str? array(array('#children' => $link_str)): null;
+}
+/**
+* Implementation of hook_update_projects_alter().
+*
+* prevent the module field_reference to be updated, since it has been heavily hacked.
+*/
+function nhpid_update_projects_alter($projects){
+	unset($projects['field_reference']);
+}
+
+function nhpid_permission() {
+    return array(
+    'administer nhpid' => array(
+      'title' => t('Administer nhpid'), 
+      'description' => t(''),
+      ),
+    'access nhpid content' => array(
+      'title' => t('Access nhpid content'), 
+      'description' => t(''),
+      ),
+    
+    );
+} 
+
+function nhpid_menu_alter(&$items){
+  //drupal_set_message(nhpid_api_dump(&$items, 'red', TRUE));
+  //$items['node/%node/edit']['access callback']='_nhpid_node_access_callback';
+  //$items['node/%node/edit']['access arguments'] = array(1,'edit');
+ 
+  //$items['node/%node/revisions']['access callback']='_nhpid_node_access_callback';
+  //$items['node/%node/revisions']['access arguments'] = array(1,'revisions');
+   /* not working
+  $items['node/%node/revisions/%/delete']['access callback']='_nhpid_node_access_callback';
+  $items['node/%node/revisions/%/delete']['access arguments'] = array(1,'revisions');
+  $items['node/%node/revisions/%/revert']['access callback']='_nhpid_node_access_callback';
+  $items['node/%node/revisions/%/revert']['access arguments'] = array(1,'revisions');
+  */
+  //$items['node/%node/children']['access callback']='_nhpid_node_access_callback';
+  //$items['node/%node/children']['access arguments'] = array(1,'children');
+  //$items['node/%node/workflow']['access callback']='_nhpid_node_access_callback';
+  //$items['node/%node/workflow']['access arguments'] = array(1,'workflow');
+  //drupal_set_message(nhpid_api_dump(&$items, 'green', TRUE));
+
+}
+function nhpid_form_alter(&$form, &$form_state, $form_id) {
+  global $user;
+  $node_type = isset($form['#node'])? $form['#node']->type : '';
+  $form_id = $form['form_id']['#id'];
+  $pattern = '/edit\-(.+)\-node\-form/';
+  // add place holder to title
+	if (nhpid_is_a_data_node_type($node_type)){
+		$form['title']['#attributes']['placeholder'] = TITLE_DEFAULT;
+		$form['title']['#required'] = FALSE;
+	}
+	//delete any types which are not nhpid data types from type options
+	if ($form_id == 'edit-views-exposed-form'){
+		if ($form_state['view']-> name == 'workflow_summary' or $form_state['view']-> name == 'work_summary'){
+			$nhpid_data_types = get_all_nhpid_data_node_types();
+			$new_options = array();
+			$new_options['All'] = $form['type']['#options']['All'];
+			$new_options = array_merge($new_options, $nhpid_data_types);
+
+			$form['type']['#options']=$new_options;
+
+		}
+	}
+
+}
+
+
+/**
+* "After build" callback for node forms. Register the fields to alter.
+*/
+function nhpid_node_form_after_build($form_element, &$form_state) {
+
+  $node_type = $form_element['#node'] -> type;
+  $fields = get_node_type_field_name_title_mapping($node_type);
+  foreach ($fields as $key => $value) {
+    nhpid_node_form_element_alter_register($form_element, $key, $node_type);
+  }
+  return $form_element;
+}
+
+
+
+/**
+* Implementation of hook_node_form_element_alter().
+*/
+function nhpid_node_form_element_alter($name, &$element,  $node_type) {
+  /*** set rquired fields ***
+   * 'required' attribute is set globally by drupal. NHPID shared fields can be both required or non-required with different node types.
+   * this function sets the required attribute os node form dynamically based on variables 'nhpid_NODE TYPE_FIELD NAME_is_required', 
+   * which are manged by NHPID MAN     
+   */     
+		//drupal_set_message(nhpid_api_dump($name, 'green', TRUE));
+    //drupal_set_message(nhpid_api_dump($element, 'green', TRUE));
+	 /* not used
+  $variable_name = "nhpid_" . $node_type . '_' . $name . "_is_required";
+  $required = nhpid_is_nhpid_data_field_required($node_type, $name);
+  foreach (element_children($element) as $key) {
+    if (isset($element[$key]) && $element[$key]) {
+      
+      //*** Recurse through all children elements.
+      nhpid_node_form_element_alter($name, $element[$key],  $node_type);
+    }
+  }
+  
+  $pattern = '/field_(?!flexi).+_dependency/';
+  if ((isset($element[$key]['#field_name'])) && preg_match($pattern, $element[$key]['#field_name'])) {
+  
+  }
+  else {
+    $element['#required'] = $required;
+  }
+  */
+  /*** conditionally rquired field descriptions
+   */
+/*
+  $rules = nhpid_get_field_conditionally_requireness_fields($node_type);
+  $list = array();
+  if ($rules){
+    foreach($rules as $rule){
+      if(in_array($name, array_keys($rule['fields']))){
+        $list[] = $rule['label']. ' returns true.';;
+      }
+    }
+    //drupal_set_message(nhpid_api_dump($rules, 'green', TRUE));
+    if ($list){
+      $element['#description'] = "This field is conditionally required. It follows the following rules: <br>" . theme_item_list($list);
+    }
+  }*/
+  /*** clear cache_content, so that 
+   *
+   *
+   */
+  //cache_clear_all('content:', 'cache_content', true);        
+  
+}
+
+function nhpid_node_form_element_description_alter( $name, &$elements, $node_type) {
+  /*** conditionally rquired field descriptions
+   */
+
+  $rules = nhpid_get_field_conditionally_requireness_fields($node_type);
+  $list = array();
+  if ($rules){
+    foreach($rules as $rule){
+      if(in_array($name, array_keys($rule['fields']))){
+        $list[] = $rule['label'] . ' returns true.';
+      }
+    }
+  }
+  
+  //drupal_set_message(nhpid_api_dump($list, 'green', TRUE));
+        
+  if ($list){
+    
+    $des = "This field is conditionally required. It follows the following rules: " . theme_item_list($list);
+    $elements['#description'] = $des;
+    $field_info = content_fields($name, $noce_type);
+    if (!$field_info['multiple']) $elements[0]['value']['#description'] = $des;
+  }
+	// pluralize field label if it has multiple values
+  //drupal_set_message(nhpid_api_dump($elements, 'green', TRUE));
+
+}
+/**
+* Register a node form element for alteration by modules implementing the
+* hook_node_form_element_alter() hook.
+*/
+function nhpid_node_form_element_alter_register(&$elements, $name, $node_type) {
+  foreach (element_children($elements) as $key) {
+    if (isset($elements[$key]) && ((isset($elements[$key]['#name']) && $elements[$key]['#name'] == $name) || (isset($elements[$key]['#field_name']) && $elements[$key]['#field_name'] == $name) || (isset($elements[$key]['#group_name']) && $elements[$key]['#group_name'] == $name))) {
+      //drupal_set_message(nhpid_api_dump($elements[$key]['#name'], 'red', TRUE));
+      //drupal_set_message(nhpid_api_dump($key, 'red', TRUE));
+      //drupal_set_message(nhpid_api_dump($name, 'red', TRUE));
+      //drupal_set_message(nhpid_api_dump($elements[$key], 'green', TRUE));
+			foreach (module_implements('node_form_element_alter') as $module) {
+        //call_user_func_array($module .'_node_form_element_alter', array($name, &$elements[$key],  $node_type));
+        //call_user_func_array($module .'_node_form_element_description_alter', array($name, &$elements[$key],  $node_type));
+      }
+    }
+    else {
+      nhpid_node_form_element_alter_register($elements[$key], $name, $node_type);
+    }
+  }
+}
+function nhpid_node_form_element_alter_register_(&$elements, $name, $node_type) {
+  foreach (element_children($elements) as $key) {
+    if (isset($elements[$key]) && ((isset($elements[$key]['#name']) && $elements[$key]['#name'] == $name) || (isset($elements[$key]['#field_name']) && $elements[$key]['#field_name'] == $name))) {
+
+			foreach (module_implements('node_form_element_alter') as $module) {
+        call_user_func_array($module .'_node_form_element_alter', array($name, &$elements[$key],  $node_type));
+        call_user_func_array($module .'_node_form_element_description_alter', array($name, &$elements[$key],  $node_type));
+      }
+    }
+    else {
+      nhpid_node_form_element_alter_register($elements[$key], $name, $node_type);
+    }
+  }
+}
+/**
+ * Implementation of hook_form_FORM_alter
+ */
+function nhpid_form_node_form_alter(&$form, &$form_state, $form_id){
+  //drupal_set_message(nhpid_api_dump($user, 'green', TRUE));
+	//drupal_set_message(nhpid_api_dump($form, 'green', TRUE));
+  // *** Add javascript alert to remind user to update workflow state ****
+  if (isset($form['#node']->workflow_wid)){
+  	$form['actions']['submit']['#attributes'] = array('onclick' => 'return(confirm("I bet you did not forget to update workflow state. Continue?"))');
+	}
+	$form['revision_information']['#collapsed']=FALSE;
+  $form['revision_information']['#weight']=-100;
+	if (!user_access('bypass node access') && nhpid_api_is_a_nhpid_data_node_type($form['#node']->type)){
+		/*hide($form['menu']);
+    hide($form['comment_settings']);
+    hide($form['author']);
+    hide($form['options']);
+    hide($form['options']);
+    hide($form['body']);
+    hide($form['title']);
+    $form['title']['#printed']=TRUE;*/
+    $form['options']['#access']=false;
+    $form['author']['#access']=false;
+    $form['comment_settings']['#access']=false;
+    $form['title']['#access']=false;
+    $form['path']['#access']=false;
+    $form['nodehierarchy']['#access']=false;
+	}
+  //drupal_set_message(nhpid_api_dump($form, 'green', TRUE));
+}
+function nhpid_preprocess_field(&$vars) {
+  //drupal_set_message(nhpid_api_dump($vars, 'green', TRUE));
+	if (count($vars['items']) > 1) {
+			$inflect = new InFlect;
+      //drupal_set_message(nhpid_api_dump($vars['label'], 'green', TRUE));
+      
+			$vars['label'] = $inflect->pluralize($vars['label']);
+      $vars['element']['#title'] = $inflect->pluralize($vars['label']);
+      //drupal_set_message(nhpid_api_dump($vars['label'], 'red', TRUE));
+  }
+}
+function nhpid_node_access($node, $op, $account){
+  $node_access = node_node_access($node, $op, $account);
+	switch($op){
+		case 'update':
+    case 'create':
+			return nhpid_system_lock_access($account)? $node_access: NODE_ACCESS_DENY;
+		break;
+		default:
+		return NODE_ACCESS_IGNORE;
+	}
+}
+
+function nhpid_node_view($node,  $view_mode, $langcode){
+
+  //drupal_set_message(nhpid_api_dump($node, 'red', TRUE));
+  //*** Add node name to title to let users identify the node type easier. The added node name will not be saved.
+  if (is_nhpid_data_node_type($node -> type)) {
+    $node_name = get_node_name($node -> type) . ' (' . $node -> type .')';
+    
+    $workflow=workflow_get_workflow_states_by_sid(workflow_node_current_state($node))->state;
+    $node->content['workflow'] = array(
+      '#theme' => 'field',
+      '#weight' => -1,
+			'#field_type' =>'text',
+      '#title' => 'Current Workflow State',
+      '#label_display' => 'above',
+      '#formatter' => 'text_default',
+			'#items'=>array(array('value'=>$workflow, 'format'=>null, 'safe_value'=>$workflow)),
+			0=>array('#markup' =>$workflow),
+    );
+    $node->content['node_type'] = array(
+      '#theme' => 'field',
+      '#weight' => -2,
+			'#field_type' =>'text',
+      '#title' => 'Node Type',
+      '#label_display' => 'above',
+      '#formatter' => 'text_default',
+			'#items'=>array(array('value'=>$node_name, 'format'=>null, 'safe_value'=>$node_name)),
+			0=>array('#markup' =>$node_name),
+    );
+    //drupal_set_message(nhpid_api_dump($node->content, 'red', TRUE));
+  }
+  
+}
+function nhpid_node_prepare($node){
+  //drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));
+	global $user;
+  if (!is_nhpid_data_node_type($node -> type)) return;
+  #### force creating revisiion
+  $node -> revision = 1;           
+  /***
+   * If node is new (no title and body yet), set default title and body
+   */                 
+  //if (!(bool)(trim($node -> title)) and nhpid_is_a_data_node_type($node -> type)) $node -> title = TITLE_DEFAULT;
+  if (!$node -> body or !(bool)(trim(strip_tags($node -> body[$node->language][0]['value'])))) $node -> body[$node->language][0]['value'] = BODY_DEFAULT;
+
+  ## blocks edting nhpid menu struture nodes by users other than admin
+  $nhpid_menu_node_types = array("nhpid_data_entry", "list_records", "nhpid_data_form","nhpid_data_form_group", "fields_house");
+  
+  if (in_array($node -> type, $nhpid_menu_node_types) and $user -> uid != 1) {
+    if (!empty($_SESSION['messages']['status'])) {
+      foreach ($_SESSION['messages']['status'] as $key => $message) {
+        if (stristr($message, t('This document is now locked against simultaneous editing'))){
+          unset ($_SESSION['messages']['status'][$key]);
+        }
+      } 
+      if(module_exists('checkout')) checkout_release($node -> nid, $user -> uid);
+    }
+    drupal_set_message("You do not have permissions to edit this node nor to add a new node of this type.", 'error');
+    drupal_goto($_SERVER['HTTP_REFERER']);
+  }
+  
+  ## if exporting founction locks the system, prevent to edit or add node
+
+  if ($node->batch_upload == false){
+    if (!nhpid_system_lock_access()){
+      if (!empty($_SESSION['messages']['status'])) {
+        foreach ($_SESSION['messages']['status'] as $key => $message) {
+          if (stristr($message, t('This document is now locked against simultaneous editing'))){
+            unset ($_SESSION['messages']['status'][$key]);
+          }
+        }
+        if(module_exists('checkout')) checkout_release($node -> nid, $user -> uid);
+      }
+      drupal_set_message("Data exporting is in progress. The system is locked to prevent data from being changed. Please try it again a few moments later.", 'error');
+      drupal_goto( $_SERVER['HTTP_REFERER'] );
+    }
+	}
+}
+
+function nhpid_node_presave($node){
+ //*** generate title and body if not available
+ //drupal_set_message(nhpid_api_dump($node , 'brown', TRUE));
+ $type = $node -> type;
+  if (nhpid_is_a_data_node_type($type)) {
+    $title = nhpid_api_generate_node_title($node, 'nhpid');
+    If (title) {
+      $node -> title = $title;
+    }
+
+    If (!isset($node -> body[$node->language][0]['value']) or strip_tags($node -> body[$node->language][0]['value']) == BODY_DEFAULT) {
+      $node -> body[$node->language][0]['value'] = nhpid_api_generate_node_body($node, 'nhpid');
+    }
+    //drupal_set_message(nhpid_api_dump($title , 'brown', TRUE));
+  }
+
+	
+  //*** add link url to the field field_its_ids. the url is set in the admin panel
+  $its_url = variable_get('nhpid_its_url', '');
+  if (property_exists($node, 'field_its_ids')) {
+    $index = 0;
+    foreach ($node -> field_its_ids[$node->language] as $its_id) {
+      if ($its_id['title'] and (!$its_id['url'] or $its_id['url'] == $its_url)) {
+        $url = $its_url . str_replace('#', '', $its_id['title']);
+        $node -> field_its_ids[$node->language][$index]['url'] = $url;
+      }
+      $index ++;
+    }
+  }
+
+  ## populate nonnhp_chemical and nonnhp_organism shared fields which nameing lists. Please refer to the function populate_non_nhp_node(&$node).
+  //drupal_set_message(nhpid_api_dump($node->type, 'red', TRUE));
+  $nonnhp_types = array('nonnhp_chemical', 'nonnhp_organism');
+  if (in_array($node -> type, $nonnhp_types))
+  {
+    #populate_non_nhp_node(&$node); # shared fields should not in non-nhp list
+  }
+
+  ## change formula file name to the ingredient name of the node
+  $chemical_types = array('naming_chemical');
+  if (in_array($node -> type, $chemical_types))
+  {
+    //drupal_set_message(nhpid_api_dump($node-> field_formula, 'red', TRUE));
+    if (is_array($node -> field_formula[0]) and $node -> field_formula[0]['filename']) {
+      $formala_field = $node -> field_formula[0];
+      $fid = $formala_field['fid'];
+      $old_basename = pathinfo($formala_field['filename'], PATHINFO_FILENAME);
+      $ext = pathinfo($formala_field['filename'], PATHINFO_EXTENSION);
+      $old_filepath = $formala_field['filepath'];
+      $path_parts = pathinfo($old_filepath);
+      $dirname = $path_parts['dirname'];
+
+
+      $new_basename = $node -> field_ingredient_name[0]['value'];
+      $new_filename = "$new_basename.$ext";
+      //drupal_set_message(nhpid_api_dump($new_basename, 'brown', TRUE));
+      $new_pathname = "$dirname/" .  nhpid_encode_special_filename_characters($new_basename) . ".$ext";
+      //drupal_set_message(nhpid_api_dump($new_pathname, 'brown', TRUE));
+      if ($formala_field['filepath']) $node  -> field_formula[0]['filepath'] = $new_pathname;
+      if ($formala_field['filename']) $node  -> field_formula[0]['filename'] = $new_filename;
+      if ($formala_field['destination']) {
+        $node  -> field_formula[0]['destination'] = $new_pathname;
+      }
+
+      //drupal_set_message(nhpid_api_dump($node-> field_formula, 'brown', TRUE));
+
+    $sql = "update {files} set filename = '%s', filepath = '%s' where fid = %d";
+    if (file_move($old_filepath, $new_pathname)) {
+      $result = db_query($sql, $new_filename, $old_filepath, $fid);
+      if (!$result) {
+          form_set_error('', "Formula uploading failed.");
+      }
+    }
+    }
+  }
+
+  ### list all duplicates
+  $duplicate_nids = nhpid_fetch_duplicate_node_nids ($node);
+  //drupal_set_message(nhpid_api_dump($duplicate_nids, 'red', TRUE));
+  $nid_links = array();
+  foreach ($duplicate_nids as $nid){
+    $nid_links[] = l($nid -> nid . '( ' . $nid -> type . ': ' . $nid -> title . ")",  "node/" . $nid -> nid, array('attributes' => array('target' => '_blank'), 'html' => array('html' => 'TRUE')));
+  }
+  if ($nid_links) drupal_set_message("There are " . count($nid_links) . " partially duplicate nodes to node you just edited (node type: " . $node -> type . ", node title: " . $node -> title . "). You may want to check/edit them. <br>" . theme_item_list($nid_links), $type = 'status', $repeat = FALSE);
+	### Populates field field_naming_ref
+	if (property_exists($node, 'field_approved_ingredient_name') && property_exists($node, 'field_naming_ref')){
+		$field_approved_ingredient_name = $node -> field_approved_ingredient_name[$node -> language][0];
+		if (property_exists($node, 'field_naming_ref')){
+			$node -> field_naming_ref[$node -> language][0]['target_id'] = $field_approved_ingredient_name['entity_id'];
+		}
+	}
+
+}
+
+function nhpid_node_insert($node){
+  if (!is_nhpid_data_node_type($node -> type)) return;
+  ### build_depended_node_relation
+  //nhpid_build_depended_node_relationship($node);
+  ### index the node
+  //drupal_set_message(nhpid_api_dump("ara: " . arg(0) . '-' .  arg(1) , 'brown', TRUE));
+  $arg = arg(0) . '-' .  arg(1);
+  if ($arg == 'node-add') nhpid_api_index_node($node); // do index only for manually added node. skip indexing for batch data loading.
+}
+function nhpid_node_delete($node){
+  if (!is_nhpid_data_node_type($node -> type)) return;
+  ## delete depended node relationships
+  //nhpid_delete_depended_node_relationship($node);
+	## delete saved calculated field values
+  nhpid_api_delete_calculated_field_values($node->nid);
+
+}
+
+function nhpid_node_update($node){
+  if (!is_nhpid_data_node_type($node -> type)) return;
+  
+   //if ($links) drupal_set_message("Data you just edited (node type: " . $node -> type . ", node title: " . $node -> title . ") affects the following fields. I have tried to update them. Please check if the updated nodes are correct and <strong>EDIT</strong> ones not updated successfully manually as soon as possible:<br>" . theme_item_list($links), $type = 'status', $repeat = FALSE);
+   //if ($warning_links) drupal_set_message("The workflow state of the node(node type: " . $node -> type . ", node title: " . $node -> title . ") you just edited has been changed from <em>$old_depended_node_workflow_state</em> to <em>$new_depended_node_workflow_state</em>. The following nodes are depending on this node. Please update their workflow states if required. <br> " . theme_item_list($warning_links), $type = 'status', $repeat = FALSE);
+  // re-index the node
+  nhpid_api_index_node($node);
+   ### rebuild_depended_node_relation
+  //nhpid_build_depended_node_relationship($node);
+  ### save field_collection calcualted value
+  //hpid_api_get_calculated_field_values($node);
+}
+
+function nhpid_node_validate($node, $form, &$form_state){
+
+	## skip non-nhpid node types
+	if (!nhpid_api_is_a_nhpid_data_node_type($node -> type)) return;
+	$old_errors = form_get_errors();
+	if (!empty($old_errors)){
+		return; // If there are errors detected by other modules, skip error checking
+	}
+	$node = (object)$form_state['values'];
+
+	## get all field names
+	$field_names = array_keys(get_node_type_field_name_title_mapping($node->type));
+	foreach($field_names as $field_name) {
+    $field_type = nhpid_api_get_field_type($field_name);
+		if ($field_type == 'field_reference'){
+	    $items = nhpid_api_field_get_items($node, $field_name);
+			foreach($items as $delta=>$item){
+				if ($item['field_key'] and preg_match('/node:\d+$/', $item['field_key'])){
+					$items[$delta] = field_reference_key_read($item['field_key']);
+				}
+				else{
+          unset($items[$delta]);
+				}
+			}
+			$node ->{$field_name}[$node-> language]=$items;
+		}
+		else if ($field_type == 'field_collection'){
+		$fc_fields = field_info_instances('field_collection_item', $field_name);
+		$items = nhpid_api_field_get_items($node, $field_name);
+			foreach($items as $delta=>$item){
+				foreach($fc_fields as $fc_field_name => $fc_field_info){
+					$fc_field_type = nhpid_api_get_field_type($fc_field_name);
+					if ($fc_field_type == 'field_reference'){
+						$fc_items = nhpid_api_field_get_items($item['entity'], $fc_field_name,'field_collection_item');
+
+						foreach($fc_items as $fc_delta=>$fc_item){
+							if ($fc_item['field_key'] and preg_match('/node:\d+$/', $fc_item['field_key'])){
+								$fc_items[$fc_delta] = field_reference_key_read($fc_item['field_key']);
+							}
+							else{
+								unset($fc_items[$fc_delta]);
+							}
+						}
+						$node ->{$field_name}[$node-> language][$delta][$fc_field_name][$node-> language]=$fc_items;
+
+					}
+				}
+			}
+		}
+	}
+	
+
+        ### If data is exporting, lock system to prevent data from changed
+        global $user;
+        if (!nhpid_system_lock_access()){
+          form_set_error('', "Data exporting is in progress. The system is locked to prevent data from being changed. Please try it again a few moments later.");
+        }
+        /***
+         * The following validations are added to altered:
+         *  1. Node title generation. 
+         *      NHPID automattically generates a title (and body) for nodes. For generation title, drupal uses one or two fields of the node.
+         *      The title fields and boby field are administered through the admin panel.
+         *      If drupal cannot generate a title for a node. An error is evoked.
+         *               
+         *   2. Unique title, fields and node. 
+         *      Drupal checkes if a node tilte is duplicated and unique fields are duplicated for nodes set to unique.
+         *      Drupal checkes if a node is totally duplicated (all field except computed fields are duplicated) for all nodes. 
+         *      
+         *   3. Requiredness.
+         *      Drupal re-checkes the requiredness of fields due to the original requiredness validattion function fails to check flexifields.
+         *      
+         *   4. Length of fields.
+         *      Druapl checkes the length of all fields based on settings in the admin panel, which are based on NHPID database tables definstions                                                                                                      
+         */                 
+        
+        /***
+         * $errors: holder of all new errors. 
+         */                 
+        $errors = array();
+        $type = $node -> type;
+        /***
+         * Node title generation checking
+         */
+				$title = nhpid_api_generate_node_title($node, 'nhpid');
+
+        if (strlen($title) <= 0  and nhpid_is_a_data_node_type($node -> type)) {
+          $node_title_body_fields = variable_get("nhpid_title_body_fields_" . $node -> type, '');
+  				$title_field1= $node_title_body_fields['title_field1'];
+  				$title_field2= $node_title_body_fields['title_field2'];
+          $title_field1 = field_info_instance('node',$title_field1, $node -> type);
+          $title_field1_label = $title_field1['label'];
+          
+          $title_field_info = "Field $title_field1_label is used for the title. Please make sure it is filled.";
+          if ($title_field2) {
+            $title_field2 = field_info_instance('node',$title_field2, $node -> type);
+      			$title_field2_label = $title_field2['label'];
+            $title_field_info = "Fields  $title_field1_label and $title_field2_label are used for the title. Please make sure they are filled.";
+          }
+          $errors[] = array('field' => 'title', 'message' => t("Drupal cannot generate title for this node. $title_field_info" ));
+        }
+
+        /***
+         * Unique title and fields checking
+         */                 
+        if (nhpid_is_a_unique_node_type($type)) {
+          //$duplicate = db_result(db_query("SELECT nid FROM {node} WHERE type = '%s' AND title = '%s' AND nid <> %d LIMIT 1", $node->type, nhpid_api_generate_node_title($node), $node->nid));
+          $duplicate = db_query("SELECT nid FROM {node} WHERE type = :node_type AND title = :title AND nid <> :nid LIMIT 1", array(':node_type' => $node->type, ':title' => nhpid_api_generate_node_title($node, 'nhpid'), ':nid' => $node->nid)) -> fetchObject();
+
+          if ($duplicate) {
+            //*** since is most likely a duplicate, set an error so a duplicate isn't created
+            $errors[] = array('field' => 'title', 'message' => t('A duplicate title is found. This node must hava an unique title. This usually results from clicking the submit button more than once.' ));
+          }
+          
+          //*** unique fields
+          
+          foreach($field_names as $u_field) {
+			      if (nhpid_is_a_unique_field($u_field, $type)) {
+
+			        $field_value_field =  $u_field . '_value';
+			        //eval("\$u_field = \"$u_field\";");
+			        //drupal_set_message(nhpid_api_dump($node , 'brown', TRUE));
+			        if (property_exists($node, $u_field)){
+			          $field = $node -> $u_field;
+
+			          $value = isset($field[$node-> language][0]['value']) ? $field[$node-> language][0]['value'] : NULL;
+
+			          if ($value) {
+			            $sql = "SELECT entity_id FROM {field_data_$u_field} WHERE entity_type = 'node' AND bundle = :node_type And  language=:lang and field_data_$u_field.$field_value_field = :value AND entity_id != :nid LIMIT 1";
+			            $result = db_query($sql, array (':node_type' => $node->type,  ':lang' => $node -> language, ':value' => $value, ':nid' => $node->nid ? $node->nid: 0)) -> fetchObject();
+			            $duplicate = null;
+			            if ($result) $duplicate = $result -> entity_id;
+			            $field_info = field_info_instance('node', $u_field, $type);
+			            $field_label = $field_info['label'];
+
+			            if ($duplicate > 0) {
+			              $errors[] = array('field' => $u_field, 'message' => t("A duplicate <em>$field_label</em> is found. This field must be unique. This usually results from clicking the submit button more than once."));
+			            }
+			          }
+			        }
+
+			      }
+			    }
+        }
+       
+
+        /***
+         * Totally duplication node checking.
+         * A totally duplicated field is defined as a node contains duplicated title and all fields (except computed field).
+         * Compuated field's value is not assigned untill later stage, so they are should be excluded.                 
+         */
+				 /*
+        $nid = db_result(db_query("SELECT nid FROM {node} WHERE type = '%s' AND title = '%s' AND nid <> %d LIMIT 1", $node->type, nhpid_api_generate_node_title($node), $node->nid));
+  
+        $duplicated = TRUE;
+        
+        if ($nid) {
+          $existing_node = node_load(array(nid => $nid));
+          content_view($existing_node);
+          content_view($node);
+          //drupal_set_message(nhpid_api_dump($node, 'red', TRUE));
+          if (count($existing_node -> content) != count($node -> content)) {
+            $duplicated = FALSE;
+          }
+          else {
+            foreach ($existing_node -> content as $key => $value) {
+              $field = content_fields($value['field']['#field_name'], $value['field']['#type_name']);
+              if ($field['module'] != 'computed_field') {   // computed field's value is calculated at later stage
+                
+                $$existing_node_value = strip_tags(drupal_render($value));
+                $node_value = strip_tags(drupal_render($node -> content[$key]));
+                if ($$existing_node_value != $node_value) {
+                  $duplicated = FALSE;
+                  break;
+                  
+                }
+              }
+             }
+          }
+        }
+        else {
+          $duplicated = FALSE;
+        }
+        if ($duplicated) {
+          $errors[] = array('field' => '', 'message' => l("A duplicate node is found. ", "node/$nid", array('attributes' => array('target' => '_blank')), NULL, NULL, FALSE, TRUE) . "NHPID does not allow totally duplicated nodes. This usually results from clicking the submit button more than once.");
+        }*/
+        /***
+         * Field conditionally rquiredness checking
+         * The checking is based on nhpid business rule conditionally requiredness
+         *
+         *                           
+         */
+		
+        nhpid_get_field_conditionally_requireness_errors($node, $errors);
+		
+        /***
+         * Name dependency checking
+         * Rule: each common name must be in english synonyms plus english ingredient name 
+         *
+         *                           
+         */ 
+         
+        $node_types = array('naming_chemical','naming_protein',);
+        if (in_array($node -> type, $node_types)){
+          nhpid_get_name_fields_dependency_errors($node, $errors);
+        }
+        
+        
+        /***
+         * Field requiredness checking
+         * NHPID drupal uses dynamic requiredness settings. The requiredness settings of original drupal function are global. This mskes setting required and not required for chared fields in different nodes not possible.
+         * The requiredness is re-set through hook_node_field_alter implemented in this module.
+         * Since the original requiredness checking function cannot check fiexifields correctly. Re-checking requiredness must be re-done.
+         * Rules:
+         *  1.  For required simple fields, the fields must not be empty.
+         *  2.  For required compound fields (flexifields), the fields must not be empty and:
+         *    for _dependency fields, at least one sub field must not be empty,
+         *    for others fields, all sub fields must not be empty.
+         *  3. For not required compound fields which are not _dependency fields, all sub fields must be empty or filled.                                                                                
+         */  
+ 
+        $not_empty = array();
+        foreach($field_names as $u_field) {
+
+			$field = field_info_instance('node', $u_field, $type);
+          $field_label = $field['label'];
+          if ($field['display']['default']['module'] != 'computed_field') {
+
+            /***
+             * Field length checking
+             * The max allowed length of nhpid node fields are set through the nhpid admin tool panel
+             * If no allowed length for the field found, generates an error.
+             * Otherwise, finds any field is too long and generates erors
+             * For compound and multi-valued field, the length checking is single-value and singel_item based.
+             * The ckecking can be changed to total length based by using function nhpid_get_field_item_length_too_long_errors($value, $u_field, $field_label, $errors, $allowed_len)                                                                          
+             */
+
+            $allowed_len = nhpid_get_nhpid_data_field_allowed_length($type, $u_field);
+            //drupal_set_message(nhpid_api_dump("$variable_name: $allowed_len", 'red', TRUE));
+            if (empty($allowed_len)) {
+              $errors[] = array('field' => $u_field, 'message' => "No allowed max length for <em>$field_label</em> is found in NHPID Rules. Please report the issue to your head.");
+            }
+            nhpid_get_field_item_length_too_long_errors($node, $u_field, $field_label, $errors, $allowed_len);
+            /***
+             * Field leading or ending space checking
+             * No leading or ending space (use trim() default charset) will be allowed.
+             */  
+						//drupal_set_message(nhpid_api_dump( render(node_view($node), 'purple', TRUE)));
+            nhpid_get_field_item_leading_trailing_space_errors($node, $u_field, $field_label, $errors);
+						if ($u_field == 'field_fc_cas_number'){
+              nhpid_get_field_fc_cas_number_ref_errors($node, $u_field, $field_label, $errors);
+						}
+          }
+
+        }
+
+        /***
+         *  Reseting form errors
+         *  first, copy old errors to a holder
+         *  then, delete form errors and error messages,
+         *  then, reset old errors which is not a not-empty field.
+         *  last, set new errors                                    
+         */                 
+       //drupal_set_message(nhpid_api_dump($errors, 'red', TRUE));
+        foreach ($errors as $error) {
+          form_set_error($error['field'], $error['message']);
+        }
+  /* Enforce revision log message
+		check nhpid data nodes to be updated only
+	*/
+  //drupal_set_message(nhpid_api_dump($node, 'red', TRUE));
+	if (variable_get('nhpid_enforce_revision_log', 0)){
+    if ( (!$node->revision or empty($node->log)) and $node->op == $node->submit and $node->changed and nhpid_is_a_data_node_type($node -> type)) {
+      form_set_error('log', t(variable_get('nhpid_enforce_revision_log_log_warning_message', "Please enter the revision log message and check the 'Create new revision' checkbox.")));
+		}
+	}
+}
+function nhpid_get_field_fc_cas_number_ref_error($node, $u_field, $field_label, $errors){
+
+}
+
+function _nhpid_field_attach_validate($entity_type, $entity, &$errors) {
+  	/** Cas number reference rule
+	/* primary CAS number must have the reference CAS
+	/* additional CAS  numbers must have a reference other than CAS.
+	*/
+
+	if (property_exists($entity, 'field_fc_cas_number')){
+    //drupal_set_message(nhpid_api_dump($entity, 'blue', TRUE));
+
+		$values = nhpid_api_get_field_values($entity, 'field_fc_cas_number', array(), $entity->language, false, true);
+		$delta = 0;
+    drupal_set_message(nhpid_api_dump($values, 'blue', TRUE));
+		foreach ($values as $value){
+			if ($delta == 0 && $value == str_replace('[CAS]', '', $value)){
+				$message = "Only reference 'CAS' can be used in the reference part of CAS Number field";
+				$errors['field_fc_cas_number'][$entity->language][$delta]['field_code_ref_code']['und'][0][] = array('error' => 'nhpid', 'message' => $message);
+			}
+			$delta ++;
+		}
+	}
+
+}
+
+/**
+ *  hook theme
+ *  
+*/  
+
+
+function nhpid_theme() {
+  return array(
+    'nhpid_auto_title_form' => array(
+      'render element' => 'form',
+      'file' => 'nhpid_forms.inc',
+      ),
+
+    'nhpid_field_dependency_form_summary' => array(
+      'render element' => 'form',
+      'file' => 'nhpid_forms.inc',
+			'arguments' => array(
+        'form' => NULL, 
+        'saved_dependencies_unserialized' => 'testing',
+      ),
+    ),
+  );
+}
+/***
+ * hook_menu
+ */ 
+function nhpid_menu() {
+
+  $items = array();
+  
+  $root = 'admin/rule_management';
+  $items[$root] = array(
+    'title' => 'NHPID Rule Management',
+    'description' => 'Settings of NHPID Rules',
+    //'menu_name' => 'menu-nhpid-data-entry',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_rule_archive_form'),
+    'access arguments' => array('administer nhpid'),
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'nhpid_forms.inc',
+   );
+   $items[$root . '/archive'] = array(
+    'title' => 'Archive/restore rules',
+    'weight' => -11,
+    'access arguments' => array('administer nhpid'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_rule_archive_form'),
+    //'file' => 'workflow.admin.inc',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'file' => 'nhpid_forms.inc',
+  );
+
+  $items[$root . '/required_fields'] = array(
+    'title' => 'Required fields',
+    'weight' => -10,
+    'access arguments' => array('administer nhpid'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_required_field_form'),
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'nhpid_forms.inc',
+  );
+
+  $items[$root . '/conditionally_required_fields'] = array(
+    'title' => 'Conditionally required fields',
+    'weight' => -9,
+    'access arguments' => array('administer nhpid'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_conditionally_required_field_form'),
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'nhpid_forms.inc',
+  );
+
+  $items[$root . '/field_dependency'] = array(
+    'title' => 'Field dependency',
+    'weight' => -9,
+    'access arguments' => array('administer nhpid'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_field_dependency_form'),
+    'file' => 'nhpid_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+	/*
+  $items[$root . '/field_dependency_restrictions'] = array(
+    'title' => 'Field dependency Restrictions',
+    'weight' => -9,
+    'access arguments' => array('administer nhpid'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_field_dependency_restrictions_form'),
+    'file' => 'nhpid_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+	*/
+  $items[$root . '/field_length_limit'] = array(
+    'title' => 'Field length limit',
+    'weight' => -9,
+    'access arguments' => array('administer nhpid'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_field_length_limit_form'),
+    'file' => 'nhpid_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/its_url'] = array(
+    'title' => 'NHPID ITS link URL',
+    'weight' => -8,
+    'access arguments' => array('administer nhpid'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_its_url_form'),
+    'file' => 'nhpid_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/auto_title_body'] = array(
+    'title' => 'Automated node title and body',
+    'weight' => -7,
+    'access arguments' => array('administer nhpid'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_auto_title_form'),
+    'file' => 'nhpid_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+   $items[$root . '/unique_node_field'] = array(
+    'title' => 'Unique node types and fields',
+    'weight' => -6,
+    'access arguments' => array('administer nhpid'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_unique_node_field_form'),
+    'file' => 'nhpid_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/data_node'] = array(
+    'title' => 'NHPID data node types',
+    'weight' => -5,
+    'access arguments' => array('administer nhpid'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_data_node_type_form'),
+    'file' => 'nhpid_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  
+  $items[$root . '/excel_column_title_mapping'] = array(
+    'title' => 'Excel column title mapping',
+    'weight' => -3,
+    'access arguments' => array('administer nhpid'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_excel_column_title_mapping_form'),
+    'file' => 'nhpid_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/lock_system'] = array(
+    'title' => 'Lock system',
+    'weight' => -3,
+    'access arguments' => array('administer nhpid'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_lock_system_form'),
+    'file' => 'nhpid_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/revision'] = array(
+    'title' => 'Enforce Revision Log',
+    'weight' => -2,
+    'access arguments' => array('administer nhpid'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_enforce_revision_log_form'),
+    'file' => 'nhpid_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+
+	$items[$root . '/update_calculated_field_values'] = array(
+    'title' => 'Update calculated field values',
+    'weight' => -2,
+    'access arguments' => array('administer nhpid'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_update_caculated_field_values_form'),
+    'file' => 'nhpid_forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  
+  return $items;
+}
+
+
+function nhpid_validate_conditional_fields($form, &$form_state) {
+
+  $value = trim($form['#value']);
+    $new = explode("\n", str_replace("\r", '', $value));
+    array_walk($new, 'unique_code_trim');
+    $new = array_values(array_filter($new));
+    //*** check if every field exist
+    $fields_not_exist = "";
+    foreach ($new as $field) {
+      $sql = "select field_name from {content_node_field} where field_name = '%s'";
+      $result = db_query($sql, $field);
+      if (!(bool) db_fetch_array($result)) {
+        $fields_not_exist = $fields_not_exist . ", $field";
+      }
+    }
+    $fields_not_exist = trim($fields_not_exist, ',');
+    if ((bool) $fields_not_exist) {
+      form_set_error('nhpid_conditional_fields', t("Fields $fields_not_exist are not found from the NHPID Data Entry"));
+    }
+    else {
+      $form_state['values']['nhpid_conditional_fields'] = implode("\n", $new);
+    }
+ 
+}
+
+
+
+//*** Helper functions *****
+
+
+/*** 
+ * calculate the lenght of a field based on the format for data exporting
+ */ 
+function nhpid_field_value_length($node, $field_name, &$length) {
+  
+  $display = array('settings' => array('format_type' => 'short_export_date'));
+	$items = nhpid_api_get_field_values($node, $field_name, $display, $node->language, FALSE, TRUE);
+  foreach ($items as $delta => $item) {
+    $length = $length + strlen($item);
+  }
+}
+function nhpid_get_field_length_too_long_errors($node, $field_name, $field_label, &$errors, $length_limit) {
+  $length = 0;
+  $str = '';
+  nhpid_field_value_length($node, $field_name, $length);
+  $exceed = $length - $length_limit;
+    if ($length_limit > 0 and $exceed > 0) {
+      $errors[] = array('field' => $field_name, 'message' => "The value of the field <em>$field_label</em> exceeds allowed lenght ($length_limit) by $exceed.");
+    }
+        
+}
+
+function nhpid_get_field_item_length_too_long_errors($node, $field_name, $field_label, &$errors, $length_limit, $error_label = '') {
+  if (nhpid_field_is_empty($field_name, $node)) return;
+	
+  $lan = $node->language;
+  //drupal_set_message(nhpid_api_dump( $node, 'purple', TRUE));
+  //drupal_set_message(nhpid_api_dump( $field_name, 'purple', TRUE));
+  $display = array('settings' => array('format_type' => 'short_export_date'));
+	$items = nhpid_api_get_field_values($node, $field_name, $display, $node->language, FALSE, TRUE);
+  foreach ($items as $delta => $item) {
+    $length = strlen($item);
+    $exceed = $length - $length_limit;
+    if ($length_limit > 0 and $exceed > 0) {
+      $error_name = "$field_name][$lan][$delta][value";
+      $error_label = $field_label . '('. strval($delta+1) . ')';
+      $errors[] = array('field' => $error_name, 'message' => "The value of the field <em>$error_label ($length letters long) </em> exceeds allowed length ($length_limit) by $exceed.");
+    }
+  }
+}
+function nhpid_get_field_fc_cas_number_ref_errors($node,  $field_name, $field_label, &$errors){
+	/** Cas number reference rule
+	/* primary CAS number must have the reference CAS
+	/* additional CAS  numbers must have a reference other than CAS.
+	*/
+	$lan = $node->language;
+	if (property_exists($node, 'field_fc_cas_number')){
+    //drupal_set_message(nhpid_api_dump($entity, 'blue', TRUE));
+
+		$values = nhpid_api_get_field_values($node, 'field_fc_cas_number', array(), $entity->language, false, true);
+		$delta = 0;
+    //drupal_set_message(nhpid_api_dump($values, 'blue', TRUE));
+		foreach ($values as $value){
+			if ($delta == 0 && $value == str_replace('[CAS]', '', $value)){
+				$message = "Only reference 'CAS' can be used in the reference part of primary CAS number";
+				$error_name = "$field_name][$lan][$delta][field_code_ref_code][$lan";
+				$errors[] = array('field' => $error_name, 'message' => $message);
+
+			}
+			elseif($delta > 0 && $value != str_replace('[CAS]', '', $value)){
+				$message = "No reference 'CAS' can be used in the reference part of additional CAS numbers";
+				$error_name = "$field_name][$lan][$delta][field_code_ref_code][$lan";
+				$errors[] = array('field' => $error_name, 'message' => $message);
+
+			}
+			$delta ++;
+		}
+	}
+}
+function nhpid_get_field_item_leading_trailing_space_errors($node,  $field_name, $field_label, &$errors) {
+  if (nhpid_field_is_empty($field_name, $node)) return;
+	$lan = $node->language;
+	$items = nhpid_api_field_get_items($node, $field_name);
+  foreach ($items as $delta => $item) {
+		if (isset($item['value'])){
+      if (strlen($item['value']) !=  strlen(trim($item['value']))) {
+        $error_name = "$field_name][$lan][$delta][value";
+        $error_label = $field_label . '('. strval($index+1) . ')';
+        $errors[] = array('field' => $error_name, 'message' => "The value of the field <em>$error_label </em> contains leading or trailing spaces (space, tab, new line, carriage return, NUL-byte, or vertical bar).");
+      }
+		}
+
+    else if (isset($item['entity']) and gettype($item['entity']) == 'object' and get_class($item['entity']) == 'FieldCollectionItemEntity') {
+      $fc_fields = field_info_instances('field_collection_item', $field_name);
+      //drupal_set_message(nhpid_api_dump($fc_fields, 'purple', TRUE));
+			foreach ($fc_fields as $subkey => $subfield) {
+        $sub_type = $field_name;
+        if ($sub_type) {
+          $sub_field = field_info_instance('field_collection_item', $subkey, $sub_type);
+          $sub_field_label = $sub_field['label'];
+          $error_label = $field_label . '(' . strval($delta + 1) . ')' . $sub_field_label;
+          //drupal_set_message(nhpid_api_dump($sub_field, 'purple', TRUE));
+        }
+        $subitems = $item['entity']->{$subkey}[$lan];
+        //drupal_set_message(nhpid_api_dump($subitems, 'purple', TRUE));
+				foreach($subitems as $subdelta => $subitem){
+          if (isset($subitem['value'])){
+			      if (strlen($subitem['value']) !=  strlen(trim($subitem['value']))) {
+              $error_name = "$field_name][$lan][$delta][$subkey][$lan][$subdelta][value";
+			        $error_label = $field_label . '('. strval($delta+1) . '):' . $sub_field_label . '('. strval($subdelta+1) . ')';
+			        $errors[] = array('field' => $error_name, 'message' => "The value of the field <em>$error_label </em> contains leading or trailing spaces (space, tab, new line, carriage return, NUL-byte, or vertical bar).");
+			      }
+					}
+				}
+      }
+    }
+  }
+}
+
+function nhpid_get_field_conditionally_requireness_errors($node, &$errors) {
+  $lan = $node->language;
+  $rules = nhpid_get_field_conditionally_requireness_fields($node -> type);
+  //drupal_set_message(nhpid_api_dump($rules, 'blue', TRUE));
+  if (!$rules) return;
+  foreach($rules as $rule_item){
+    $fields = array_keys($rule_item['fields']);
+    
+    $rule = $rule_item['code'];
+    $check_multi_val_flag = $rule_item['check_multi_val_flag'];
+    
+    ## field values counts
+    $counts = array();
+    $count_max = 0;
+		$fields_values = array();
+    foreach ($fields as $field){
+      $items_values = nhpid_api_get_field_values($node, $field, array(), $node->language, FALSE, TRUE);
+      $fields_values[$field]=$items_values;
+			$count = count($items_values);
+      if ($count != 0){
+        $counts[$field] = $count;
+        if ($count > $count_max) $count_max = $count;
+      }
+    }
+    # if not to check value items
+    if ($count_max > 1 and !$check_multi_val_flag) $count_max = 1;
+   //drupal_set_message(nhpid_api_dump($count_max, 'blue', TRUE));
+    
+    //}
+    for ($i = 0; $i < $count_max; $i++){
+      $not_all_empty = false;
+      
+      foreach ($fields as $field){
+
+				$item_value = false;
+        
+        //drupal_set_message(nhpid_api_dump("$field: $i: $output", 'blue', TRUE));
+        $item_value = (bool)$fields_values[$field][$i];
+        if (!$item_value) $item_value = 0;
+        $code = '$'. $field . ' = ' . $item_value . ';';
+        eval($code);
+
+        $not_all_empty = $not_all_empty || !nhpid_field_is_empty($field, $node);
+      }
+      if ($not_all_empty){
+        $out = false;
+        eval ('$out = (' . $rule. ');'); ### please notice that '()' is required.
+        //drupal_set_message(nhpid_api_dump("$rule: $out", 'blue', TRUE));
+        $mess = "The fields <em>" . implode(', ', $rule_item['fields']) . ' </em> are conditionally required, meaning either all of them should be empty or the formula <em>' . $rule_item['label'] . '</em> should return true. ';
+        $n = $i +1;
+        if ($count_max > 1){
+          $mess = $mess . "Please check the number $n set of values of the fields.";
+        }
+        else{
+          $mess = $mess . 'Please check the values of all of those fields. ';
+        }
+        if (!$out){
+          foreach ($fields as $field){
+          	$errors[] = array('field' => "$field][$lan][0][value", 'message' => $mess);
+					}
+        }
+      }
+    }
+
+  }
+
+}
+function nhpid_get_field_conditionally_requireness_fields($node_type) {
+  $key = "nhpid_" . $node_type  . "_is_conditionally_required";
+  $rules_ori_variable = variable_get($key, '');
+  if (!$rules_ori_variable) return null;
+  
+  $rules_ori = trim($rules_ori_variable, '{}');
+  
+  $rules_ori = explode('}{', $rules_ori);
+  $rules = array();
+  //drupal_set_message(nhpid_api_dump($rules_ori, 'blue', TRUE));
+  foreach($rules_ori as $rule_ori){
+    $rule_out = array();
+    $rule_ori_array =  explode('=>', $rule_ori);
+    $check_multi_val_flag = $rule_ori_array[1];
+    $rule_out['check_multi_val_flag'] = strtoupper($check_multi_val_flag) == 'TRUE' ? TRUE : FALSE;
+    $rule_ori = $rule_ori_array[0];
+    
+    $pattern = '/field_\w*/';
+    $matches = array();
+    preg_match_all($pattern,$rule_ori,$matches);
+    
+    $fields = $matches[0];
+    /*
+    $value = str_replace('{', '', $rule_ori);
+    $value = str_replace('}', '', $value);
+    $value = str_replace('(', '', $value);
+    $value = str_replace(')', '', $value);
+    $value = str_replace('|', '&', $value);
+    $value = str_replace('^', '&', $value);
+    $fields = explode('&', $value);
+    */
+    $rule = str_replace ('&' , ' AND ', $rule_ori);
+    $rule = str_replace ('|' , ' OR ', $rule);
+    $rule = str_replace ('^' , ' XOR ', $rule);
+    $rule = str_replace ('field_' , '$field_', $rule);
+    
+    $rule_out['ori'] = $rule_ori;
+    $rule_out['code'] = $rule;
+
+    ## field values counts
+    $counts = array();
+    $count_max = 0;
+    $rule_label = $rule;
+    $fields_labels = array();
+    foreach ($fields as $field){
+      $field_info = field_info_instance('node', $field, $node_type);
+      $label = $field_info['label'];
+      //drupal_set_message(nhpid_api_dump("$field: $node_type: $label", 'blue', TRUE));
+      $fields_labels[$field] = $label;
+      $rule_label = str_replace('$' . $field, $label, $rule_label);
+    }
+    $rule_out['label'] = $rule_label;
+    $rule_out['fields'] = $fields_labels;
+    //drupal_set_message(nhpid_api_dump($rule_out, 'blue', TRUE));
+    $rules[] = $rule_out;
+  }
+  return $rules;
+}
+function nhpid_get_name_fields_dependency_errors($node, &$errors) {
+  ## common names
+  ## each common name must be one of synonym_e or ingredient_name_e
+	$lan = $node -> language;
+  $available_names = array();
+	$ingredient_name = nhpid_api_get_field_raw_values($node, 'field_ingredient_name');
+  $available_names[] = $ingredient_name[0];
+  $synonyms_e = nhpid_api_get_field_raw_values($node, 'field_fc_synonym_e');
+  //drupal_set_message(nhpid_api_dump($synonyms_e, 'blue', TRUE));
+  foreach($synonyms_e as $synonym_e){
+    $available_names[] = $synonym_e['field_free_text_part'][0];
+  }
+  $common_names = nhpid_api_get_field_raw_values($node, 'field_fc_common_name');
+  foreach($common_names as $delta => $common_name){
+    $name = $common_name['field_free_text_part'][0];
+    if ($name and !in_array($name, $available_names)){
+      $mess = "Common name<em> $name </em>could not be found in English Synonyms plus NHPID Ingredient Name.";
+      $errors[] = array('field' => "field_fc_common_name][$lan][$delta][field_free_text_part][$lan][0][value", 'message' => $mess);
+    }
+  }
+  ## proper names
+  ## each proper name must be one of synonym_e or ingredient_name_e
+  $proper_names = nhpid_api_get_field_raw_values($node, 'field_fc_proper_name');
+  //drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));
+  //$node_wrapper = entity_metadata_wrapper('node', $node);
+  //drupal_set_message(nhpid_api_dump($node_wrapper, 'blue', TRUE));
+  //drupal_set_message(nhpid_api_dump($proper_names, 'blue', TRUE));
+  //drupal_set_message(nhpid_api_dump($available_names, 'blue', TRUE));
+  foreach($proper_names as $delta => $proper_name){
+    $name = $proper_name['field_free_text_part'][0];
+    if ($name && !in_array($name, $available_names)){
+      $mess = "Proper name<em> $name </em> could not be found in English Synonyms plus NHPID Ingredient Name.";
+      $errors[] = array('field' => "field_fc_proper_name][$lan][$delta][field_free_text_part][$lan][0][value", 'message' => $mess);
+    }
+  }
+}
+
+function nhpid_get_nhpid_data_field_allowed_length($node_type, $field_name){
+  $variable_name = 'nhpid_field_length_limits_' . $node_type;
+	$limits = variable_get($variable_name, array());
+  $allowed_len = $limits[$field_name];
+  return $allowed_len;
+}
+
+function _nhpid_node_access_callback($node,$op, $account=null){
+  global $user;
+  if (!isset($account)){
+		$account=$user;
+	}
+  ## blocks edting nhpid menu struture nodes by users other than admin
+  $nhpid_menu_node_types = array("nhpid_data_entry", "list_records", "nhpid_data_form","nhpid_data_form_group", "fields_house");
+  if (in_array($node -> type, $nhpid_menu_node_types)){
+		if($user -> uid == 1) {
+    	return TRUE;
+		}
+		else{
+			return false;
+		}
+  }
+  
+  switch($op){
+
+    case 'edit':
+    case 'revisions':
+    case 'workflow':
+    return node_access('update', $node, $account);
+    break;
+
+    case 'children':
+    if ($account -> uid != 1){
+      return false;
+    }
+    return true;
+    break;
+  }
+}
+
+function nhpid_system_lock_access($account=null){
+	global $user;
+	if (!isset($account)){
+		$account=$user;
+	}
+	$system_locked = variable_get(SYSTEM_LOCK_VARIABLE, FALSE);
+  $exporting_data_temp_locked = variable_get(DATA_EXPORTING_LOCK_TEMP_VARIABLE, FALSE);
+	if ($exporting_data_temp_locked){
+		return FALSE;
+	}
+	if($system_locked){
+		if ($system_locked == $account->uid){
+			return TRUE;
+		}
+		else{
+			return FALSE;
+		}
+	}
+	return TRUE;
+}
+

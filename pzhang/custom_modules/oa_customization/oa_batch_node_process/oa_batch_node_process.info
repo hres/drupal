@@ -1,0 +1,5 @@
+name = OA Task node batch process
+description = OA Task node batch process
+core = 7.x
+package = NHPD
+version = "7.x-1.0-dev"

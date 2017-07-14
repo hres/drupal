@@ -1,0 +1,67 @@
+<?php /* -*- mode: php; indent-tabs-mode: nil; tab-width: 2; -*- */
+
+/**
+ * Implement hook_install().
+ *
+ * Enable the 'check out documents' permission for authenticated users
+ * by default since this is the most common use-case.
+ */
+function nhpid_persistent_content_lock_install() {
+  user_role_grant_permissions(DRUPAL_AUTHENTICATED_RID, array('lock content persistently'));
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function nhpid_persistent_content_lock_uninstall() {
+
+  //variable_del(NHPID_PERSISTENT_LOCK_VARIABLE);
+}
+
+/*
+ * Implementaion of hook_schema().
+ */
+function nhpid_persistent_content_lock_schema() {
+  $schema['nhpid_persistent_content_lock'] = array(
+    'description' => 'persistent content lock module table.',
+    'fields' => array(
+      'nid' => array(
+        'description' => 'The primary identifier for a node.',
+        'type' => 'int',
+        'size' => 'normal',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'uid' => array(
+        'description' => 'User that holds the lock.',
+        'type' => 'int',
+        'size' => 'normal',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'user_name' => array(
+        'description' => 'Name of User that holds the lock.',
+        'type' => 'varchar',
+        'length' => '60',
+      	'not null' => TRUE,
+      	'default' => '',
+      ),
+      'timestamp' => array(
+        'description' => 'Time the lock occured.',
+        'size' => 'normal',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      
+    ),
+    'indexes' => array(
+      'user' => array('uid'),
+    ),
+    'primary key' => array('nid'),
+  );
+  return $schema;
+}

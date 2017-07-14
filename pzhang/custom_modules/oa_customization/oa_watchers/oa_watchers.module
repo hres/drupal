@@ -1,0 +1,437 @@
+<?php
+// $Id$
+
+
+
+/* hook_permission*/
+function oa_watchers_permission() {
+    return array(
+    'administer oa task watchers' => array(
+      'title' => t('Administer OA Watchers'),
+      'description' => t(''),
+    ),
+    'view own watch list' => array(
+      'title' => t('View own watch list'),
+      'description' => t(''),
+    ),
+   );
+} 
+
+/* hook_og_permission*/
+function oa_watchers_og_permission(){
+  $items = array();
+
+  $items['administer any oa task watchers'] = array(
+    'title' => t('Manage <em>any</em> task watchers'),
+    'description' => t('Users may add or remove watchers to tasks.'),
+    'roles' => array(OG_ADMINISTRATOR_ROLE,OG_AUTHENTICATED_ROLE),
+    'default role' => array(OG_ADMINISTRATOR_ROLE),
+    'restrict access' => TRUE,
+  );
+  $items['administer own oa task watchers'] = array(
+    'title' => t('Manage <em>own</em> task watchers'),
+    'description' => t('Users may add or remove watchers to tasks.'),
+		'roles' => array(OG_ADMINISTRATOR_ROLE,OG_AUTHENTICATED_ROLE),
+    'default role' => array(OG_ADMINISTRATOR_ROLE),
+    'restrict access' => TRUE,
+  );
+  return $items;
+}
+/* hook_ctools_plugin_directory */
+function oa_watchers_ctools_plugin_directory($module, $plugin) {
+  if ($module == 'ctools') {
+    return 'plugins/' . $plugin;
+  }
+}
+/**
+ *hook_notifications_alter
+ *
+ */
+ function oa_watchers_notifications_users_alter(&$bucket, &$node){
+  $currentnode_nid = $node -> nid;
+	$result = db_select('oa_watchers', 'oaw')
+						-> fields('oaw')
+						->condition('nid', $currentnode_nid, '=')
+						->execute()
+						->fetchObject();
+	
+	$notify = $result ? $result -> notify : null;
+	if ($notify){
+		$watchers =$result ? unserialize($result->watchers) : array();
+		foreach($watchers as $uid){
+			$account=user_load($uid);
+			if ($account->status == 1){
+				$bucket[$uid] = user_load($uid);
+			}
+		}
+	}
+	//drupal_set_message(nhpid_api_dump($result, 'blue', TRUE));
+	//drupal_set_message(nhpid_api_dump($bucket, 'blue', TRUE));
+    //drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));
+ }
+
+ // hook_node_view_alter
+ // Watchers cannot add comment
+function oa_watchers_node_view_alter(&$build){
+  global $user;
+	$node = $build['#node'];
+
+  //drupal_set_message(nhpid_api_dump($build, 'blue', TRUE));
+	switch ($node -> type){
+		case "oa_worktracker_task":
+	  // only some pre-defined members can update this task but still can use comment
+    $current_space = oa_core_get_space_context();
+		if (oa_watchers_user_is_watcher_for_node($node->nid) && !og_is_member('node', $current_space, 'user', $user )){
+	    unset($build['comments']['comment_form']);
+	    unset($build['links']['comment']['#links']);
+		}
+	  
+		break;
+	}
+  //unset($build['comments']['comment_form']);
+  //drupal_set_message(nhpid_api_dump($build, 'blue', TRUE));
+  //unset($build['links']['comment']['#links']['comment-add']);
+}
+// hook_comment_view_alter
+ // Watchers cannot see comment links
+function oa_watchers_comment_view_alter(&$build){
+	global $user;
+  $node = $build['#node'];
+  //drupal_set_message(nhpid_api_dump($build, 'blue', TRUE));
+	switch($build['#bundle']){
+		case 'comment_node_oa_worktracker_task':
+    // only space members can use comment links
+		$current_space = oa_core_get_space_context();
+		if (oa_watchers_user_is_watcher_for_node($node->nid) && !og_is_member('node', $current_space, 'user', $user )){
+	    unset($build['links']['comment']['#links']);
+		}
+		break;
+	}
+}
+
+/***
+ * hook_menu
+ */ 
+function oa_watchers_menu() {
+
+  $items = array();
+	$items['user/%user/edit/watched_nodes'] = array(
+    'title' => 'Watch List',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('_oa_watchers_watched_contents_list'),
+    'access callback' => 'user_access',
+    'access arguments' => array('view own watch list'),
+    'weight' => 5,
+    'type' => MENU_LOCAL_TASK
+  );
+  $items['user/%user/watched_nodes'] = array(
+    'title' => 'Watch List',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('_oa_watchers_watched_contents_list'),
+    'access callback' => 'user_access',
+    'access arguments' => array('view own watch list'),
+    'weight' => 5,
+    'type' => MENU_LOCAL_TASK
+  );
+
+	return $items;
+}
+// hook_node_grants
+function oa_watchers_node_grants($account, $op){
+  $grants = array();
+	switch ($op){
+		case 'view':
+    $grants['oa_watchers'] = array($account->uid);
+		break;
+	}
+  return $grants;
+}
+// hook_user_delete
+function oa_watchers_user_delete($account) {
+  // delete watcher
+	$watcher = '%i:' . $account -> uid . ';%';
+	$sql ="select nid from {oa_watchers} where watchers like :watcher";
+	$result = db_query($sql, array(':watcher' => $watcher));
+	while ($rc = $result->fetchObject()){
+		$nid = $rc -> nid;
+		remove_watcher_from_node($nid, $account);
+	}
+	// delete OA notification
+	db_delete('oa_notifications')
+		-> condition('target_type', 'user', '=')
+		-> condition('target_id', $account->uid, '=')
+		-> execute();
+}
+// hook_node_delete
+function oa_watchers_node_delete($node) {
+  if (oa_watchers_is_watchers_type($node)) {
+    delete_all_watchers_for_a_task($node -> nid);
+  }
+}
+
+/**
+ * Implements hook_node_insert().
+ */
+function oa_watchers_node_insert($node) {
+  if (oa_watchers_is_watchers_type($node) && property_exists($node, 'oa_watchers')) {
+    //drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));
+		$watchers = $node->oa_watchers['watchers'];
+		$notify = $node->oa_watchers['notify'];
+    oa_watchers_update($node ->nid, $watchers, $notify);
+  }
+}
+function oa_watchers_node_update($node) {
+  if (oa_watchers_is_watchers_type($node) && property_exists($node, 'oa_watchers')) {
+    //drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));
+		$watchers = $node->oa_watchers['watchers'];
+		$notify = $node->oa_watchers['notify'];
+    oa_watchers_update($node ->nid, $watchers, $notify);
+  }
+}
+
+
+/**
+ * Implements hook_form_node_form_alter().
+ */
+function oa_watchers_form_node_form_alter(&$form, &$form_state, $form_id) {
+  // We are on a node/edit/add form.
+  // Check content type.
+  //drupal_set_message(nhpid_api_dump($form['#node'], 'blue', TRUE));
+  if (isset($form['#node']) && (oa_watchers_is_watchers_type($form['#node']))) {
+    $form['oa_watchers'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Watchers'),
+      '#collapsible' => TRUE,
+      '#collapsed' => FALSE,
+      '#weight' => 10,
+      '#tree' => TRUE,
+    );
+    oa_watchers_form_fields($form['oa_watchers'], $form_state, $form['#node']);
+  }
+}
+
+function _oa_watchers_watched_contents_list($form, &$form_states,$account = NULL) {
+  global $user;
+  $uid = null;
+  $header = array('type' => t('Activity'));
+  $header['title'] = t('Title');
+	$header['author'] = t('Author');
+  $header['nid'] = t('NID');
+   if (!$account) {
+     $account = clone $user;
+  }
+ 
+  $uid = $account->uid;
+
+  $query = db_select('oa_watchers', 'oaw')
+    ->fields('oaw');
+  $n = $query->join('node', 'n', '%alias.nid = oaw.nid');
+  $query->fields($n, array('title'))
+        ->fields($n, array('type'));
+  $u = $query->join('users', 'u', '%alias.uid = n.uid');
+  $query->fields($u, array('name'));
+	$result = $query->execute();
+ 
+  //$query->orderByHeader($header);
+
+  $rows = array();
+	$node_type_names = node_type_get_names();
+  while ($data = $result->fetchObject()) {
+    $watchers =unserialize($data->watchers);
+
+		if(in_array($uid,$watchers)){ 
+			$row = array();
+			$row['type'] = $node_type_names[$data->type];
+			$row['title'] = l($data->title, "node/$data->nid");
+			$row['author'] = $data->name;
+      $row['nid'] = $data->nid;
+			$rows[$data->nid] = $row;
+		}
+  }
+  $form['table'] = array(
+      '#type' => 'tableselect',
+      '#header' => $header,
+      '#options' => $rows,
+			'#required' =>TRUE,
+      '#empty' => t('No watched contents available.'),
+  );
+	$form['account'] = array(
+    '#type' => 'value',
+    '#value' => $account,
+	);
+  $form['remove'] = array(
+      '#type' => 'submit',
+      '#value' => 'Remove selected contents from watch list ',
+      '#submit' => array('_oa_watchers_watched_contents_list_update'),
+    );
+
+  //$output = theme('table', array('header' => $header, 'rows' => $rows, 'attributes' => array('id' => 'nhpid_persistent_content_lock'),
+    
+  //$output .= theme('pager', array('quantity' => 50));
+
+  return $form;
+}
+
+function _oa_watchers_watched_contents_list_update($form, &$form_states){
+	$nids = $form_states['values']['table'];
+	$account = $form_states['values']['account'];
+	foreach($nids as $nid){
+    remove_watcher_from_node($nid, $account);
+	}
+}
+
+function oa_watchers_get_all_watchers_for_node($nid){
+
+	$result = db_select('oa_watchers', 'oaw')
+						-> fields('oaw')
+						->condition('nid', $nid, '=')
+						->execute()
+						->fetchObject();
+	$watchers =$result ? unserialize($result->watchers) : array();
+	return $watchers;
+}
+function oa_watchers_get_notify_for_node($nid){
+
+	$result = db_select('oa_watchers', 'oaw')
+						-> fields('oaw')
+						->condition('nid', $nid, '=')
+						->execute()
+						->fetchObject();
+		return $result ? $result -> notify : 1;
+}
+
+function oa_watchers_user_is_watcher_for_node($nid, $account = NULL){
+	global $user;
+	if (!$account){
+		$account = clone($user);
+	}
+	$watchers = oa_watchers_get_all_watchers_for_node($nid);
+	return in_array($account -> uid, $watchers);
+}
+function remove_watcher_from_node($nid, $account=null){
+	global $user;
+	if(!$account) $account = clone $user;
+  $query = db_select('oa_watchers', 'oaw');
+  $result = $query->fields('oaw')
+		->condition('nid', $nid, '=')
+		->execute();
+	$rc = $result->fetchObject();
+
+	if (!$rc) return;
+  $watchers = unserialize($rc->watchers);
+	foreach($watchers as $index=>$uid){
+		if($uid == $account->uid){
+			unset($watchers[$index]);
+		}
+	}
+	$watchers = array_values($watchers);
+	
+	db_update('oa_watchers')
+		->fields(array('watchers'=> serialize($watchers)))
+		->condition('nid', $nid, '=')
+		->execute();
+
+	//node access record
+  $record = array(
+	  'nid' => $nid,
+	  'gid' => $account->uid,
+	  'realm' => 'oa_watchers',
+	  'grant_view' => 0,
+	  'grant_update' => 0,
+	  'grant_delete' => 0,
+	);
+  db_delete('node_access')
+		-> condition('nid', $record['nid'], '=')
+    -> condition('gid', $record['gid'], '=')
+    -> condition('realm', $record['realm'], '=')
+		-> execute();
+    //drupal_set_message(nhpid_api_dump($record, 'red', TRUE));
+	
+}
+
+function delete_all_watchers_for_a_task($task_nid){
+	// delete watchers
+	$query = db_delete('oa_watchers')
+		->condition('nid', $task_nid, '=')
+		->execute();
+
+	// delete node access records
+  db_delete('node_access')
+		-> condition('nid', $task_nid, '=')
+    -> condition('realm', 'oa_watchers', '=')
+		-> execute();
+	// delete OA notification
+	db_delete('oa_notifications')
+		-> condition('source_type', 'node', '=')
+		-> condition('source_id', $task_nid, '=')
+		-> execute();
+}
+function oa_watchers_is_watchers_type($node){
+	$watchers_types = array('oa_worktracker_task');
+	return in_array($node -> type, $watchers_types );
+}
+
+function oa_watchers_form_fields(&$form, &$form_state, $node) {
+  $nid = isset($node->nid) ? $node->nid : 0;
+  $current_space = oa_core_get_space_context();
+  $all_users = entity_load('user');
+  $space_users = og_get_group_members_properties(node_load($current_space), array(), 'members', 'node');
+  $watchers = oa_watchers_get_all_watchers_for_node($nid);
+  $notify = oa_watchers_get_notify_for_node($nid);
+	$candidates = array();
+	foreach($all_users as $uid => $a_user){ // using variable $user may be troublesome
+		if ($a_user -> status == 1 && !in_array($uid, $space_users)){
+      $candidates[$uid] = $a_user->realname ? $a_user->realname : $a_user -> name;
+		}
+	}
+	$default = isset($form_state['values']['oa_watchers']['watchers']) ? $form_state['values']['oa_watchers']['watchers'] : $watchers;
+	$form['#access'] = og_user_access('node', $current_space, 'administer any oa task watchers', NULL, FALSE, TRUE) || og_user_access('node', $current_space, 'administer own oa task watchers', NULL, FALSE, TRUE);
+	$form['watchers'] = array(
+    '#type' => 'select',
+		'#size' => 60,
+    '#title' => t('Watchers'),
+    '#default_value' => $default,
+    '#options' => $candidates,
+		'#multiple' => true,
+    '#description' => t('Select watchers.'),
+	);
+  $notify_default = isset($form_state['values']['oa_watchers']['notify']) ? $form_state['values']['oa_watchers']['notify'] : $notify;
+  $form['notify'] = array(
+    '#type' => 'checkbox',
+		'#title' => 'Notify watchers',
+    '#default_value' => $notify_default,
+	);
+}
+
+function oa_watchers_update($nid, $watchers = array(), $notify = TRUE){
+	db_merge('oa_watchers')
+						-> key(array('nid' => $nid))
+						-> fields(array('watchers'=>serialize($watchers), 'notify' => $notify))
+						-> execute();
+	//node access record
+	//add or update node access records
+	$record = array(
+		  'nid' => $nid,
+		  'realm' => 'oa_watchers',
+		  'grant_view' => 1,
+		  'grant_update' => 0,
+		  'grant_delete' => 0,
+		);
+  foreach($watchers as $watcher){
+		$record['gid']=$watcher;
+    db_merge('node_access')
+			-> key(array('nid' => $record['nid'], 'gid' => $record['gid'], 'realm' => $record['realm']))
+			-> fields(array('grant_view'=>$record['grant_view'],
+											'grant_update' => $record['grant_update'],
+											'grant_delete' => $record['grant_delete']))
+			-> execute();
+	}
+	//delete node access records for users not in the watch list
+  $sql = db_delete('node_access')
+		-> condition('nid', $record['nid'], '=')
+    -> condition('realm', $record['realm'], '=');
+	if (count($watchers) > 0 ){
+    $sql -> condition('gid', $watchers, 'NOT IN');
+	}
+		$sql -> execute();
+}

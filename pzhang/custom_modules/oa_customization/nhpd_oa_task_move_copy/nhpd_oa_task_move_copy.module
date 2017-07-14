@@ -1,0 +1,414 @@
+<?php
+// $Id$
+
+
+
+/* hook_permission*/
+function nhpd_oa_task_move_copy_permission() {
+    return array(
+    'access nhpd oa task move and copy' => array(
+      'title' => t('Access NHPD Task Move and Copy'),
+      'description' => t(''),
+    ),
+   );
+} 
+
+/* hook_og_permission*/
+function nhpd_oa_task_move_copy_og_permission(){
+  $items = array();
+
+  $items['access nhpd oa task move and copy'] = array(
+    'title' => t('Access NHPD Task Move and Copy'),
+    'description' => t('Users may move or copy tasks from space to space'),
+    'roles' => array(OG_ADMINISTRATOR_ROLE,OG_AUTHENTICATED_ROLE),
+    'default role' => array(OG_ADMINISTRATOR_ROLE),
+    'restrict access' => TRUE,
+  );
+  return $items;
+}
+
+/* hook_ctools_plugin_directory */
+function nhpd_oa_task_move_copy_ctools_plugin_directory($module, $plugin) {
+  if ($module == 'ctools') {
+    return 'plugins/' . $plugin;
+  }
+}
+/**
+ *hook_notifications_alter
+ *
+ */
+ function nhpd_oa_task_move_copy_notifications_users_alter(&$bucket, &$node){
+  $currentnode_nid = $node -> nid;
+	$result = db_select('oa_watchers', 'oaw')
+						-> fields('oaw')
+						->condition('nid', $currentnode_nid, '=')
+						->execute()
+						->fetchObject();
+	
+	$notify = $result ? $result -> notify : null;
+	if ($notify){
+		$watchers =$result ? unserialize($result->watchers) : array();
+		foreach($watchers as $uid){
+			$bucket[$uid] = user_load($uid);
+		}
+	}
+	//drupal_set_message(nhpid_api_dump($result, 'blue', TRUE));
+	//drupal_set_message(nhpid_api_dump($bucket, 'blue', TRUE));
+    //drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));
+ }
+
+
+/***
+ * hook_menu
+ */ 
+function nhpd_oa_task_move_copy_menu() {
+
+  $items = array();
+  $items['node/%node/nhpd_oa_task_move_copy'] = array(
+    'title' => 'Move or copy',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpd_oa_task_move_copy_page_callback', 1),
+    'access callback' => 'nhpd_oa_task_move_copy_access_callback',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items['node/%node/nhpd_oa_task_move_copy/processing/%/%/%'] = array(
+    'title' => 'Move or copy',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpd_oa_task_move_copy_page_processing_callback', 1, 4, 5, 6),
+    'access callback' => 'nhpd_oa_task_move_copy_access_callback',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_ACTION,
+  );
+ 
+  return $items;
+}
+
+/***
+ * hook_menu_alter
+ */ 
+function nhpd_oa_task_move_copy_menu_alter(&$items) {
+	//Disables OA clone tab
+	//$items['node/%node/clone/%clone_token']['type'] = MENU_CALLBACK;
+	unset($items['node/%node/clone/%clone_token']);
+}
+/**
+ * Access callback: Check if the user can copy or move tasks.
+ */
+function nhpd_oa_task_move_copy_access_callback($node) {
+  // Accessible only when node is oa_worktracker_task
+  //return TRUE;
+  if ($node->type == 'oa_worktracker_task'){
+	  $wrapper = entity_metadata_wrapper('node', $node);
+	  $current_space = $wrapper->og_group_ref->raw();
+	  return node_access('view', $node) && (user_access('access nhpd oa task move and copy') || og_user_access('node', $current_space, 'access nhpd oa task move and copy', NULL, FALSE, TRUE));
+  }
+  
+  return FALSE;
+}
+
+
+/**
+ * Page callback: 
+ */
+ 
+function nhpd_oa_task_move_copy_page_callback($form, &$form_state, $original_node) {
+  $form['#tree'] = TRUE;
+	$form['help']=array(
+		'#type' => 'item',
+		'#markup' => "Please select 'Move' or 'Copy' and fill out the form",
+	);
+
+  if (isset($original_node->nid)) {
+	drupal_set_title($original_node->title);
+	$form['#tree'] = TRUE;
+	$form['help']=array(
+		'#type' => 'item',
+		'#markup' => "Please select 'Move' or 'Copy' and fill out the form",
+	);
+	$methods=array('move' => t('Move'), 'copy' => t('Copy'));
+	$method = !empty($form_state['values']['method']) ? $form_state['values']['method'] : 'move';
+	$form['method']=array(
+		'#type' => 'radios',
+		'#title' => t('Move or Copy'),
+		'#default_value' => $method ,
+		'#options' => $methods,
+	);
+	$notification_update_methods = array('delete' => t('delete non-member users from the notification list'), 'move' => t('move non-member users in the notification list to watchers'));
+	$notification_update_method = !empty($form_state['values']['notification_update_method']) ? $form_state['values']['notification_update_method'] : 'move';
+	$form['notification_update_method']=array(
+		'#type' => 'radios',
+		'#title' => t('How to reset notified users?'),
+		'#default_value' => $notification_update_method,
+		'#options' => $notification_update_methods,
+	);
+	$tid = array_shift(taxonomy_get_term_by_name('Tasks Section', 'section_type')) -> tid;
+	$query = new EntityFieldQuery();
+	$result = $query->entityCondition('entity_type', 'node')
+		->entityCondition('bundle', 'oa_section')
+		->fieldCondition('field_oa_section', 'tid', $tid)
+		->execute();
+	$section_nodes = node_load_multiple(array_keys($result['node']));
+	$section_id_space_names = array();
+	foreach ($section_nodes as $nid => $section_node){
+		
+		$section_node_wrapper = entity_metadata_wrapper('node', $section_node);
+		$space = $section_node_wrapper->og_group_ref->value();
+		if (!node_access('view', $space)){
+			continue;
+		}
+		if($space) $space_name = $space -> title;
+		$section_id_space_names[$nid] = $space_name;
+	}
+	$orignal_section = entity_metadata_wrapper('node', $original_node) -> oa_section_ref -> raw();
+	unset($section_id_space_names[$orignal_section]);
+	//dpm(array($orignal_section));
+	$to_section = !empty($form_state['values']['to_section']) ? $form_state['values']['to_section'] : null;
+	//dpm($to_section);
+	$form['to_section']=array(
+		'#type' => 'select',
+		'#title' => t('To space'),
+		'#options' => $section_id_space_names,
+	);
+	
+	
+	$form['continue1']=array(
+		'#type' => 'submit',
+		'#value' => t('Next'),
+		'#name' => 'continue1',
+		'#submit' => array('nhpd_oa_task_move_copy_page_callback_submit'),
+	);
+	$form['node_data'] = array(
+		'#type' => 'value',
+		'#value' => $original_node,
+	);
+
+	if (($form_state['clicked_button']['#id'] != 'edit-continue1')){
+		return $form;
+	}
+	else{
+		$confirm_form = array();
+		$confirm_form['to_section']=array(
+		'#type' => 'value',
+		'#value' => $to_section,
+		);
+		$confirm_form['node_data'] = array(
+		'#type' => 'value',
+		'#value' => $original_node,
+		);
+		$confirm_form['method'] = array(
+		'#type' => 'value',
+		'#value' => $method,
+		);
+		$confirm_form['notification_update_method'] = array(
+		'#type' => 'value',
+		'#value' => $notification_update_method,
+		);
+		// Reset node title
+		$title = $original_node -> title;
+		if (module_exists('nhpd_oa2_unique_tag')){
+			$title = nhpd_oa2_unique_tag_remove_unique_tag($original_node);
+		}
+		if ($method == 'copy'){
+			$title = 'Copy of ' . $title;
+		}
+		$confirm_form['node_title'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Title'),
+		'#default_value' => $title,
+		'#description' => t("If you would like to change the title, do it now.")
+		);
+		
+		$notification_reset_method = $notification_update_methods[$notification_update_method];
+		return confirm_form($confirm_form,
+		  t('Are you sure you want to !method %title to space %space and !notification_reset_method?', array('!method' => $method, '!notification_reset_method' => $notification_reset_method, '%title' =>  $original_node->title, '%space' => $section_id_space_names[$to_section])),
+		  'node/' . $original_node->nid, '<p>' . t('This action will create a new node. You will then be redirected to the edit page for the new node.') . '</p>',
+		  $methods[$method], t('Cancel'));
+	}
+	 
+  }
+  
+}
+function nhpd_oa_task_move_copy_page_callback_submit($form, &$form_state){
+	$form_state['rebuild'] = TRUE;
+	//dpm($form_state);
+	$to_section = !empty($form_state['values']['to_section']) ? $form_state['values']['to_section'] : null;
+	if ($form_state['clicked_button']['#id'] == 'edit-submit'){
+		$original_node = !empty($form_state['values']['node_data']) ? $form_state['values']['node_data'] : null;
+		$original_node_nid = $original_node ->nid;
+		$method = !empty($form_state['values']['method']) ? $form_state['values']['method'] : 'move';
+		$node_title = !empty($form_state['values']['node_title']) ? $form_state['values']['node_title'] : '';
+		$notification_update_method = !empty($form_state['values']['notification_update_method']) ? $form_state['values']['notification_update_method'] : 'move';
+		//dpm("node/$original_node_nid/nhpd_oa_task_move_copy/processing/$to_section/$method");
+		drupal_goto("node/$original_node_nid/nhpd_oa_task_move_copy/processing/$to_section/$method/$notification_update_method/$node_title");
+	}
+}
+
+function nhpd_oa_task_move_copy_page_processing_callback($form, &$form_state, $original_node, $to_section_id, $method, $notification_update_method, $node_title) {
+	
+	$node = _nhpd_oa_task_move_copy_node_prepare($original_node, $to_section_id, $method, $notification_update_method);
+	$node->title = $node_title;
+	node_save($node);
+	_nhpd_oa_task_move_copy_notification_reset($to_section_id, $original_node, $node, $method, $notification_update_method);
+	$node = node_load($node->nid);
+	//copy comments from original node to new node if method = copy
+	if ($method == 'copy'){
+	$cids = comment_get_thread($original_node, '', $original_node->comment);
+		foreach($cids as $cid){
+			$comment = comment_load($cid);
+			//dpm($comment);
+			$comment->nid = $node->nid;
+			$comment->cid = null;
+			$comment->new = TRUE;
+			comment_save($comment);
+		}  
+	  
+	}
+	$nid = $node->nid;
+	drupal_set_message("To complete this operation, you must fill all required fields and save this node. You can also change the title of the node and values of other fields.");
+	drupal_goto("node/$nid/edit");
+}
+
+/**
+ *  Prepares a node to be cloned.
+ */
+function _nhpd_oa_task_move_copy_node_prepare($original_node, $to_section_id, $method, $account = NULL) {
+  //dpm($method);
+  if($method == 'copy'){
+	$node = clone $original_node;
+	$node->nid = NULL;
+	$node->vid = NULL;
+	$node->created = NULL;
+  }
+  else{
+	$node = $original_node;
+  }
+  //dpm($node);
+  
+  if (!isset($account->uid)) {
+    $account = $GLOBALS['user'];
+  }
+
+  
+  $node->tnid = NULL;
+  $node->log = NULL;
+  // Also handle modules that attach a UUID to the node.
+  $node->uuid = NULL;
+  $node->vuuid = NULL;
+
+  // Anyonmymous users don't have a name.
+  // @see: drupal_anonymous_user().
+  $node->name = isset($account->name) ? $account->name : NULL;
+  $node->uid = $account->uid;
+
+  
+  //$node->menu = clone_node_clone_menu_link($original_node);
+  if (isset($node->book['mlid'])) {
+    $node->book['mlid'] = NULL;
+    $node->book['has_children'] = 0;
+  }
+  $node->path = NULL;
+  $node->files = array();
+  
+  // Add an extra property as a flag.
+  $node->clone_from_original_nid = $original_node->nid;
+
+    
+  $task_wrapper = entity_metadata_wrapper('node', $node);
+  // reset parent space and section
+  $original_section_id = $task_wrapper ->oa_section_ref->raw();
+  $orig8inal_type = $task_wrapper->field_oa_worktracker_task_type->raw();
+  $to_section = node_load($to_section_id);
+  //dpm($original_section_id);
+  //dpm($section);
+  $to_section_wrapper = entity_metadata_wrapper('node', $to_section);
+  //dpm((array)$section_wrapper);
+  $to_space_id = $to_section_wrapper ->og_group_ref->raw();
+  //dpm($space_id);
+
+  $task_wrapper -> og_group_ref = $to_space_id;
+  //dpm($section_wrapper -> oa_section_ref);
+  $task_wrapper -> oa_section_ref =$to_section;
+  
+  //Custom fields
+  $to_visibilities = oa_worktracker_task_custom_fields_visibility($to_section_id,$orig8inal_type);
+  //dpm($to_visibilities);
+  foreach($to_visibilities as $field_name => $visible){
+	  if (!$visible && $task_wrapper->{$field_name}->value()){
+		$node -> {$field_name} = array();
+	  }
+  }
+  
+
+  return $node;
+}
+function _nhpd_oa_task_move_copy_notification_reset($to_section_id, $original_node, $node, $method, $notification_update_method){
+	//Notification setting - users only
+    $to_section = node_load($to_section_id);
+    $to_section_wrapper = entity_metadata_wrapper('node', $to_section);
+    $to_space_id = $to_section_wrapper ->og_group_ref->raw();
+	$space_users = oa_notifications_get_users_for_node($node, $to_space_id);
+	//dpm($space_users);
+	$notifications = oa_notifications_load_multiple($original_node);
+	//dpm($method);
+	if ($method == 'copy'){
+		foreach ($notifications['user'] as $uid => &$info ){
+			$info -> source_id = $node->nid;
+			$info -> notification_id = NULL;
+		}
+		//oa_notifications_save_notifications($notifications);
+		oa_notifications_save_for_source($node->nid, 'node', $notifications['user']);
+		//dpm($method);
+	}
+	//dpm($notifications);
+	$watchers = oa_watchers_get_all_watchers_for_node($original_node->nid);
+	 
+	foreach ($notifications['user'] as $uid => $info ){
+		if (!array_key_exists($uid, $space_users)){
+			  _nhpd_oa_task_move_copy_notifications_delete_for_source($uid, 'user', $node->nid, 'node');
+			  if ($notification_update_method == 'move'){
+				  $watchers[]=$uid;
+			  }
+		}
+	}
+	if ($notification_update_method == 'move'){
+			$notify = oa_watchers_get_notify_for_node($original_node->nid);
+			oa_watchers_update($node->nid, $watchers, $notify);
+	}
+}
+
+
+/**
+ * Delete notifications for a target.
+ *
+ * @param int $target_id
+ *   The target id (e.g. node id).
+ * @param string $target_type
+ *   The target type (e.g. 'group', 'team').
+ * @param int $source_id
+ *   The source id (e.g. node id).
+ * @param string $source_type
+ *   The source type (e.g. 'group', 'team').
+ */
+function _nhpd_oa_task_move_copy_notifications_delete_for_source($target_id, $target_type, $source_id, $source_type) {
+  db_delete('oa_notifications')
+    ->condition('target_id', $target_id)
+    ->condition('target_type', $target_type)
+	->condition('source_id', $source_id)
+    ->condition('source_type', $source_type)
+    ->execute();
+}
+
+/*
+// hook_node_grants
+function nhpd_oa_task_move_copy_node_grants($account, $op){
+  $grants = array();
+	switch ($op){
+		case 'view':
+    $grants['oa_watchers'] = array($account->uid);
+		break;
+	}
+  return $grants;
+}
+*/
+

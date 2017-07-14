@@ -1,0 +1,8 @@
+; $Id: nhpd_oa2.info,v 1.0.0  peijun zhang$
+name = NHPD OA2 Unique Tag
+description = A modules for generate unique tags prefixed to node title.
+core = 7.x
+package = NHPD
+configure = admin/oa_unique_tag
+dependencies[] = oa_core
+version = "7.x-1.0-dev"

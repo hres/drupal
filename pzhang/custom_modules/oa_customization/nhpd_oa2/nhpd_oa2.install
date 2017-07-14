@@ -1,0 +1,20 @@
+<?php
+// $Id$
+
+/**
+* Install the nhpid module, including it's content (node)
+* type.
+* @file
+*/
+
+/**
+* Implementation of hook_install()
+*/
+
+
+/**
+* Implementation of hook_uninstall()
+*/
+
+
+?>

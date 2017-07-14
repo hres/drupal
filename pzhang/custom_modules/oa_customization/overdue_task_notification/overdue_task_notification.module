@@ -1,0 +1,339 @@
+<?php
+// $Id$
+/* hook_cron*/
+function overdue_task_notification_cron(){
+	overdue_task_notiction_cron_callback();
+}
+
+
+/* hook_permission*/
+function overdue_task_notification_permission() {
+    return array(
+    'administer overdue task notification' => array(
+      'title' => t('Administer OA Watchers'),
+      'description' => t(''),
+    ),
+   );
+} 
+
+/* hook_ctools_plugin_directory */
+function overdue_task_notification_ctools_plugin_directory($module, $plugin) {
+  if ($module == 'ctools') {
+    return 'plugins/' . $plugin;
+  }
+}
+
+/***
+ * hook_menu
+ */ 
+function overdue_task_notification_menu() {
+
+  $items = array();
+
+  $root = 'overdue_task_notifictation';
+
+  $items[$root] = array(
+    'title' => t('Overdue Tasks'),
+    'description' => t('Administer overdue tasks'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('overdue_task_notification_form'),
+    'access arguments' => array('administer overdue task notification'),
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+	'menu' => 'main-menu',
+   );
+  $items[$root . '/notification'] = array(
+    'title' => 'Notification',
+    'weight' => -2,
+    'access arguments' => array('administer overdue task notification'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('overdue_task_notification_form'),
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+	'menu' => 'main-menu',
+  );
+  $items[$root . '/settings'] = array(
+    'title' => 'Settings',
+    'weight' => -1,
+    'access arguments' => array('administer overdue task notification'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('overdue_task_notification_setting_form'),
+    'type' => MENU_LOCAL_TASK,
+	'menu' => 'main-menu',
+  );
+	return $items;
+}
+
+function overdue_task_notification_form($form, &$form_state){
+	$task_type = variable_get('oa_worktracker_allowed_values_task_type', null);
+	$task_type_options = $task_type['options'];
+	
+	$task_category = variable_get('oa_worktracker_allowed_values_task_category', null);
+	$task_category_options = $task_category['options'];
+	
+	$task_status = variable_get_value('oa_worktracker_allowed_values_task_status');
+	$task_status_options = $task_status['options'];
+	$overdue_task_notifiction_setting = variable_get('overdue_task_notification_settings', array());
+	$query = new EntityFieldQuery;
+	$query->entityCondition('entity_type', 'user')
+		->propertyCondition('status', 1);
+	$result = $query->execute();
+	$user_options = array();
+	foreach($result['user'] as $uid => $info){
+		if(!in_array($uid, $overdue_task_notifiction_setting['excluded_users'])){
+			$account = user_load($uid);
+			$user_options[$uid] = $account->realname;
+		}
+	}
+	$types = !empty($form_state['values']['type']) ? $form_state['values']['type'] : null;
+	$form['type'] = array(
+		'#title' => t('Task types'),
+		'#type' => 'select',
+		'#default_value' => $types,
+		'#options' => $task_type_options,
+		'#multiple' => TRUE,
+	);
+	$statuses = !empty($form_state['values']['status']) ? $form_state['values']['status'] : null;
+	$form['status'] = array(
+		'#title' => t('Task statues'),
+		'#type' => 'select',
+		'#default_value' => $statuses,
+		'#options' => $task_status_options,
+		'#multiple' => TRUE,
+	);
+		
+	$categories = !empty($form_state['values']['category']) ? $form_state['values']['category'] : null;
+	$form['category'] = array(
+		'#title' => t('Task categories'),
+		'#type' => 'select',
+		'#default_value' => $categories,
+		'#options' => $task_category_options,
+		'#multiple' => TRUE,
+	);
+	$users = !empty($form_state['values']['user']) ? $form_state['values']['user'] : null;
+	$form['user'] = array(
+		'#title' => t('Task assignees'),
+		'#type' => 'select',
+		'#multiple' => true,
+		'#default_value' => $users,
+		'#options' => $user_options,
+	);
+	$duedate_cutoff = !empty($form_state['values']['duedate_cutoff']) ? $form_state['values']['duedate_cutoff'] : null;
+	$form['duedate_cutoff'] = array(
+		'#type' => 'date_popup',
+		'#title' => 'Duedate from',
+		'#default_value' => $duedate_cutoff,
+		'#date_format' => 'Y-m-d',
+		'#date_label_position' => 'within',
+		//'#date_timezone' => 'America/Chicago',
+		'#date_increment' => 15,
+		'#date_year_range' => '0:+8',
+	);
+	
+	$form['next']= array(
+		'#type' => 'submit',
+		'#value' => t('List overdue tasks'),
+		'#name' => 'next',
+	);
+	
+	$task_options = overdue_task_notification_get_overdue_tasks($types, $categories,$statuses,$users,$duedate_cutoff);
+	$select_options = array();
+	foreach($task_options as $uid => $tasks){
+		if($user_options[$uid]){
+			$select_options[$uid] = array('assignee' =>$user_options[$uid], 'tasks' => theme_item_list(array('items' => $tasks, 'type' => 'ul', 'title' => null, 'attributes' => array())));
+		}
+	}
+	$header = array('assignee' => t('Assignee'), 'tasks' => t('Tasks'));
+	$form['overdue_tasks']= array(
+		'#type' => 'value',
+		'#value' => $task_options;
+	}
+	$form['notification_users']=array(
+		'#type' => 'tableselect',
+		'#header' => $header,
+		'#options' => $select_options,
+		'#empty' => t('No content available.'),
+	);
+	$form['notify']= array(
+		'#type' => 'submit',
+		'#value' => t('Notify'),
+		'#name' => 'notify',
+	);
+	
+	return $form;
+}
+
+function overdue_task_notification_form_submit($form, &$form_state){
+	if ($firm_state['clicked_button']['id'] == 'notify'){
+		$notification_users = $form_state['values']['notification_users'];
+		$overdue_tasks = $form_state['values']['overdue_tasks'];
+		foreach($notification_users as $uid){
+			if (isset($overdue_tasks[$uid]){
+				overdue_task_nofification_notify($uid, $overdue_tasks[$uid]);
+			}
+		}
+	}
+	$form_state['rebuild'] = TRUE;
+}
+
+function overdue_task_notification_setting_form($form, &$form_state){
+	$auto_notification = !empty($form_state['values']['auto_notification']) ? $form_state['values']['auto_notification'] : 0;
+	$form['auto_notification'] = array(
+		'#title' => t('Turn on automated notification?'),
+		'#type' => 'checkbox',
+		'#default_value' => $auto_notification,
+	);
+	$notification_interval = !empty($form_state['values']['auto_notification_interval']) ? $form_state['values']['auto_notification_interval'] : 1;
+	$interval_options = array('1 days' => t('1 day'), '2 days' => t('2 days'), '3 days' => t('3 days'),'4 days' => t('4 days'),'5 days' => t('5 days'),'7 days' => t('1 week'),'14 days' => t('2 weeks'));
+	$form['auto_notification_interval'] = array(
+		'#title' => t('Auto notification interval'),
+		'#type' => 'select',
+		'#default_value' => $auto_notification,
+		'#options' => $interval_options,
+	);
+	$query = new EntityFieldQuery;
+	$query->entityCondition('entity_type', 'user')
+		->propertyCondition('status', 1);
+	$result = $query->execute();
+	$user_options = array();
+	foreach($result['user'] as $uid => $info){
+		$account = user_load($uid);
+		$user_options[$uid] = $account->realname;
+	}
+	$notification_users_excluded = empty($form_state['values']['auto_notification_users_excluded']) ? $form_state['values']['auto_notification_users_excluded'] : array();
+	$form['auto_notification_users_excluded'] = array(
+		'#title' => t('Excluded users'),
+		'#type' => 'select',
+		'#default_value' => $user_options,
+		'#options' => $notification_users_excluded,
+	);
+	$notification_last_notification_date = empty($form_state['values']['auto_notification_last_notification_date']) ? $form_state['values']['auto_notification_last_notification_date'] : NULL;
+	$form['auto_notification_last_notification_date'] = array(
+		'#title' => t('Last notification date'),
+		'#type' => 'textfield',
+		'#default_value' => $notification_last_notification_date,
+		'#attributes' => array('readonly' => 'readonly'),
+	);
+	$form['save']= array(
+		'#type' => 'submit',
+		'#value' => t('Save setting'),
+	);
+	return $form;
+}
+
+function overdue_task_notification_setting_form_submit($form, &$form_state){
+	$auto_notification = $form_state['values']['auto_notification'];
+	$notification_users_excluded = empty($form_state['values']['auto_notification_users_excluded']) ? $form_state['values']['auto_notification_users_excluded'] : array();
+	$notification_interval = !empty($form_state['values']['auto_notification_interval']) ? $form_state['values']['auto_notification_interval'] : 1;
+	$notification_last_notification_date = empty($form_state['values']['auto_notification_last_notification_date']) ? $form_state['values']['auto_notification_last_notification_date'] : NULL;
+	$settings = array('auto_notification' => $auto_notification,
+						'users_excluded' => $notification_users_excluded,
+						'interval' => $notification_interval,
+						'last_notification_date' => $notification_last_notification_date);
+						
+	variable_set('overdue_task_notification_settings', $settings);
+	$form_state['rebuild'] = TRUE;
+}
+
+function overdue_task_nofification_notify($uid, $tasks){
+	$message = message_create('overdue_task_notification', array('uid' => $uid));
+	$wrapper = entity_metadata_wrapper('message', $message);
+	$wrapper->field_number_of_overdue_tasks->set(count($tasks));
+	foreach($tasks as $nid => $title){
+		$wrapper->field_overdue_tasks[] = $nid;
+	}
+	//$wrapper->save();  <-  don't need - message_notify_send_message does this
+
+	message_notify_send_message($message);
+}
+/**
+ * Fetches all overdue tasks.
+ * 
+ * @param Array $types
+ *   (optional) Task types, query filter. If not given, all task types are included.
+ * @param Array $categories
+ *   (optional) Task categories, query filter. If not given, all task categories are included.
+ * @param Array $statuses
+ *   (optional) Task statuses, query filter. If not given, all task statuses are included.
+ * @param Array $users
+ *   (optional) Task assignees, query filter. If not given, all task statuses are included.
+ * @param Datetime $duedate_cutoff
+ *   (optional) Task duedate to start from, query filter. If not given, all duedates are included.
+ *
+ * @return UltimateCronJob
+ *   An associative array with uid as key and an array as value of an associative array
+ *	with nid as key and title as value.
+ */
+function overdue_task_notification_get_overdue_tasks($types=null, $categories=NULL,$statuses=NULL,$users=NULL,$duedate_cutoff=NULL){
+	$current_date = date("Y-m-d g:i:s");
+	$query = new EntityFieldQuery;
+	$query->entityCondition('entity_type', 'node')
+			->entityCondition('bundle', 'oa_worktracker_task')
+			->propertyCondition('status', NODE_PUBLISHED)
+			//->fieldCondition('field_oa_worktracker_assigned_to', )
+			->fieldCondition('field_is_closed', 'value', 0, '=')
+			->fieldCondition('field_oa_worktracker_duedate', 'value', $current_date, '<=');
+	if ($types){
+		$query->fieldCondition('field_oa_worktracker_task_type', 'value', $types, 'IN');
+	}
+	if ($categories){
+		$query->fieldCondition('field_issue_category', 'value', $categories, 'IN');
+	}
+	if ($statuses){
+		$query->fieldCondition('field_oa_worktracker_task_status', 'value', $statuses, 'IN');
+	}
+	if ($users){
+		$query->fieldCondition('field_oa_worktracker_assigned_to', 'target_id', $users, 'IN');
+	}
+	if ($duedate_cutoff){
+		$query->fieldCondition('field_oa_worktracker_duedate', 'value', $duedate_cutoff, '>=');
+	}
+	$result = $query->execute();
+	$tasks = array();
+	foreach($result['node'] as $nid => $info){
+		$node = node_load($nid);
+		$wrapper=entity_metadata_wrapper('node', $node);
+		$assignee_uid = $wrapper->field_oa_worktracker_assigned_to->raw();
+		if ($assignee_uid) $tasks[$assignee_uid][$node->nid] = $node->title;
+	}
+	return $tasks;
+}
+
+/**
+ * Notify all users who have overdue tasks.
+ * 
+ * @param Array $types
+ *   (optional) Task types, query filter. If not given, all task types are included.
+ * @param Array $categories
+ *   (optional) Task categories, query filter. If not given, all task categories are included.
+ * @param Array $statuses
+ *   (optional) Task statuses, query filter. If not given, all task statuses are included.
+ * @param Array $users
+ *   (optional) Task assignees, query filter. If not given, all task statuses are included.
+ * @param Datetime $duedate_cutoff
+ *   (optional) Task duedate to start from, query filter. If not given, all duedates are included.
+ *
+ 
+ */
+
+function overdue_task_notification_notity_all($type=null, $category=NULL,$status=NULL,$users=NULL,$duedate_cutoff=NULL){
+	$overdue_tasks = overdue_task_notification_get_overdue_tasks($types, $categories,$statuses,$users,$duedate_cutoff);
+	
+	foreach($overdue_tasks as $uid => $tasks){
+		overdue_task_nofification_notify($uid, $overdue_tasks[$uid]);
+	}
+}
+
+function overdue_task_notiction_cron_callback(){
+	$overdue_task_notifiction_setting = variable_get('overdue_task_notification_settings', array());
+	$auto_notification = $overdue_task_notifiction_setting['auto_notification'];
+	$last_notification_date = $overdue_task_notifiction_setting['last_notification_date'];
+	$interval = $overdue_task_notifiction_setting['interval'];
+	$date_format = 'Y-m-d g:i:s';
+	$current_date = date($date_format);
+	
+	if ($auto_notification && date($date_format,strtotime($current_date . "-$interval") ) > date($date_format, $last_notification_date){
+		overdue_task_notification_notity_all();
+		$overdue_task_notifiction_setting['last_notification_date'] = $current_date;
+		variable_set('overdue_task_notification_settings', $overdue_task_notifiction_setting);
+	}
+	
+}

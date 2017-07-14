@@ -1,0 +1,60 @@
+h1. Site Admin
+
+[toc Site Admin]
+
+h2. Introduction
+
+This site is built based on Open Atrium. However, in order to make this site better aligned with Chiliproject, it is heavily customized. To be able to properly use this site, site admins have to know those customized features and how to change their settings. This wiki page is about how to manage the site settings.
+
+h2. Space Admin
+
+Please refer [[nid:34535|Space Admin]]
+
+h2. Notification Settings
+
+To turn on / off notification of the site, please visit "Home » Administration » Open Atrium » Config» Notification":admin/openatrium/setting.
+To set personalized notifications, please open the account of a user, then click 'Settings' under gear.
+!system/files/its/user_profile_settings.png!
+
+h2. Task Priority Setting
+
+To manage task priorities, please visit [[admin/openatrium/worktracker|Home » Administration » Open Atrium » Work Tracker settings: Priority values]].
+
+h2. Task Type Setting
+
+To manage task type values, please visit [[admin/openatrium/worktracker|Home » Administration » Open Atrium » Work Tracker settings: Type values]].
+Task type is space depended, meening the allowed values for type field are dynamically set based on spaces. To set task type and space relationship, please visit [[admin/oa_worktracker_allowed_value_setting/oa_worktracker_task_category_setting|Home » Administration » OA Worktracker Allowed Values Setting » OA Worktracker Allowed Values Setting: Task Type]].
+
+h2. Task Category Setting
+
+To manage task category values, please visit [[admin/openatrium/worktracker|Home » Administration » Open Atrium » Work Tracker settings: Task category values]].
+Task category is space depended, meening the allowed values for category field are dynamically set based on spaces. To set task category and space relationship, please visit [[admin/oa_worktracker_allowed_value_setting/oa_worktracker_task_category_setting|Home » Administration » OA Worktracker Allowed Values Setting » OA Worktracker Allowed Values Setting: Task Category]].
+
+h2. Task Status and Workflow Setting
+
+To manage task status values, please visit [[admin/openatrium/worktracker|Home » Administration » Open Atrium » Work Tracker settings: Status values]].
+To set closed status, please visit [[admin/openatrium/worktracker|Home » Administration » Open Atrium » Work Tracker settings: Task statuses defined as 'closed']].
+
+Status transition (workflow) is OG role, type, and user depended. To set workflow, please visit [[admin/oa_worktracker_allowed_value_setting/oa_worktracker_task_category_setting|Home » Administration » OA Worktracker Allowed Values Setting » OA Worktracker Allowed Values Setting: Workflows]].
+
+h2. Custom fields
+
+Custom fields are space (task section) and type depended. To set custom fields and their relationship to space and type, please visit [[admin/oa_worktracker_allowed_value_setting/oa_worktracker_task_category_setting|Home » Administration » OA Worktracker Allowed Values Setting » OA Worktracker Allowed Values Setting: Task Custom Fields]].
+
+h2. User Management
+
+h3. Adding Users
+
+To add users, visit [[admin/people|Home » Administration » People: Add user]]. For site admin, set role to ITS admin. Otherwise, do not set role.
+To block users (blocked users cannot be seen in any user dropdown list. The users cannot log in), change the status to 'blocked'.
+
+h3. Adding users to spaces
+
+Navigate to the space the user will be add. Click on button "members" then add the user to the space. Space members are allowed to add new tasks and edit has own tasks.
+
+h3. Setting Og roles to users
+
+Left click on a user and selet an Og role to add. Currently, Roles Administrator and Wiki eidtor are functional only. Administrator is the space admin, who can reate subspaces, section, and manage users. Wiki aditor can add/edit wiki pages of the space. No any other special permissions are set to all other roles.
+
+
+

@@ -1,0 +1,423 @@
+<?php
+// $Id: nhpid_data_report.module,v 1.0.0 2010/07/27 15:26:16 peijun zhang $
+
+function nhpid_data_report_perm() {
+    return array('administer nhpid_data_report_form', 'access nhpid_data_report_form');
+} // function nhpid_perm()
+
+
+function nhpid_data_report_menu() {
+
+  $items = array();
+
+  $items['nhpid_data_report'] = array(
+    'title' => t('NHPID Data Report'),
+    'description' => 'Tool for reporting DNPID data',
+    'menu_name' => 'menu-nhpid-data-entry',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_data_report_form'),
+    'access arguments' => array('access nhpid_data_report_form'),
+    'type' => MENU_NORMAL_ITEM,
+   );
+   
+   $items['progress_bar'] = array(
+    'title' => t('Progress Bar'),
+    'description' => '',
+    'path' => 'progress_bar/progress_bar',
+    'page callback' => 'progress_bar_view',
+    'access arguments' => array('access nhpid_data_report_form'),
+    'type' => MENU_CALLBACK,
+   );
+
+  return $items;
+}
+
+function nhpid_data_report_theme(){
+  return array(
+    'nhpid_display_report' => array(
+      'arguments' => array(
+        'form' => array(),
+      ),
+    ),
+    
+    'nhpid_display_report_page' => array(
+      'arguments' => array('title' => NULL, 'content' => NULL, ),
+      'template' => 'nhpid_data_report_simple',
+    ),
+  );
+}
+
+function nhpid_data_report_theme_registry_alter(&$theme_registry) {
+  drupal_set_message(nhpid_api_dump($theme_registry, 'red', true));
+  $theme_registry['nhpid_display_report']['theme path'] = array_merge($theme_registry['nhpid_display_report']['theme path'], $theme_registry['node']['theme path']);
+  $theme_registry['nhpid_display_report_page']['theme path'] = array_merge($theme_registry['nhpid_display_report_page']['theme path'], $theme_registry['page']['theme path']);
+}
+/*
+function nhpid_data_report_preprocess_page(&$variables) {
+  //drupal_set_message(nhpid_api_dump($variables, 'red', true));
+  if (stristr($variables['content'], 'Result for:')){
+    $variables['header'] = "";
+    $variables['search'] = "";
+    $variables['site_name'] = false;
+    $variables['left'] = false;
+    $variables['right'] = false;
+    $variables['head_title'] = false;
+    $variables['breadcrumb'] = false;
+    $variables['help'] = false;
+    $variables['footer_message'] = false;
+    $variables['footer'] = false;
+    $variables['show_blocks'] = false;
+  }
+  
+  
+}*/
+function nhpid_data_report_form($form_state=NULL)
+{
+   if (isset($form_state['storage']['form_page_two'])) {
+    return nhpid_data_report_form_page_two();
+  }
+  
+  $node_type = !empty($form_state['values']['node_type']) ? $form_state['values']['node_type'] : '';
+  $wf_state = !empty($form_state['values']['wk_state']) ? $form_state['values']['wk_state'] : 'all';
+  $author = !empty($form_state['values']['author']) ? $form_state['values']['author'] : 'all';
+  $format = !empty($form_state['values']['format']) ? $form_state['values']['format'] : 'Excel5';
+  
+  //drupal_set_message("node_type: " . $node_type);
+  //drupal_set_message('next');
+
+
+  $types = get_all_nhpid_data_node_types();
+ 
+  
+ 
+  $form = array();
+  $form['#multistep'] = TRUE;
+  //$form['#redirect'] = FALSE;
+  //$form['#attributes'] = array('target' => '_blank');
+  $form['description'] = array(
+    '#type' => 'item',
+    '#title' => t('Select a node type'),
+  );
+  
+  $form['page1'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Step 1'),
+    '#collapsible' => TRUE,
+    '#collapsed' => false,
+  );
+
+  $form['page1']['node_type'] = array(
+    '#type' => 'select', 
+    '#title' => t('Node type'), 
+    '#default_value' => $node_type,
+    '#options' => $types,
+    '#description' => t('Select a node type.'),
+    '#attributes' => array('onchange' => 'this.form.submit();'),
+  );
+  
+  $formats = array();
+  $formats['html'] = "View as HTML table";
+  $formats['Excel5'] = "Save as Excel file";
+  
+   
+  $form['page1']['format'] = array(
+    '#type' => 'select', 
+    '#title' => t('Select export format'), 
+    '#options' => $formats,
+    '#default_value' => $format,
+    '#description' => t('Select one format'),
+  );
+  
+   $form['page1']['next'] = array(
+    '#type' => 'submit',
+    '#value' => 'Next >>',
+  );
+  
+  //$node_type = !empty($form_state['values']['node_type']) ? $form_state['values']['node_type'] : '';
+  $sql = "select ws.sid, ws.state from workflow_states ws, workflow_type_map wp where ws.sid > 1 and ws.wid = wp.wid and wp.type = '$node_type'";
+  //drupal_set_message ($sql);
+  $wfs = array();
+  $wfs['all']= 'All';
+  $result = db_query($sql);
+  while ($wf = $result->fetchAssoc()){
+    $wfs[$wf['sid']] = $wf['state'];
+  }
+  //drupal_set_message(nhpid_api_dump($wfs, 'red', true));
+  
+ 
+  $form['page2'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Step 2'),
+    '#collapsible' => TRUE,
+    '#collapsed' => !(bool)$node_type,
+  );
+
+  $form['page2']['wk_state'] = array(
+    '#type' => 'select', 
+    '#title' => t('Workflow State'), 
+    '#options' => $wfs,
+    '#multiple' => true,
+    '#default_value' => $wf_state,
+    '#description' => t('Select workflow states.'),
+  );
+  
+  $sql = "select uid, name from users where uid > 0 order by name";
+  $users = array();
+  $users['all'] = 'All';
+  $result = db_query($sql);
+  while ($user = $result->fetchAssoc()){
+    $users[$user['uid']] = $user['name'];
+  }
+  $form['page2']['author'] = array(
+    '#type' => 'select', 
+    '#title' => t('Author'), 
+    '#options' => $users,
+    '#multiple' => true,
+    '#default_value' => $author,
+    '#description' => t('Select authors.'),
+  );
+  
+  $fields = get_node_type_field_name_title_mapping($node_type);
+  $default_fields = array();
+  foreach ($fields as $key => $value)
+  {
+    $default_fields[$key] = $key;
+  }
+  if ($form_state['clicked_button']['#id'] == 'edit-next') unset($form_state['values']['fields']);
+  $selected_fields = !empty($form_state['values']['fields']) ? $form_state['values']['fields'] : $default_fields;
+  if($selected_fields == 'all') $selected_fields = $default_fields;
+  if($selected_fields == 'none') $selected_fields = array();
+  //drupal_set_message(nhpid_api_dump($fields, 'red', true));
+  //drupal_set_message(nhpid_api_dump($selected_fields, 'red', true));
+  $form['page2']['node-type'] = array(
+    '#type' => 'item',
+    '#title' => 'Node fields',
+    //'#attributes' => array('onclick' => 'window.open(this.href); return false'),
+  );
+  $form['page2']['uncheck-all'] = array(
+    '#type' => 'submit',
+    '#value' => 'Uncheck All',
+    //'#attributes' => array('onclick' => 'window.open(this.href); return false'),
+  );
+  
+   $form['page2']['check-all'] = array(
+    '#type' => 'submit',
+    '#value' => 'Check All',
+    //'#attributes' => array('onclick' => 'window.open(this.href); return false'),
+  );
+  $form['page2']['fields'] = array(
+    '#type' => 'checkboxes', 
+    //'#title' => t('Node fields'), 
+    '#options' => $fields,
+    '#default_value' => $selected_fields,
+    '#description' => t('Select node fields.'),
+
+  );
+   $form['page2']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => 'Submit',
+    '#attributes' => array('onclick' => 'this.form.target="_blank"; return ture;'),
+  );
+  if ($form_state['clicked_button']['#id'] == 'edit-submit') {
+      $node_type = !empty($form_state['values']['node_type']) ? $form_state['values']['node_type'] : '';
+      $wf_state = !empty($form_state['values']['wk_state']) ? $form_state['values']['wk_state'] : 'all';
+      $author = !empty($form_state['values']['author']) ? $form_state['values']['author'] : 'all';
+      $format = !empty($form_state['values']['format']) ? $form_state['values']['format'] : 'Excel5';
+      $sql ="select node.nid from node, workflow_node wfn where node.type = '$node_type'  and node.nid = wfn.nid"; //and node.uid = $author and node.type = '$node_type'";
+      if (!($author['all']))
+      {
+        $author_str = implode(',', $author);
+        $author_clause = " and node.uid in($author_str)";
+        $sql = $sql . $author_clause;
+      }
+      if (!($wf_state['all']))
+      {
+        $wfs_str = implode(',', $wf_state);
+        $wfs_clause = " and sid in($wfs_str)";
+        $sql = $sql . $wfs_clause;
+      }
+      //drupal_set_message($sql);
+      
+      $data = get_all_node_by_type(null, $sql, $selected_fields);
+      if($data){
+         //drupal_set_message(nhpid_api_dump($keys, 'red', true));
+        $field_name_mapping = get_node_type_field_name_title_mapping($node_type, $selected_fields);
+        $field_name_mapping['nid'] = 'NID';
+        $field_name_mapping['title'] = 'Title';
+        $field_name_mapping['workflow_state'] = 'Workflow State';
+        //drupal_set_message(nhpid_api_dump($field_name_mapping, 'purple', true));
+        if ($format == 'html')
+        {
+          $header = $field_name_mapping;
+          $sorted_data = array();
+          
+          foreach ($data as $line){
+            $sorted_line = array();
+            foreach($header as $key => $value){
+              $sorted_line[$key] =  $line[$key];
+            }
+            $sorted_data[] = $sorted_line;
+          }
+          
+          //drupal_set_message(nhpid_api_dump($sorted_data, 'purple', true));
+          $table = theme_table($header,$sorted_data);
+          $form2 = array();
+          $form2['#theme'] = 'nhpid_display_report';
+          
+          $form2['progress_bar'] = array
+          (
+          '#type'        => 'fapi_progress_bar_png',
+          '#title'       => 'FAPI Progress bar in PNG Format',
+          '#description' => 'A FormsAPI progress bar widget using a PNG image',
+          '#percent'     => rand(0, 100),
+          );
+    
+          $form2['title'] = array(
+            '#type' => 'item',
+            '#value' => $node_type,
+           );
+          $form2['content'] = array(
+            '#type' => 'item',
+            '#value' => $table,
+           );
+          $form2['#attributes'] = array('target' => '_blank');
+          
+          return $form2;
+          //$title = 'Result for ' . $node_type;
+          //$output = theme('nhpid_report_simple', $title, $table);
+          //drupal_set_message(nhpid_api_dump($output, 'purple', true));
+          //return drupal_get_form('display_report', $output);
+        }
+        else
+        {
+          $excel_data = array();
+          $excel_data[$node_type]['sheet_name'] = $node_type;
+          $excel_data[$node_type]['header'] = $field_name_mapping;
+          $excel_data[$node_type]['data'] = $data;
+          
+          //drupal_set_message(nhpid_api_dump($excel_data, 'green', true));
+          $path = file_directory_path() . "/" . "$node_type.xls";
+          $path = generate_excel($path, $excel_data);
+          $form['page3'] = array(
+            '#type' => 'fieldset',
+            '#title' => t('Result'),
+            '#collapsible' => TRUE,
+            '#collapsed' => False,
+          );
+          if ($path){
+            $output = "Your browser should open a 'Save File' window autimatically. If you could not see the window in a while, please click the following link to download the file manually.<br>";
+      
+            $file_size = filesize($path);
+            //drupal_set_message(nhpid_api_dump($file_path, 'green', true));
+            //$output = $output . "<a href='javascript:void(0);'  onclick='document.execCommand(\"SaveAs\",true,\"198.103.103.162/demo/$file_path\");' >$file_name ($file_size)</a> ";
+            
+            $output = $output . l("$node_type.xls ($file_size)", $path);
+            
+            $form['page3']['download_path'] = array(
+              '#type' => 'hidden',
+              '#value' => $path,
+             );
+            $form['page3']['result'] = array(
+              '#type' => 'item',
+              '#value' => $output,
+             );
+             
+            $header = array('Refresh: 0;', 'Cache-Control: no-store, no-cache, no-transform, must-revalidate, private', "Content-Type: application/vnd.ms-excel; name=’Excel’",'Content-Disposition: attachment; filename='. "$node_type.xls" . ';', 'Content-Length: ' . filesize($path), 'Expires: 0');
+    
+            //drupal_set_message(nhpid_api_dump($header, 'red', true));
+            //drupal_set_message(nhpid_api_dump($file_path, 'red', true));
+            file_transfer($path, $header);
+          }
+          else{
+            $form['page3']['result'] = array(
+              '#type' => 'item',
+              '#value' => "Excel file generating failed. Please try again. If the problem is persistent, please report to the system administrator.",
+             );
+          }
+          
+        }
+        
+      }
+    
+  }
+  
+  return $form;
+
+}
+
+function nhpid_data_report_form_submit(&$form, &$form_state) {
+    if ($form_state['clicked_button']['#id'] == 'edit-uncheck-all') {
+      $form_state['values']['fields'] = 'none';
+    }
+    if ($form_state['clicked_button']['#id'] == 'edit-check-all') {
+      $form_state['values']['fields'] = 'all';
+    }
+    $form_state['rebuild'] = TRUE;
+    $form_state['storage']['values'] = $form_state['values']; //+ $form_state['storage']['values'];
+    
+    
+  
+  
+    
+}
+function theme_nhpid_display_report($form) {
+  
+  $output = drupal_render($form['progress_bar'])  . '<h3 class="title">' . 'Result for: ' . drupal_render($form['title'])  . '</h3>';
+  $output .= drupal_render($form['content']);
+  //drupal_set_message(nhpid_api_dump($form, 'red', true));
+  return $output . drupal_render($form);
+}
+
+/**
+* Output a progress bar
+*
+* It displays the value/range ratio on top of the progress bar itself.
+* 
+* @param int $usValue
+* @return void
+*/
+function progress_bar_view($usValue = 0)
+{
+  $width = 400;
+  $height = 16;
+  $range = 100;
+  
+  if (!is_numeric($usValue) || $usValue < 0)
+    {
+    $value = 0;
+    }
+  elseif ($usValue > 100) // we know it's a number
+    {
+    $value = 100;
+    }
+  else
+    {
+    $value = $usValue; // sanitized above
+    }
+  
+  drupal_set_header('Content-type: image/png');
+  
+  $image = imagecreatetruecolor($width, $height);
+  $colorSilver = imagecolorallocate($image, 192, 192, 192);
+  $colorBlue   = imagecolorallocate($image, 0x23, 0x85, 0xc2); // garland "blue lagoon" top
+  $colorWhite  = imagecolorallocate($image, 255, 255, 255);
+  
+  $fontSize = 5; 
+  imagerectangle($image, 0, 0, $width - 1, $height - 1, $colorBlue);
+  imagefilledrectangle($image, 1, 1, $width - 2, $height - 2, $colorWhite);
+  imagefilledrectangle($image, 1, 1, ($width - 2) * $value/ $range, $height - 2, $colorSilver);
+  for ($i = 1 ; $i < 10 ; $i++)
+    {
+    $xOff = $i * $width / 10 ;
+    imageline($image, $xOff, $height, $xOff, $height * 9 / 10, $colorBlue); 
+    }
+  //  imageline($image, 0, 0, $width, $height, $colorBlue);
+//  imageline($image, 0, $height, $width, 0, $colorGreen);
+  $caption = sprintf("%5.2f%%", 100.0 * $value / $range);
+  $captionWidth = imagefontwidth($fontSize) * strlen($caption);
+  $captionHeight = imagefontheight($fontSize);
+  imagestring($image, $fontSize, ($width - $captionWidth) / 2, ($height - $captionHeight) / 2, $caption, $colorBlue);
+  imagepng($image);
+  imagedestroy($image);
+  return NULL;
+}

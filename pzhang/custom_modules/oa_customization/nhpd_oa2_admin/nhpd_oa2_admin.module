@@ -1,0 +1,3113 @@
+<?php
+// $Id: nhpid_admin.module,v 1.0.0 2010/07/27 15:26:16 peijun zhang $
+
+
+include_once 'PHPExcel/PHPExcel.php';
+//libraries_load('PHPExcel');
+//include_once 'Date.php';
+//require_once 'Spreadsheet/Excel/Writer.php';
+// reset memory limit
+$freemem = null;
+if(function_exists('get_sysfreemem'))$freemem = get_sysfreemem();
+if (!$freemem or $freemem > 2000000000) $freemem = '2000M';
+//ini_set('memory_limit', $freemem);
+set_time_limit(64000);
+ini_set('max_execution_time', 400);
+//$cacheMethod = PHPExcel_CachedObjectStorageFactory::cache_in_memory_gzip;
+$cacheMethod = PHPExcel_CachedObjectStorageFactory::cache_to_memcache;
+$cacheSettings = array( 'memoryCacheSize' => '5GB', 'cacheTime' => 6000);
+PHPExcel_Settings::setCacheStorageMethod($cacheMethod, $cacheSettings);
+
+PHPExcel_Cell::setValueBinder(new PHPExcel_Cell_AdvancedValueBinder());
+
+
+//drupal_set_message(nhpid_api_dump(ini_get_all(), 'red', TRUE));
+
+define('EXCEL_FILE_DIR_ROOT', '/home/peijun/project/drupal/new_datasheets');
+define('MULTI_VALUED_FIELD_MARK', "*");
+define('MULTI_VALUED_FIELD_DELIMITER', ";");
+define('FIELD_NAME_ROOT', 'field_');
+define('CHILIDB', 'chiliproject');
+define('TASK_SECTION_TITLE', 'Tasks');
+define('WIKI_SECTION_TITLE', 'Wikis');
+global $user;
+
+/**
+ * @global int $user_uid Logged in user's uid
+ */
+global $user_uid, $restricted_users;
+$user_uid =  $user -> uid;
+$restricted_users = array(1);
+
+
+/**
+* Valid permissions for this module
+* @return array An array of valid permissions for the nhpid_list_items module
+*/
+function nhpd_oa2_admin_permission() {
+    return array(
+    'use administration tools' => array(
+      'title' => t('Use Administration Tools'),
+      'description' => t(''),
+      ),
+     );
+}
+function nhpd_oa2_admin_menu() {
+
+  $items = array();
+
+  $items['admin/nhpd_oa2_admin'] = array(
+    'title' => 'NHPD OA2 Admin',
+    'description' => 'Administration tools for NHPD OA2 Data',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('admin_form'),
+    'access arguments' => array('use administration tools'),
+    'type' => MENU_NORMAL_ITEM,
+   );
+ return $items;
+}
+
+function admin_form($form, &$form_state = NULL) {
+  
+  global $user_uid, $restricted_users;
+  $action_option = array('select_task' => 'Select A Task',
+                'display_node' => 'Display A Node',
+                'display_all_node_by_type' => 'Display All Nodes by Type',
+                  );
+  //if (in_array($user_uid, $restricted_users)){
+    $action_option = array_merge ($action_option, array('select_task' => 'Select A Task',
+                /*'load_imdb_data' => 'Load IMDB Data From Data Sheets',
+                'load_chiliproject_project_data' => 'Migrate Chiliproject project data',
+                'load_chiliproject_user_data' => 'Migrate Chiliproject user data',
+                'load_chiliproject_issue_data' => 'Migrate Chiliproject issue data',
+                'load_chiliproject_wiki_data' => 'Migrate Chiliproject Wiki data',
+                'delete_all_nodes_by_type' => 'Delete All Nodes by type',*/
+                'code_testing'  => 'Test php code',
+                 ));
+
+ // }
+  $action_default = !empty($form_state['values']['action']) ? $form_state['values']['action'] : ''; 
+  $action = null;
+  if (isset($form_state['values'])) $action = $form_state['values']['action'];
+  $form['#attributes'] = array('enctype' => "multipart/form-data");
+   $form['action'] = array(
+    '#type' => 'select', 
+    '#title' => t('Actions'), 
+    '#default_value' => $action_default,
+    '#options' => $action_option,
+    '#description' => t('Select an action.'),
+    '#attributes' => array('onchange' => 'this.form.submit();'),
+  );
+  
+  $form['next'] = array(
+    '#type' => 'submit',
+    '#value' => 'Next >>',
+    '#attributes' => array('onclick' => 'return confirm("Are you sure you wish to continue?");'),
+  );
+  if ($action) {
+    timer_start('nhpid_init');
+    switch ($action) {
+      case 'clear_data':
+        $form[] = clear_data($form_state);
+        break;
+      case 'display_node':
+        $form[] = display_node_form($form_state);
+        break;
+      case 'display_all_node_by_type':
+        $form[] =display_all_node_by_type($form_state);
+        break;
+      case 'display_node_type_mapping':
+        display_node_type_mapping();
+        break;
+      case 'node_structure_report':
+        $form[] =node_structure_report($form_state);
+        break;
+      case 'delete_all_nodes_by_type':
+        $form[] =delete_all_nodes_by_type_form($form_state);
+        break;  
+      case 'copy_field':
+        $form[] =copy_data_from_field1_to_field2_form($form_state);
+        break;
+      case 'change_state':
+        $form[] =change_workflow_state_of_nodes_by_type_form($form_state);
+        break;  
+      case 'load_imdb_data':
+        // grant field permissions
+        //drupal_goto('nhpid_admin2.php');
+        $form[] =load_imdb_data($form_state);
+        
+        break;
+        
+      case 'mapping_report':
+        $form[] =mapping_report($form_state);
+        break;
+      case 'validate_data':
+        $form[] =validate_data($form_state);
+        break;
+      case 'code_testing':
+        $form[] =code_testing($form_state);
+        break;
+      case 'back_up_variable':
+        $form[] =back_up_variable($form_state);
+        break;
+      case 'batch_testing':
+        $form[] =batch_testing();
+        break;
+      case 'import_export_field_collection':
+        $form[] =import_export_field_collection($form_state);
+        break;
+
+			case 'load_chiliproject_user_data':
+        $form[] =load_chiliproject_user_data($form_state);
+        break;
+      case 'load_chiliproject_issue_data':
+        $form[] =load_chiliproject_issue_data_form($form_state);
+        break;
+      case 'load_chiliproject_wiki_data':
+        $form[] =load_chiliproject_wiki_data_form($form_state);
+        break;
+      case 'load_chiliproject_project_data':
+        $form[] =load_chiliproject_project_data();
+        break;
+      default:
+        //exit (0);
+    
+    }
+    
+    $end_remark = "Done.";
+    $end_remark = $end_remark . nhpid_api_dump("Total time in min: " . timer_read('nhpid_init')/(60*1000), 'blue', TRUE );
+    timer_stop('nhpid_init');
+    $form['end_remark'] = array(
+      '#type' => 'item',
+      '#markup' => $end_remark, );
+  }
+  return $form;
+}
+function admin_form_submit($form, &$form_state) {
+  $form_state['rebuild'] = TRUE;
+  $form_state['storage']['values'] = $form_state['values'];
+   
+}
+
+function readdata($file_path, $content_type_only = FALSE) {
+  //drupal_set_message(nhpid_api_dump($file_path, 'purple', TRUE, FALSE));
+  $objReader =PHPExcel_IOFactory::createReader('Excel2007');
+  $objReader->setReadDataOnly(TRUE);
+  $objPHPExcel = $objReader->load($file_path);
+  $sheetnames = $objPHPExcel -> getSheetNames();
+  //drupal_set_message(nhpid_api_dump($sheetnames, 'purple', TRUE, FALSE));
+  $sheets = Array();
+  $key = 1;
+  //foreach ($sheetnames as $sheetname)
+  foreach ($objPHPExcel -> getWorksheetIterator() as $objWksheet) {
+    $sheetname = $objWksheet -> getTitle();
+		if ($sheetname != 'frmIssue') continue; // load frmIssue only
+    //$objWksheet = $objPHPExcel -> getSheetByName($sheetname);
+    if ($objWksheet -> getCell('A1') -> getCalculatedValue() == 'Form') {
+      $sheets[$key]['content_type'] = 'nhpd_imdb';
+      $sheets[$key]['sheet_name'] = trim($sheetname);
+      if ($content_type_only == FALSE) {
+        $sheets[$key]['first_data_col'] = 'A';
+        $sheets[$key]['last_data_col'] = 'CU';
+        $sheets[$key]['first_data_row'] = 2;
+        $sheets[$key]['numRows'] = $objWksheet -> getHighestRow( );
+        if ($sheets[$key]['numRows'] == 0 ) $sheets[$key]['numRows'] = 65536; // Reader bug: if sheet is 65536 row long, it returns rowNumber 0
+        $sheets[$key]['data_sheet'] = $objWksheet;
+      }
+      $key ++;
+    }
+  }
+  return $sheets;
+}
+
+function load_imdb_data($form_state = NULL) {
+
+	//$freemem = get_sysmeminfo() -> MemFree;
+  //ini_set('memory_limit', $freemem);
+  //grant_field_permissions();
+  global $user;
+  $user_uid = $user -> uid;
+  $field_name_root= FIELD_NAME_ROOT;
+  $multi_code_value_delimiter =MULTI_VALUED_FIELD_DELIMITER;
+  $multi_code_valued_field_mark = MULTI_VALUED_FIELD_MARK;
+  $form = array();
+  $form['help']=array(
+    '#type' => 'item',
+    '#markup' => '<strong> Danger!!! </strong> This will delete all existing NHPID data. <br> This may take a long time.',
+  );
+  $data_file_types = array('none' => '--Select one--',   'exported' => 'Original IMDB Excel file');
+  $data_file_types_default = !empty($form_state['values']['data_file_type']) ? $form_state['values']['data_file_type'] : 'exported';
+  $re_indexing = !empty($form_state['values']['do_reindexing']) ? $form_state['values']['do_reindexing'] : 0;
+  $delete_old_data = !empty($form_state['values']['delete_old_data']) ? $form_state['values']['delete_old_data'] : 0;
+  $reset_permissions = !empty($form_state['values']['reset_permissions']) ? $form_state['values']['reset_permissions'] : 0;
+  $load_round = !empty($form_state['values']['load_round']) ? $form_state['values']['load_round'] : 0;
+  $form['data_file_type']=array(
+    '#type' => 'select',
+    '#title' => t('Select data file type'),
+    '#options' => $data_file_types,
+    '#description' => t('Select data file type.'),
+    '#default_value' => $data_file_types_default,
+  );
+	/*
+  $form['do_reindexing'] = array(
+    '#type' => 'checkbox',
+    '#default_value' => $re_indexing,
+    '#title' => "Update Search Index?"
+  );
+	*/
+  $form['delete_old_data'] = array(
+    '#type' => 'checkbox',
+    '#default_value' => $delete_old_data,
+    '#title' => "Delete existing nodes?"
+  );
+	/*
+  $form['reset_permissions'] = array(
+    '#type' => 'checkbox',
+    '#default_value' => $reset_permissions,
+    '#title' => "Reset content type and field permissions?"
+  );
+  */
+  $form['reset_log'] = array(
+    '#type' => 'checkbox',
+    '#title' => "Delete existing log?"
+  );
+  /*
+  $form['load_round'] = array(
+    '#type' => 'select',
+    '#default_value' => $load_round,
+    '#options' => array(0=>'Rounds 1 & 2',1=>'Round 1 only', 2=>'Round 2 only'),
+    '#title' => "Reset content type and field permissions?"
+  );
+	*/
+  $form['#attributes'] = array('enctype' => "multipart/form-data");
+  $form['upload_data_file'] = array (
+    '#type' => 'file',
+    '#title' => t('Upload exported data file'),
+    '#size' => 100,
+
+    //'#required' => TRUE,
+  );
+
+  /*$form['data_file_on_server'] = array (
+    '#type' => 'textfield',
+    '#title' => t('Or, select exported data file on the server.'),
+    '#size' => 100,
+  );*/
+  $lines_limits = array('50'=>50, '100'=>100, '200' => 200, '500' => 500, '1000' => 1000, '2000' => 2000, '0' => 'Unlimited',);
+  $lines_limit = !isset($form_state['values']['lines_limit']) ? $form_state['values']['lines_limit'] : '200';
+  $form['lines_limit'] = array(
+    '#type' => 'select',
+    '#title' => t('Select a number'),
+    '#options' => $lines_limits,
+    '#default_value' => $lines_limit,
+    '#description' => t('Some data sheets are too large to load as a whole. You may want to cut them into small chunks. Select a line limit.'),
+  );
+  $form['action-submit']=array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+    '#attributes' => array('onclick' => 'return confirm("You are going to delete all NHPID data and load new data from data sheets. Are you sure you wish to continue?");'),
+  );
+
+
+  if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+		// create a table to contain loading log
+		$table_name = 'data_loading_log';
+    if (!db_table_exists($table_name)) {
+		  $schema = array(
+		    'description' => 'Data loading log.',
+		    'fields' => array(
+		      'init_title'			=> array('type' => 'varchar', 'length' => 1000, 'not null' => FALSE),
+          'title'						=> array('type' => 'varchar', 'length' => 500, 'not null' => TRUE),
+		      'nid'							=> array('type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE),
+		      'type'						=> array('type' => 'char', 'length' => 255, 'not null' => TRUE),
+	        'old_nid'					=> array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE),
+		      'log'							=> array('type' => 'varchar', 'length' => 2000, 'not null' => FALSE),
+		    ),
+        'primary key' => array('type', 'old_nid'),
+		  );
+      db_create_table($table_name,$schema);
+		}
+		if($form_state['values']['reset_log']){
+			$sql = "delete from $table_name";
+			db_query($sql);
+		}
+
+		//define your limits for the submission here
+    //$_SESSION['nhpid_admin_set_field_reference_field_item_value'] = null;
+    drupal_set_message('uploading file...');
+    //drupal_set_message(nhpid_api_dump($form_state, 'red', TRUE));
+    $limits = array ('extensions' => 'xlsx', 'file_size' => 50000000) ;
+
+    $validators = array(
+      'upload_export_file_validate' => array($limits['extensions'], $limits['file_size'],),
+      'file_validate_extensions' => array('xls xlsm xlsx'),
+    );
+    $uploaded_data_file = 'upload_data_file';
+    $uploaded_data_file_path = file_directory_temp() . "/uploaded_data_file";
+    $uploaded_data_file_path =  "public://uploaded_data_file/";
+    $uploaded_data_file_split_path = $uploaded_data_file_path . 'split';
+    //drupal_set_message($uploaded_data_file_path);
+		/*
+    $data_files_split = glob("$uploaded_data_file_split_path/*.xls");
+    foreach($data_files_split as $file) {
+      unlink($file);
+    }*/
+    if (file_prepare_directory($uploaded_data_file_path, FILE_CREATE_DIRECTORY | FILE_MODIFY_PERMISSIONS)){
+    //drupal_set_message(nhpid_api_dump($uploaded_data_file_path, 'red', TRUE));
+	    if (user_access('upload files') && $file = file_save_upload($uploaded_data_file, $validators, $uploaded_data_file_path, FILE_EXISTS_REPLACE)) {
+	      $file_path = $file -> uri;
+	      $lines_limit = $form_state['values']['lines_limit'];
+	      //drupal_set_message(nhpid_api_dump($file_path, 'red', TRUE));
+	      split_uploaded_data_file_single_pass($file_path, $uploaded_data_file_split_path, $lines_limit);
+	      //$re_indexing = $form_state['values']['do_reindexing'];
+	      $delete_old_data = $form_state['values']['delete_old_data'];
+	      load_split_data_batch($uploaded_data_file_split_path, $re_indexing, $delete_old_data, $reset_permissions,$load_round);
+	      //drupal_set_message(nhpid_api_dump("$file, $uploaded_data_file, $uploaded_data_file_path, $file_path", 'red', TRUE));
+	    }
+
+	    else {
+	      $msg = "File $data_file cannot be uploaded.";
+	      form_set_error ($data_file, $msg);
+	    }
+		}
+  }
+  return $form;
+}
+function upload_export_file_validate($file, $extensions, $file_size){
+  drupal_set_message('validating file...');
+  $errors = array();
+  $ext = pathinfo($file ->filename, PATHINFO_EXTENSION);
+  //drupal_set_message("$ext, $extensions, $file_size");
+  if ($ext != $extensions ) $errors[] = 'Only MS Excel 5 format (.xlsx) is allowed.';
+  if ($file -> filesize > $file_size) $errors[] = "File is too large (" . $file -> filesize . "). Max limit is $file_size.";
+  return $errors;
+}
+function split_uploaded_data_file_single_pass($file_path, $split_folder, $lines_limit = null) {
+  file_prepare_directory($split_folder, FILE_CREATE_DIRECTORY | FILE_MODIFY_PERMISSIONS);
+  file_scan_directory($split_folder, '/.*/', array('callback' => 'file_unmanaged_delete'));
+  $file_path = drupal_realpath($file_path);
+  //drupal_set_message(nhpid_api_dump($file_path, 'red', TRUE));
+
+  $objReader =PHPExcel_IOFactory::createReader('Excel2007');
+  $objReader->setReadDataOnly(FALSE);
+  $objPHPExcel = $objReader->load($file_path);
+  $sheetnames = $objPHPExcel -> getSheetNames();
+	$data_sheet_name = "frmIssue";
+
+  //drupal_set_message(nhpid_api_dump($sheetnames, 'purple', TRUE));
+  foreach ($sheetnames as $sheetname) {
+    //$sheet = $objPHPExcel -> getSheetByName($sheetname);
+    if ($sheetname != $data_sheet_name) continue;
+    $objWksheet = $objPHPExcel -> setActiveSheetIndexByName($sheetname);
+    //$arrayWksheet = $objWksheet -> toArray(null, false);
+    //print_r($arrayWksheet);
+
+    $num_header_rows = 1;
+    $num_rows = $objWksheet->getHighestRow();
+    $num_cols = $objWksheet->getHighestColumn();
+    //$num_cols = lettercol2numericcol($num_cols);
+    $num_data_rows = $num_rows - $num_header_rows;
+    $sheet_lines_limit = $lines_limit;
+		$files = 0;
+    ## Due to the memory limit (2G) of server, big sheets have to be split to small ones. Current limit is 2000 lines of data
+    //drupal_set_message(nhpid_api_dump("$num_rows,$num_data_rows,$lines_limit", 'green', TRUE));
+    if ($lines_limit < 1) {
+      $sheet_lines_limit = $num_data_rows;
+    }
+    else {
+      //drupal_set_message(nhpid_api_dump($lines_limit, 'green', TRUE));
+      $files = floor($num_data_rows/$sheet_lines_limit);
+    }
+    for($file = 0; $file <= $files; $file ++) {
+      $file_path_split = $split_folder . "/$sheetname" . '_' . $file . ".xlsx";
+      //drupal_set_message(nhpid_api_dump($file_path_split, 'red', TRUE));
+      $file_path_split = drupal_realpath($file_path_split);
+      //drupal_set_message(nhpid_api_dump($file_path_split, 'green', TRUE));
+      $excel = new PHPExcel();
+      $active_sheet=$excel -> getActiveSheet();
+      $active_sheet ->setTitle($sheetname);
+      ## header rows
+      for($row = 1; $row <= $num_header_rows; $row ++) {
+        $row_array=$objWksheet ->rangeToArray("A$row:$num_cols$row");
+
+        $active_sheet -> fromArray($row_array, null, "A$row");
+      }
+
+      ## data rows
+      for($row = $num_header_rows + 1; $row < $sheet_lines_limit + $num_header_rows + 1; $row ++){
+				$range_row = $file * $sheet_lines_limit + $row;
+				$row_array=$objWksheet ->rangeToArray("A$range_row:$num_cols$range_row");
+        //drupal_set_message(nhpid_api_dump("A$range_row:$num_cols$range_row", 'green', TRUE));
+        $active_sheet -> fromArray($row_array, null, "A$row");
+      }
+      //continue;
+      $excelWriter = PHPExcel_IOFactory::createWriter($excel, 'Excel2007');
+      $excelWriter->save($file_path_split);
+   }
+  }
+}
+
+function load_split_data_batch($split_folder, $re_indexing, $delete_old_data, $reset_permissions,$load_round) {
+  $operations = array();
+  $excel_files = array();
+  //$excel_files = glob("$split_folder/*.xls");
+  $message = '';
+  readfile_recursion($split_folder, $excel_files);
+  sort($excel_files);
+  //drupal_set_message(nhpid_api_dump($excel_files, 'green', TRUE));
+  //drupal_set_message(nhpid_api_dump($excel_files, 'green', TRUE));
+  /*** clear up nhpid data first, but not all data, only nodes to be re-loaded. ****/
+	if ($delete_old_data){
+		for ($i = 0; $i<count($excel_files); $i++) {
+	    $operations[] = array('clear_up_nhpid_node_data', array($message, $excel_files, $i));
+	  }
+	}
+  if ($load_round == 1 or $load_round == 0){
+	  for ($i = 0; $i<count($excel_files); $i++) {
+	    $operations[] = array('loaddata_file', array($message, $excel_files, $i, $re_indexing, 1));
+	  }
+	}
+  if ($load_round == 2 or $load_round == 0){
+	  for ($i = 0; $i<count($excel_files); $i++) {
+	    $operations[] = array('loaddata_file', array($message, $excel_files, $i, $re_indexing, 2));
+	  }
+	}
+	//reset content type and field permissions
+	if ($reset_permissions){
+    $operations[] = array('nhpid_admin_reset_content_admin_permissions_batch', array($message));
+	}
+
+  ## build depended node relationship
+	/*
+  $nhpid_data_node_types = get_all_depending_node_types();
+  foreach ($nhpid_data_node_types as $node_type){
+    $operations[] = array('rebuild_depended_node_relationship', array($message, $node_type));
+  }*/
+  $batch = array(
+    'operations' => $operations,
+    'finished' => 'batch_op_finished',
+    // We can define custom messages instead of the default ones.
+    'title' => t('Processing clearing /loading data'),
+    'init_message' => t('Clearing up data is starting.'),
+    'progress_message' => t('Processed @current out of @total steps.'),
+    'error_message' => t('Data loading has encountered an error.'),
+  );
+
+
+  batch_set($batch);
+  batch_process();
+
+}
+function split_uploaded_data_file_batch($file_path, $split_folder) {
+  //drupal_set_message(nhpid_api_dump($file_path, 'red', TRUE));
+  $objReader =PHPExcel_IOFactory::createReader('Excel5');
+  $objReader->setReadDataOnly(TRUE);
+  $objPHPExcel = $objReader->load($file_path);
+  $sheetnames = $objPHPExcel -> getSheetNames();
+
+  //drupal_set_message(nhpid_api_dump($sheetnames, 'purple', TRUE));
+  foreach ($sheetnames as $sheetname) {
+    //$sheet = $objPHPExcel -> getSheetByName($sheetname);
+    $objWksheet = $objPHPExcel -> getSheetByName($sheetname);
+    $operations[] = array('split_uploaded_data_file', array($split_folder, $sheetname, &$objWksheet));
+  }
+  $batch = array(
+    'operations' => $operations,
+    'finished' => 'batch_op_finished',
+    // We can define custom messages instead of the default ones.
+    'title' => t('Splitting data file'),
+    'init_message' => t('Splitting starting...'),
+    'progress_message' => t('Processed @current out of @total sheets.'),
+    'error_message' => t('Splitting has encountered an error.'),
+  );
+
+  batch_set($batch);
+  batch_process();
+  //$excel->disconnectWorksheets();
+}
+function split_uploaded_data_file($split_folder, $sheetname, &$objWksheet, $content) {
+
+  //$objWksheet = $objPHPExcel -> getSheetByName($sheetname);
+  //drupal_set_message(nhpid_api_dump($sheetname, 'purple', TRUE));
+  $file_path_split = $split_folder . "/$sheetname.xls";
+  $excel = new Spreadsheet_Excel_Writer($file_path_split);
+  $active_sheet =  $excel->addWorksheet($sheetname);
+  $active_sheet ->setInputEncoding('UTF-8');
+  $last_row = $objWksheet -> getHighestRow();
+  $last_col = lettercol2numericcol($objWksheet -> getHighestColumn());
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['current_file'] = 0;
+    $context['sandbox']['max'] = $last_row * $last_col ? $last_row * $last_col : 1;
+  }
+  $context['results'][] = "$sheetname : " . $last_row;
+
+  for ($row_index = 1; $row_index <= $last_row; $row_index ++) {
+    for ($col_index = 0; $col_index <= $last_col; $col_index ++) {
+      $value = $objWksheet -> getCellByColumnAndRow($col_index, $row_index ) -> getCalculatedValue();
+      $active_sheet->write($row_index , $col_index, $value);
+      $message = "Processing $sheetname: the $row_index row of $last_row.";
+      $context['sandbox']['progress']++;
+      $context['sandbox']['current_file'] = 1;
+      $context['message'] = $message;
+    }
+  }
+  //drupal_set_message(nhpid_api_dump($context, 'purple', TRUE));
+  $excel -> close();
+
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+}
+
+function getvalue($k) {
+    global $rarray;
+
+    reset($rarray);
+    foreach ($rarray as $l) {
+        if (preg_match("/\[$k\] => (.+)/", $l, $m)) {
+            return $m[1];
+        }
+    }
+    return '';
+}
+
+function ascii2utf8($text) {
+
+  if ((bool)$text ==FALSE) return $text;
+  // only bm_convert_encoding can encode chr(146), right side single quotation mark
+
+  $encoding = mb_detect_encoding($text, "Windows-1252, Windows-1251,  ISO-8859-1, ASCII, UTF-8", TRUE);
+  $is_utf8 = mb_check_encoding($text, 'UTF-8');
+
+  //drupal_set_message("$text");
+  //drupal_set_message("encoding: $encoding");
+  if (!$is_utf8) {
+
+    $text =  mb_convert_encoding($text,  "UTF-8", $encoding);
+    //$text =  mb_convert_encoding($text,  "UTF-8", 'auto');
+  }
+  //drupal_set_message(nhpid_api_dump($text, 'blue', TRUE));
+
+  return $text;
+}
+function utf82ascii($text) {
+
+  if ((bool)$text ==FALSE) return $text;
+  global $fh;
+
+  //$encoding = mb_detect_encoding($text, "ASCII, UTF-8, ISO-8859-1", TRUE);
+  $is_utf8 = mb_check_encoding($text, 'UTF-8');
+
+  if ($is_utf8) {
+    //$text = iconv("Windows-1252", "UTF-8//TRANSLIT", $text);
+    //$text = iconv("ISO-8859-1", "UTF-8//TRANSLIT", $text);
+    $text =  mb_convert_encoding($text,  "ASCII", "UTF-8");
+  }
+
+  //log_data($fh, $text, 'purple');
+  //dump($text, 'purple');
+  return $text;
+}
+
+function get_node_nid($node_title, $node_type) {
+  $node = nhpid_api_get_node_by_title_type($node_title, $node_type);
+	return $node->nid;
+}
+
+// $type: node type, $defaultparent: defaultparent nid; $parent: can be parent 0 or 1; $child: can be child 0 or 1; $createmenu: Automatacally create menu items, optional_no, optional_yes, never, always
+function set_nh_variable($type, $defaultparent, $parent, $child, $createmune='optional_no') {
+  $name_defaultparent = "nh_defaultparent_" . $type;
+  $name_parent = "nh_parent_" . $type;
+  $name_child = "nh_child_" . $type;
+  $name_createmenu = "nh_createmenu_t" . $type;
+  variable_set($name_defaultparent, $defaultparent);
+  variable_set($name_parent, $parent);
+  variable_set($name_child, $child);
+  variable_set($name_createmenu, $createmune);
+}
+
+function set_workflow_state($nid, $sid, $uid, $stamp = NULL) {
+  if (!$stamp) $stamp = time();
+  $sql = "select nid from {workflow_node} where nid = %d";
+  $nid = db_fetch_array(db_query($sql, $nid));
+  $args = array();
+  if ($nid['nid']) {
+    $nid = $nid['nid'];
+    $sql = "update {workflow_node} set sid = %d, uid = %d, stamp = %d where nid = %d";
+    $args = array($sid, $uid, $stamp, $nid);
+  }
+
+  else {
+    $sql = "insert into {workflow_node}(nid, sid, uid, stamp) values(%d, %d, %d, %d)";
+    $args = array($nid, $sid, $uid, $stamp);
+  }
+  //drupal_set_message ($sql);
+  db_query($sql, $args)  or drupal_set_message('Query failed: ' . db_error() . " \n" . $query . "\n");
+}
+
+// excel column letter to number. number is 0 based. Used for PHPExcel package.
+function lettercol2numericcol($letters) {
+  if (ctype_digit($letters) || is_int($letters)) {
+    return intval($letters);
+  }
+
+  $letters = strtoupper(trim($letters));
+  $arr = str_split($letters);
+  $arr = array_reverse($arr);
+  $number = 0;
+  for ($i = 0; $i < count($arr); $i ++) {
+    $arr[$i] = ord($arr[$i]) - 64;
+    $number = $number + ($arr[$i] * pow(26, $i));
+  }
+  return $number -1;
+}
+function dump($data, $color='blue') {
+  print "<pre style='color:$color;'>";
+  //print var_name($data);
+  print_r($data);
+  print "</pre>";
+}
+function var_name(&$var, $scope=0) {
+    $old = $var;
+    if (($key = array_search($var = 'unique' . rand() . 'value', !$scope ? $GLOBALS : $scope)) && $var = $old) return $key;
+}
+// ****************** fix_latin ***************************
+function init_byte_map() {
+  global $byte_map;
+  for ($x=128;$x<256;++$x) {
+    $byte_map[chr($x)]=utf8_encode(chr($x));
+  }
+  $cp1252_map=array(
+    "\x80" => "\xE2\x82\xAC",    // EURO SIGN
+    "\x82" => "\xE2\x80\x9A",  // SINGLE LOW-9 QUOTATION MARK
+    "\x83" => "\xC6\x92",      // LATIN SMALL LETTER F WITH HOOK
+    "\x84" => "\xE2\x80\x9E",  // DOUBLE LOW-9 QUOTATION MARK
+    "\x85" => "\xE2\x80\xA6",  // HORIZONTAL ELLIPSIS
+    "\x86" => "\xE2\x80\xA0",  // DAGGER
+    "\x87" => "\xE2\x80\xA1",  // DOUBLE DAGGER
+    "\x88" => "\xCB\x86",      // MODIFIER LETTER CIRCUMFLEX ACCENT
+    "\x89" => "\xE2\x80\xB0",  // PER MILLE SIGN
+    "\x8A" => "\xC5\xA0",      // LATIN CAPITAL LETTER S WITH CARON
+    "\x8B" => "\xE2\x80\xB9",  // SINGLE LEFT-POINTING ANGLE QUOTATION MARK
+    "\x8C" => "\xC5\x92",      // LATIN CAPITAL LIGATURE OE
+    "\x8E" => "\xC5\xBD",      // LATIN CAPITAL LETTER Z WITH CARON
+    "\x91" => "\xE2\x80\x98",  // LEFT SINGLE QUOTATION MARK
+    "\x92" => "\xE2\x80\x99",  // RIGHT SINGLE QUOTATION MARK
+    "\x93" => "\xE2\x80\x9C",  // LEFT DOUBLE QUOTATION MARK
+    "\x94" => "\xE2\x80\x9D",  // RIGHT DOUBLE QUOTATION MARK
+    "\x95" => "\xE2\x80\xA2",  // BULLET
+    "\x96" => "\xE2\x80\x93",  // EN DASH
+    "\x97" => "\xE2\x80\x94",  // EM DASH
+    "\x98" => "\xCB\x9C",      // SMALL TILDE
+    "\x99" => "\xE2\x84\xA2",  // TRADE MARK SIGN
+    "\x9A" => "\xC5\xA1",      // LATIN SMALL LETTER S WITH CARON
+    "\x9B" => "\xE2\x80\xBA",  // SINGLE RIGHT-POINTING ANGLE QUOTATION MARK
+    "\x9C" => "\xC5\x93",      // LATIN SMALL LIGATURE OE
+    "\x9E" => "\xC5\xBE",      // LATIN SMALL LETTER Z WITH CARON
+    "\x9F" => "\xC5\xB8"       // LATIN CAPITAL LETTER Y WITH DIAERESIS
+  );
+  foreach ($cp1252_map as $k => $v) {
+    $byte_map[$k]=$v;
+  }
+}
+
+function fix_latin($instr) {
+  if (mb_check_encoding($instr, 'UTF-8')) return $instr; // no need for the rest if it's all valid UTF-8 already
+  global $nibble_good_chars, $byte_map;
+  $outstr='';
+  $char='';
+  $rest='';
+  while ((strlen($instr))>0) {
+    if (1==preg_match($nibble_good_chars, $input, $match)) {
+      $char=$match[1];
+      $rest=$match[2];
+      $outstr .= $char;
+    }
+    elseif (1==preg_match('@^(.)(.*)$@s', $input, $match)) {
+      $char=$match[1];
+      $rest=$match[2];
+      $outstr .= $byte_map[$char];
+    }
+    $instr=$rest;
+  }
+  return $outstr;
+}
+
+$byte_map=array();
+init_byte_map();
+$ascii_char='[\x00-\x7F]';
+$cont_byte='[\x80-\xBF]';
+$utf8_2='[\xC0-\xDF]' . $cont_byte;
+$utf8_3='[\xE0-\xEF]' . $cont_byte .'{2}';
+$utf8_4='[\xF0-\xF7]' . $cont_byte .'{3}';
+$utf8_5='[\xF8-\xFB]' . $cont_byte .'{4}';
+$nibble_good_chars = "@^($ascii_char+|$utf8_2|$utf8_3|$utf8_4|$utf8_5)(.*)$@s";
+
+// *******************************************
+
+
+function readfile_recursion($root, &$files) {
+  if (is_dir($root)) {
+    //dump ($root);
+    if ($dh = opendir($root)) {
+        while (($file = readdir($dh)) !== FALSE) {
+           if (is_dir("$root/$file")) {
+            if (!(preg_match("/^\./", $file))) {
+              //dump("folder: $file");
+              readfile_recursion("$root/$file", $files);
+            }
+          }
+          else {
+            if (( str_replace('.xlsx', '', $file) !== $file)) {
+              //dump($root . '/' . $file);
+              array_push($files, drupal_realpath($root . '/' . $file));
+            }
+          }
+
+        }
+        closedir($dh);
+    }
+  }
+}
+function display_node_form($form_state=NULL) {
+  $nid = !empty($form_state['values']['nid']) ? $form_state['values']['nid'] : '';
+  $vid = !empty($form_state['values']['vid']) ? $form_state['values']['vid'] : '';
+  $node_type = !empty($form_state['values']['node_type']) ? $form_state['values']['node_type'] : '';
+  $node_title = !empty($form_state['values']['node_title']) ? $form_state['values']['node_title'] : '';
+
+  $form = array();
+  //$form['#redirect'] = 'admin/settings/nhpid_admin';
+  $form['nid']=array(
+    '#type' => 'textfield',
+    '#title' => t('nid'),
+    '#default_value' => $nid,
+    '#size' => 60,
+    '#maxlength' => 100,
+    '#required' => FALSE,
+  );
+  $form['node_type']=array(
+    '#type' => 'textfield',
+    '#title' => t('Node Type'),
+    '#default_value' => $node_type,
+    '#size' => 60,
+    '#maxlength' => 100,
+    '#required' => FALSE,
+  );
+  $form['node_title']=array(
+    '#type' => 'textfield',
+    '#title' => t('Node Title'),
+    '#default_value' => $node_title,
+    '#size' => 60,
+    '#maxlength' => 100,
+    '#required' => FALSE,
+  );
+  $form['vid']=array(
+    '#type' => 'textfield',
+    '#title' => t('vid'),
+    '#default_value' => $vid,
+    '#size' => 60,
+    '#maxlength' => 100,
+    '#required' => FALSE,
+  );
+  $form['action-submit']=array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+  );
+
+  if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+    if ($nid) {
+      $node = node_load(array("nid" => $nid), $vid);
+    }
+    else {
+      $node = node_load(array("type" => $node_type, "title" => $node_title), $vid);
+    }
+    if ((bool)$node) {
+     $output = nhpid_api_dump($node, 'green', true);
+    }
+    else {
+      $output =  "Node (nid=$nid) is not found.";
+    }
+    if ($output) {
+      $form['result']=array(
+      '#type' => 'item',
+      '#title' => 'Result',
+      '#markup' => $output,
+      );
+    }
+
+  }
+  return $form;
+}
+
+
+
+function display_all_node_by_type($form_state=NULL) {
+  $node_type = !empty($form_state['values']['node_type']) ? $form_state['values']['node_type'] : '';
+
+  $node_types = get_all_nhpid_data_node_types();
+
+  $form['node_type'] = array(
+    '#type' => 'select',
+    '#title' => t('Node type'),
+    '#default_value' => $node_type,
+    '#options' => $node_types,
+    '#description' => t('Select a node type.'),
+    //'#attributes' => array('onchange' => 'this.form.submit();'),
+  );
+
+  $form['action-submit']=array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+  );
+  //$form['action']=array(
+  //  '#type' => 'hidden',
+  //  '#value' => $form_state['values']['action'],
+  //);
+  if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+
+    if ($node_type) {
+      $data = get_all_node_by_type($node_type);
+      $field_names = array_keys($data);
+      $keys = array_keys($data[$field_names[0]]);
+
+      $output = theme_table($keys, $data);
+      $form['result']=array(
+        '#type' => 'item',
+        '#title' => 'Result',
+        '#markup' => $output,
+        );
+    }
+  }
+  return $form;
+}
+
+function delete_all_nodes_by_type_form($form_state = NULL) {
+  $node_types = get_all_nhpid_data_node_types();
+  $node_type = !empty($form_state['values']['node_type']) ? $form_state['values']['node_type'] : '';
+  $form = array();
+
+  $form['node_type'] = array(
+    '#type' => 'select',
+    '#title' => t('Node Type'),
+    '#options' => $node_types,
+    '#multiple' => FALSE,
+    '#default_value' => $node_type,
+    '#description' => t('Select node type.'),
+  );
+
+  $form['action-submit']=array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+    '#attributes' => array('onclick' => 'return confirm("You are going to delete all nodes of type you selected. Are you sure you wish to continue?");'),
+  );
+
+  if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+
+    if ($node_type)
+    $deleted = delete_all_nodes_by_type($node_type);
+    $form['result'] = array(
+      '#type' => 'item',
+      '#markup' => "$deleted nodes of $node_type has been deleted.",
+    );
+  }
+  return $form;
+}
+function code_testing($form_state = NULL) {
+  $allowed_users = array('peijun');
+  global $user;
+  if (!(in_array($user -> name, $allowed_users))) {
+    $form['permission'] = array(
+      '#title' => 'Permission',
+      '#type' => 'item',
+      '#markup' => 'Sorry, you are not allowed to run this function.',
+    );
+    return $form;
+  }
+  $code = !empty($form_state['values']['code']) ? $form_state['values']['code'] : 'return phpinfo();';
+  $form = array();
+  $form['help'] = array(
+    '#type' => 'item',
+    '#title' => "Input or paste PHP code without &lt;?php ?&gt; delimiters"
+  );
+  $form['code'] = array(
+    '#type' => 'textarea',
+    '#title' => t('PHP code'),
+    '#default_value' => $code,
+    '#required' => TRUE,
+    '#rows' => 20,
+  );
+  $form['action-submit']=array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+  );
+  if (($form_state['clicked_button']['#id'] == 'edit-action-submit')) {
+
+    $error = null;
+    $code = $form_state['values']['code'];
+
+    $output = '';
+    try {
+      $output = eval($code);
+    }
+    catch (Exception $e) {
+      $error = $e -> getMessage();
+    }
+    $output = nhpid_api_dump($output, 'purple', TRUE);
+    $error = $error? $error : 'Code is good.';
+    //drupal_set_message($output);
+    $form['error'] = array(
+      '#title' => 'Error Message',
+      '#type' => 'item',
+      '#markup' => $error,
+    );
+    $form['result'] = array(
+      '#title' => 'Result',
+      '#type' => 'item',
+      '#markup' => $output,
+    );
+  }
+  return $form;
+}
+
+function loaddata_batch($re_indexing) {
+  $operations = array();
+  $excel_files = array();
+  $message = '';
+  readfile_recursion(EXCEL_FILE_DIR_ROOT, $excel_files);
+  sort($excel_files);
+	/*** create IMDB space and IMDB task section if they have not been created yet
+	 */
+
+	 $operations = array('create_imdb_space');
+   /*** clear up nhpid data first, but not all data, only nodes to be re-loaded. ****/
+  if ($delete_old_data and $round == 1){
+		for ($i = 0; $i<count($excel_files); $i++) {
+	    $operations[] = array('clear_up_nhpid_node_data', array($message, $excel_files, $i));
+	  }
+	}
+
+  for ($i = 0; $i<count($excel_files); $i++) {
+    $operations[] = array('loaddata_file', array($message, $excel_files, $i, $re_indexing, $round));
+  }
+  ## build depended node relationship
+  $nhpid_data_node_types = get_all_depending_node_types();
+  foreach ($nhpid_data_node_types as $node_type){
+    $operations[] = array('rebuild_depended_node_relationship', array($message, $node_type));
+  }
+
+  $batch = array(
+    'operations' => $operations,
+    'finished' => 'batch_op_finished',
+    // We can define custom messages instead of the default ones.
+    'title' => t('Processing clearing up/loading data'),
+    'init_message' => t('Clearing up data is starting.'),
+    'progress_message' => t('Processed @current out of @total steps.'),
+    'error_message' => t('Data loading has encountered an error.'),
+  );
+
+  batch_set($batch);
+  batch_process();
+
+}
+function parse_multi_valued_field($str) {
+  $multi_code_value_delimiter = MULTI_VALUED_FIELD_DELIMITER;
+  $pattern = '/\[[^\]]+\]/';
+  $replace = '~~~';
+
+  $NA_pattern = '/(^|;\s*)*(NA)(;\s*|$)/';
+  //drupal_set_message(nhpid_api_dump($str, 'green', TRUE));
+  //$str = preg_replace($NA_pattern , '$1NA[]$3', $str);
+  //drupal_set_message(nhpid_api_dump($str, 'purple', TRUE));
+  preg_match_all($pattern, $str, $matches, PREG_SET_ORDER);
+  foreach ($matches as $val) {
+      $replaced = str_replace($multi_code_value_delimiter, $replace, $val[0]);
+      $str = str_replace($val[0], $replaced, $str);
+
+  }
+
+  $array = explode($multi_code_value_delimiter, $str);
+  $array = remove_array_empty_element($array);
+
+  $needle = array();
+  foreach ($array as $value) {
+    array_push($needle, $replace);
+  }
+  $array = array_map('replace_back_to_semicolon', $array, $needle);
+  //drupal_set_message(nhpid_api_dump($array, 'red', TRUE));
+  return $array;
+}
+function replace_back_to_semicolon($item, $needle) {
+  $multi_code_value_delimiter = MULTI_VALUED_FIELD_DELIMITER;
+  return trim(str_replace($needle, $multi_code_value_delimiter, $item));
+}
+
+
+function loaddata_file($message, $files, $i, $re_indexing,$round, $context) {
+
+	// Use the $context['sandbox'] at your convenience to store the
+  // information needed to track progression between successive calls.
+  $message = '';
+  $sheets = readdata($files[$i]);
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['current_file'] = 0;
+    $context['sandbox']['max'] = count($sheets);
+  }
+    $message = $message . nhpid_api_dump("Loading files...", 'purple', TRUE, FALSE);
+    $message = $message . nhpid_api_dump("Files to load:", 'purple', TRUE, FALSE);
+    $message = $message . nhpid_api_dump($files, 'purple', TRUE, FALSE);
+    $message = $message . nhpid_api_dump("File just processed:", 'brown', TRUE, FALSE);
+    $message = $message . nhpid_api_dump("$i: " . $files[$i], 'brown', TRUE, FALSE);
+    drupal_set_message(nhpid_api_dump("Files to load:", 'purple', TRUE, FALSE));
+    drupal_set_message(nhpid_api_dump($files, 'purple', TRUE, FALSE));
+    drupal_set_message(nhpid_api_dump("File just processed:", 'brown', TRUE, FALSE));
+    drupal_set_message(nhpid_api_dump("$i: " . $files[$i], 'brown', TRUE, FALSE));
+
+    foreach ($sheets as $sheet) {
+			//round 1 no compound and field reference fields
+			_loaddata_file(array($sheet), $files[$i], $message, $re_indexing,$round);
+			//round 2 compound and field reference fields only
+      //_loaddata_file(array($sheet), $files[$i], $message, $re_indexing,2);
+
+      // Store some result for post-processing in the finished callback.
+      $context['results'][] = "$file : " . count($sheets);
+
+      // Update our progress information.
+      $context['sandbox']['progress']++;
+      $context['sandbox']['current_file'] = 1;
+      $context['message'] = $message;
+    }
+
+  // Inform the batch engine that we are not finished,
+  // and provide an estimation of the completion level we reached.
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+	unset($sheets);
+}
+function loaddata_sheet(&$message, $files, $i, $sheet, $re_indexing, $round, $context) {
+  // Use the $context['sandbox'] at your convenience to store the
+  // information needed to track progression between successive calls.
+  //$message;
+
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['current_file'] = 0;
+    $context['sandbox']['max'] = 1;
+  }
+
+    $message = $message . nhpid_api_dump("Files to be load:", 'green', TRUE);
+    $message = $message . nhpid_api_dump($files, 'purple', TRUE);
+    $message = $message . nhpid_api_dump("File just processed:", 'purple', TRUE);
+    $message = $message . nhpid_api_dump($files[$i], 'purple', TRUE);
+    $message = $message . nhpid_api_dump($sheet['sheet_name'], 'purple', TRUE);
+    $sheets = array($sheet);
+    //round 1 no compound and field reference fields
+    _loaddata_file($sheets, $files[$i], $message, $re_indexing, $round);
+    //round 2 compound and field reference fields only
+    //_loaddata_file($sheets, $files[$i], $message, $re_indexing, 2);
+
+    // Store some result for post-processing in the finished callback.
+    $context['results'][] = "$file : " . count($sheets);
+
+    // Update our progress information.
+    $context['sandbox']['progress']++;
+    $context['sandbox']['current_file'] = 1;
+    $context['message'] = $message;
+
+
+  // Inform the batch engine that we are not finished,
+  // and provide an estimation of the completion level we reached.
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+}
+function batch_op_finished($success, $results, $operations) {
+  if ($success) {
+    // Here we could do something meaningful with the results.
+    // We just display the number of nodes we processed...
+    $message = count($results) . ' processed.';
+    //field_reference_update_all_cached_option_lists();
+  }
+  else {
+    // An error occurred.
+    // $operations contains the operations that remained unprocessed.
+    $error_operation = reset($operations);
+    $message = 'An error occurred while processing ' . $error_operation[0] . ' with arguments :' . print_r($error_operation[0], TRUE);
+  }
+  drupal_set_message($message);
+}
+
+function _loaddata_file($sheets, $file_path, &$message=NULL, $re_indexing = NULL, $round=1){
+	global $user;
+	$oa_section_ref_target = 90;
+	$og_group_ref_target = 1;
+
+	//IMDB spreadsheet column name and nhpd_imdb field name mapping
+	$parsed_fields = array('ISOverallStatusTxt',
+												'ISTitleTxt',
+            						'ISCategoryTxt',
+												'ISDescriptionTxt',
+												'ISBackgroundRT',
+												'ISDiscussionsTxt',
+												'ISOptionTxt',
+												'ISOptionReasonTxt',
+                        'ISOptionImplicationsTxt',
+												'ISPlanTxt',
+												'ISKeywordsTxt',
+												'ISStatusTxt',
+												'ISSubCategoryTxt',
+												'ISIdentifierETxt',
+												);
+	$redmine_custom_fields_mapping = array('ISOverallStatusTxt' => 'field_is_overall_status',
+												//'ISTitleTxt' => 'subject',
+												'ISCategoryTxt' => 'field_is_category',
+												//'ISDescriptionTxt',
+												'ISBackgroundRT' => 'field_is_background',
+												'ISDiscussionsTxt' => 'field_is_discussions',
+												'ISOptionTxt' => 'field_is_option',
+												'ISOptionReasonTxt' => "field_is_option_reason",
+                        'ISOptionImplicationsTxt' => 'field_is_option_implications',
+												'ISPlanTxt' => 'field_is_plan',
+												'ISKeywordsTxt' => 'field_is_keywords',
+												'ISStatusTxt' => 'field_is_status',
+												'ISSubCategoryTxt' => 'field_is_subcategory',
+												'ISIdentifierETxt' => 'field_is_identifier',
+												);
+
+	$first_data_col = 0;
+	$excel_column_name_index_mapping = array();
+
+	$last_data_col = PHPExcel_Cell::columnIndexFromString('CU');
+  //drupal_set_message(nhpid_api_dump($sheets, 'purple', TRUE));
+	for ($j = $first_data_col; $j <= $last_data_col; $j++) {
+		$ori_col_title = trim($sheets[0]['data_sheet'] -> getCellByColumnAndRow($j,1) -> getCalculatedValue());
+		if ($ori_col_title and in_array($ori_col_title, $parsed_fields)){
+			$excel_column_name_index_mapping[$ori_col_title] = $j;
+		}
+	}
+  //drupal_set_message(nhpid_api_dump($excel_column_name_index_mapping, 'purple', TRUE));
+//return;
+	foreach ($sheets as $sheet){
+		//drupal_set_message(nhpid_api_dump($sheet, 'purple', TRUE));
+		//create data form group node and menu
+		$type = $sheet['content_type'];
+
+		// create data node
+		$first_data_col = lettercol2numericcol($sheet['first_data_col']);
+		$last_data_col = lettercol2numericcol($sheet['last_data_col']);
+		$first_data_row = $sheet['first_data_row'];
+		$col_title_row = $first_data_row -1;
+		$data_sheet = $sheet['data_sheet'];
+		$field_names = Array();
+		$ori_col_titles = array();
+		$mapping_field_names = array();
+    $last_data_row = $data_sheet -> getHighestRow();
+		// add type as nhpid_data_node type
+		//nhpid_set_data_node_type($type);
+		//drupal_set_message(nhpid_api_dump("$first_data_row, $last_data_row, $type, $title_col", 'purple', TRUE));
+		//drupal_set_message(nhpid_api_dump($sheet['numRows'], 'purple', TRUE));
+		// mapping workflow to type
+	//$workflow ="NHPDTPD";
+		//_map_workflow_type($workflow, $node_type);
+
+		// grant content_type permisssions
+		//grant_content_type_permissions($node_type);
+
+	  $excel_row_data = array();
+
+		$empty_row_count = 0;
+		$is_identifiers = array();
+
+		for ($i = $first_data_row; $last_data_row; $i++){
+		  $is_identifier = '';
+			foreach ($excel_column_name_index_mapping as $excel_field => $col_index) {
+				$val = $data_sheet -> getCellByColumnAndRow($col_index,$i) -> getCalculatedValue();
+        //drupal_set_message(nhpid_api_dump($val, 'purple', TRUE));
+		    if (in_array($excel_field, array('ISSubCategoryTxt','ISStatusTxt','ISCategoryTxt','ISOverallStatusTxt',))){
+					$vals = explode('~', $val); //extract English part
+					$val = $vals[0];
+				}
+				if($excel_field == 'ISIdentifierETxt'){
+		      $is_identifier = $val;
+				}
+        //drupal_set_message(nhpid_api_dump($val, 'purple', TRUE));
+				$excel_row_data[$excel_field] = $val;
+			}
+			//continue;
+			if ($is_identifier){
+				if (!array_key_exists($is_identifier, $is_identifiers)){ // skip any duplicated entries in orinal data file
+					$new_node = array(
+				    'title'   => $excel_row_data['ISTitleTxt'],
+				    'body'    => $excel_row_data['ISDescriptionTxt'],
+						'oa_section_ref' => $oa_section_ref_target,
+						'og_group_ref' => $og_group_ref_target,
+					);
+					foreach($redmine_custom_fields_mapping as $excel_field => $custom_field){
+				    if ($excel_row_data[$excel_field]) $new_node[$custom_field] = $excel_row_data[$excel_field];
+					}
+
+          //drupal_set_message(nhpid_api_dump($new_node, 'purple', TRUE));
+				  if ($new_node['title']){
+					//if (TRUE){
+						$entity = entity_create('node', array('type' => $type));
+            //drupal_set_message(nhpid_api_dump($type, 'purple', TRUE));
+						$entity -> uid = $user -> uid;
+						$entity_wrapper = entity_metadata_wrapper('node',$entity);
+						foreach ($new_node as $field => $value){
+							$field_info = field_info_instance('node', $field, 'nhpd_imdb');
+							// fields with text_processing setting, such as text and long text
+							if ($field_info and isset($field_info['settings']['text_processing']) and $field_info['settings']['text_processing'] == 1){
+								$value = array('value' => $value, 'text_processing' => 1);
+							}
+							$entity_wrapper -> $field = $value;
+              //drupal_set_message(nhpid_api_dump($field, 'purple', TRUE,true, false));
+              //drupal_set_message(nhpid_api_dump($value, 'purple', TRUE,true,false));
+						}
+            //drupal_set_message(nhpid_api_dump($entity_wrapper, 'purple', TRUE));
+            $entity_wrapper -> save();
+
+					}
+					//if ($i > 10) continue;
+			    $is_identifiers[$is_identifier] = $is_identifier;
+				}
+		    $empty_row_count = 0;
+		  }
+			else{
+		    $empty_row_count ++;
+			}
+			if ($empty_row_count > 3) break;
+
+		}
+
+
+	}
+}
+
+/* chiliproject migaration
+
+*/
+
+
+function load_chiliproject_user_data($form_state = NULL){
+  require_once DRUPAL_ROOT . '/' . variable_get('password_inc', 'includes/password.inc');
+	$form = array();
+	//goto SPACEMEMBER;
+	# roles
+	drupal_set_message('Starting migragting roles');
+	$table = CHILIDB . '.roles';
+	$sql = db_select($table, 'r') -> fields('r') -> execute();
+	while ($rc = $sql -> fetchObject()){
+		$name = $rc->name;
+		if (!user_role_load_by_name($name)){
+			$role = new stdClass();
+			$role -> name = $name;
+			user_role_save($role);
+		}
+	}
+  drupal_set_message('Migragting roles is done.');
+	#user
+  drupal_set_message('Starting migragting users');
+	$table = CHILIDB . '.users';
+	$sql = db_select($table, 'u') -> fields('u') -> execute();
+	while ($rc = $sql -> fetchObject()){
+		$login = $rc->login;
+		if (!$login) continue; // skip Anonymous
+		$firstname = $rc->firstname;
+		$lastname = $rc->lastname;
+		$mail = $rc->mail;
+		$last_login = $rc->last_login_on;
+		$created_on = $rc->created_on;
+		$status = $rc->status;
+		$uid = $rc -> id;
+		$custom_fields = array();
+		/*
+		$sql2 = db_select(CHILIDB . '.custom_values', 'cv')
+		-> join (CHILIDB . '.custom_fields', 'cf', 'cv.cystom_field_id=cf.id')
+		-> fields('cf', array('name'))
+		-> fields('cv', array('value'))
+		-> condition('cf.type', 'UserCustomField', '=')
+		-> condition ('cv.customized_id', $uid, '=')
+		-> execute();
+		*/
+    $sql2 =  "select cv.customized_id, cv.customized_type, cv.value, cf.type, cf.name from chiliproject.custom_values cv, chiliproject.custom_fields cf  where customized_id in (select id from chiliproject.users) and cv.custom_field_id = cf.id and cf.type = 'UserCustomField' and customized_id = :uid order by customized_id";
+		$result = db_query($sql2, array(':uid' => $uid));
+		while ($rc2 = $result -> fetchObject()){
+		  //drupal_set_message(nhpid_api_dump($rc, 'purple', TRUE,true, true));
+			switch($rc2->name){
+				case 'NHPD':
+				$custom_fields['field_nhpd'] = $rc2->value;
+				break;
+        case 'Co-op':
+				$custom_fields['field_co_op'] = $rc2->value;
+				break;
+        case 'SERLO':
+				$custom_fields['field_serlo'] = $rc2->value;
+				break;
+			}
+		}
+
+		$roles = array(DRUPAL_AUTHENTICATED_RID);
+    $account = new stdClass();
+		$account -> is_new = TRUE;
+		$new_user = array(
+			'name' => $login,
+			'pass' => 'password',
+			'status' => $status == 1? $status: 0,
+			'roles' => $roles,
+			'timezone' =>'America/New_York',
+			'mail' => $mail,
+			'created' => strtotime($created_on),
+			'access' => strtotime($last_login),
+		);
+		$a_user = user_load_by_name($new_user['name']);
+		if (!$a_user){
+		 $a_user = user_save($account, $new_user);
+		}
+		//drupal_set_message(nhpid_api_dump($a_user, 'purple', TRUE,true, true));
+		$user_wrapper = entity_metadata_wrapper('user', $a_user);
+		$user_wrapper -> field_first_name = $firstname;
+		$user_wrapper -> field_last_name = $lastname;
+		$user_wrapper -> field_user_display_name = "$firstname $lastname";
+    //$user_wrapper -> status = $status == 1? $status: 0;
+    //$user_wrapper -> mail = $mail;
+    //$user_wrapper -> created = strtotime($created_on);
+    //$user_wrapper -> access = strtotime($last_login);
+
+		foreach($custom_fields as $field => $value){
+			$user_wrapper -> {$field} = $value;
+		}
+   	$user_wrapper->save();
+
+	}
+  drupal_set_message('Migragting users is done.');
+
+	# groups
+	global $user;
+  drupal_set_message('Starting migragting groups');
+  $table = CHILIDB . '.users';
+	$sql = "select * from $table where type = 'Group'";
+	$result = db_query($sql);
+	while ($rc = $result->fetchObject()){
+		$group_id = $rc -> id;
+		$group_name = $rc -> lastname;
+    $last_login = $rc->last_login_on;
+		$created_on = $rc->created_on;
+    $entity = entity_create('node', array('type' => 'oa_group'));
+    $entity_wrapper = entity_metadata_wrapper('node',$entity);
+    //drupal_set_message(nhpid_api_dump($type, 'purple', TRUE));
+		//$entity -> uid = $user -> uid;
+		
+		$oa_group_node = node_load_by_title($group_name, 'oa_group');
+		$oa_group_node_nid = null;
+		
+    if ($oa_group_node){
+      $entity_wrapper = entity_metadata_wrapper('node',$oa_group_node);
+		}
+    $entity_wrapper -> title = $group_name;
+    $entity_wrapper -> created = strtotime($created_on);
+    $entity_wrapper -> og_user_inheritance = 1;
+    $entity_wrapper -> og_user_permission_inheritance = 1;
+    $entity_wrapper -> group_access = 1;
+    $entity_wrapper -> status = 1;
+    $entity_wrapper -> author = $user;
+    $entity_wrapper -> save();
+    $oa_group_node = node_load($entity_wrapper -> value()-> nid);
+    //drupal_set_message(nhpid_api_dump((array)$entity_wrapper, 'purple', TRUE));
+
+    $oa_group_node_nid = $oa_group_node -> nid;
+
+
+		//group members
+		$sql2 = "select u.* from " . CHILIDB . ".users u, " . CHILIDB. ".groups_users gu where gu.user_id = u.id and group_id = :group_id ";
+		$result2 = db_query($sql2, array(":group_id" => $group_id));
+
+		while($rc2 =$result2 -> fetchObject()){
+			$login = $rc2->login;
+			$member = user_load_by_name($login);
+			if ($member){
+        $user_wrapper = entity_metadata_wrapper('user',$member);
+        $og_user_node = $user_wrapper -> og_user_node -> value(array('identifier' => TRUE));
+        if (!in_array($oa_group_node_nid, $og_user_node)){
+				  $user_wrapper -> og_user_node ->offsetSet( $user_wrapper -> og_user_node ->count(), $oa_group_node);
+					$user_wrapper -> save();
+				}
+			}
+			else{
+				drupal_set_message ("User $login cannot be found.");
+			}
+			
+		}
+
+	}
+  drupal_set_message('Migragting group is done.');
+SPACEMEMBER:
+	//space members
+  drupal_set_message('Starting migragting space members');
+	$sql = "select project_id, name, login, lastname, user_id , type from " . CHILIDB . ".members m, " . CHILIDB . ".users u, " . CHILIDB . ".projects p where m.user_id = u.id and p.id = m.project_id";
+  $result = db_query($sql);
+
+	while($rc =$result -> fetchObject()){
+		$project_name = $rc -> name;
+    $login = $rc -> login;
+    $lastname = $rc -> lastname;
+    $member_type = $rc -> type;
+    $user_id = $rc -> user_id;
+    $project_id = $rc -> project_id;
+    $oa_space_node = node_load_by_title($project_name, 'oa_space');
+		if (!$oa_space_node){
+      drupal_set_message ("Space $project_name (chili id: $project_id) cannot be found.");
+			continue;
+		}
+
+		if ($member_type == "User"){
+      $member = user_load_by_name($login);
+			if ($member){
+        $user_wrapper = entity_metadata_wrapper('user',$member);
+        $og_user_node = $user_wrapper -> og_user_node -> value(array('identifier' => TRUE));
+        if (!in_array($oa_space_node->nid, $og_user_node)){
+				  $user_wrapper -> og_user_node ->offsetSet( $user_wrapper -> og_user_node ->count(), $oa_space_node);
+					$user_wrapper -> save();
+				}
+			}
+      else{
+				drupal_set_message ("User $login(chili id: $user_id) cannot be found.");
+			}
+		}
+		elseif ($member_type == "Group"){
+      $group = node_load_by_title($lastname, 'oa_group');
+			if($group){
+				$space_wrapper = entity_metadata_wrapper('node',$oa_space_node);
+        $oa_parent_space = $space_wrapper -> oa_parent_space -> value(array('identifier' => TRUE));
+        if (!in_array($group->nid, $oa_parent_space)){
+				  $space_wrapper -> oa_parent_space ->offsetSet( $space_wrapper -> oa_parent_space ->count(), $group);
+					$space_wrapper -> save();
+				}
+			}
+			else{
+        drupal_set_message ("Group $lastname (chili id: $user_id)cannot be found.");
+			}
+		}
+	}
+  drupal_set_message('Migragting space members is done.');
+}
+
+function load_chiliproject_issue_data_form(&$form_state = NULL){
+	$form = array();
+	/***
+  $mapping = $form_state['values']['mapping_chili_project_id'];
+  $form['mapping_chili_project_id']=array(
+    '#type' => 'checkbox',
+    '#default_value' => $mapping,
+    '#title' => "Map chili project id to the Task sections? ",
+	);
+	*/
+  $round2 = $form_state['values']['round2'];
+	$form['round2']=array(
+    '#type' => 'checkbox',
+    '#default_value' => $round2,
+    '#title' => "Round2 only?",
+	);
+	$test = $form_state['values']['test'];
+	$form['test']=array(
+    '#type' => 'checkbox',
+    '#default_value' => $test,
+    '#title' => "Testing? (first 100 records)",
+	);
+  $form['action-submit']=array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+    '#attributes' => array('onclick' => 'return confirm("You are going to migrate all issues from chiliporject to OA. Are you sure you wish to continue?");'),
+  );
+
+  if ($form_state['clicked_button']['#id'] == 'edit-action-submit') {
+  	if ($mapping){
+			drupal_set_message("Stating mapping chili porject id to the Task sections...");
+	    mapping_chili_project_id_to_task_sections('Task Section');
+	    drupal_set_message("Mapping chili porject id to the Task sections is done.");
+		}
+    $sql = "select id from " . CHILIDB . ".issues order by id";
+		if ($test) $sql = "select id from " . CHILIDB . ".issues order by id limit 100";
+		$result = db_query($sql);
+		$operations = array();
+		if(!$round2){
+			while ($rc = $result ->fetchObject()){
+				$id = $rc -> id;
+		    $operations[] = array('load_chiliproject_issue_data_batch', array($id, $test, 1));
+			}
+		}
+    $result = db_query($sql);
+    while ($rc = $result ->fetchObject()){
+			$id = $rc -> id;
+			$round = 2;
+	    $operations[] = array('load_chiliproject_issue_data_batch', array($id, $test, $round));
+		}
+	  $batch = array(
+	    'operations' => $operations,
+	    'finished' => 'batch_op_finished',
+	    // We can define custom messages instead of the default ones.
+	    'title' => t('Migrating chili issues'),
+	    'init_message' => t('Migrating starting...'),
+	    'progress_message' => t('Processed @current out of @total steps.'),
+	    'error_message' => t('Migrating has encountered an error.'),
+	  );
+	  batch_set($batch);
+	  batch_process();
+    //drupal_set_message(nhpid_api_dump($operations, 'purple', TRUE));
+
+	}
+
+	return $form;
+}
+
+function load_chiliproject_issue_data_batch($id, $testing,$round, $content){
+  //drupal_set_message(nhpid_api_dump("$id, $testing,$round", 'purple', TRUE));
+	$message = '';
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['current_file'] = 0;
+    $context['sandbox']['max'] = count($sheets);
+  }
+	if ($round == 2) {
+		load_chiliproject_issue_data_2($id, $testing);
+	}
+	else{
+    load_chiliproject_issue_data($id, $testing);
+	}
+  // Inform the batch engine that we are not finished,
+  // and provide an estimation of the completion level we reached.
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+}
+
+function mapping_chili_project_id_to_spaces(){
+  $sql = "select id, name from " . CHILIDB . ".projects order by id";
+
+	$result = db_query($sql);
+	while ($rc = $result ->fetchObject()){
+		$project_id = $rc -> id;
+		$project_name = $rc -> name;
+		$oa_space_node = node_load_by_title($project_name, 'oa_space');
+    $oa_space_node_wrapper = entity_metadata_wrapper('node',$oa_space_node);
+    $oa_space_node_wrapper -> field_chili_project_id = $project_id;
+	  $oa_space_node_wrapper -> save();
+	}
+}
+
+function mapping_chili_project_id_to_task_sections($section = 'Task Section'){
+	$tid = array_shift(taxonomy_get_term_by_name($section, 'section_type')) -> tid;
+  //drupal_set_message(nhpid_api_dump($tid, 'purple', TRUE));
+	$sql = "select id, name from " . CHILIDB . ".projects order by id";
+
+	$result = db_query($sql);
+	while ($rc = $result ->fetchObject()){
+		$project_id = $rc -> id;
+		$project_name = $rc -> name;
+		$oa_space_node = node_load_by_title($project_name, 'oa_space');
+		if (!$oa_space_node){
+      drupal_set_message ("Space $project_name (chili id: $project_id) cannot be found.");
+		}
+		else{
+      $sql = new EntityFieldQuery();
+		  $sql->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', 'oa_section')
+		    ->fieldCondition('og_group_ref', 'target_id', $oa_space_node -> nid, '=')
+        ->fieldCondition('field_oa_section', 'tid', $tid, '=');
+		  $result2 = $sql->execute();
+      //drupal_set_message(nhpid_api_dump($result2, 'purple', TRUE));
+			if ($result2){
+				$section_nid = array_shift((array_keys($result2['node'])));
+				$section_node = node_load($section_nid);
+				$section_wrapper = entity_metadata_wrapper('node',$section_node);
+	      $section_wrapper -> field_chili_project_id = $project_id;
+	      $section_wrapper -> save();
+	      //drupal_set_message(nhpid_api_dump((array)$section_wrapper, 'purple', TRUE));
+	      //drupal_set_message(nhpid_api_dump($project_name, 'purple', TRUE));
+	      //drupal_set_message(nhpid_api_dump($oa_space_node, 'purple', TRUE));
+			}
+		}
+
+	}
+}
+
+function load_chiliproject_issue_data($id, $testing){
+	$sql = "select i.*, ist.name as status_name, au.login as author, ast.login as assigned_to, p.name as project_name, t.name as tracker_name from  ". CHILIDB . ".issues i LEFT JOIN ". CHILIDB . ".issue_statuses ist on i.status_id=ist.id LEFT JOIN ". CHILIDB . ".users au on i.author_id=au.id LEFT JOIN ". CHILIDB . ".users ast ON i.assigned_to_id=ast.id LEFT JOIN ". CHILIDB . ".projects p on i.project_id=p.id LEFT JOIN ". CHILIDB . ".trackers t ON i.tracker_id=t.id where  i.id = :id";
+  //drupal_set_message(nhpid_api_dump($sql, 'purple', TRUE));
+
+	if (!$id) return;
+	$result = db_query($sql, array(':id' => $id));
+	if ($result->rowCount() < 1){
+    drupal_set_message("Chili issue $id cannot be found. Skipped");
+	}
+	else {
+
+		$rc = $result->fetchObject();
+	  //drupal_set_message(nhpid_api_dump($rc, 'purple', TRUE));
+		//return;
+
+		$tracter_id = $rc -> tracker_id;
+		$project_id = $rc -> project_id;
+	  $project_name = $rc -> project_name;
+		$subject = $rc -> subject;
+		$description = $rc -> description;
+		$due_date = $rc -> due_date;
+		$category_id = $rc -> category_id;
+		$status_id = $rc -> status_id;
+		$assigned_to = $rc -> assigned_to;
+		$priority_id = $rc -> priority_id;
+		$author = $rc -> author;
+		$created_on = $rc -> created_on;
+		$updated_on = $rc -> updated_on;
+		$start_date = $rc -> start_date;
+		$parent_id = $rc -> parent_id;
+    $status_name = $rc -> status_name;
+		$tracker_name = $rc -> tracker_name;
+    //return;
+
+		//oa task
+		$sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_worktracker_task')
+	    ->fieldCondition('field_chili_id', 'value', $id, '=');
+	  $result2 = $sql->execute();
+		$task_node = null;
+
+		if ($result2){
+			$task_node = node_load(array_shift((array_keys($result2['node']))));
+		}
+		else{
+			$task_node =  entity_create('node', array('type' => 'oa_worktracker_task'));
+		}
+    $task_wrapper = entity_metadata_wrapper('node',$task_node);
+		//return;
+	   // oa_section_ref
+	  
+		$tid = array_shift(taxonomy_get_term_by_name('Task Section', 'section_type')) -> tid;
+	  $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_section')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=')
+			->fieldCondition('field_oa_section', 'tid', $tid, '=');
+	  $result2 = $sql->execute();
+		if ($result2){
+	    $section_nid = array_shift((array_keys($result2['node'])));
+	  	$task_wrapper -> oa_section_ref = $section_nid;
+		}
+		else{
+	    drupal_set_message("Task section under $project_name cannot be found. The issue is skipped.");
+			return;
+		}
+		//return;
+	  // oa_group_ref
+		$space = node_load_by_title($project_name, 'oa_space');
+		if ($space){
+	    $task_wrapper -> og_group_ref = $space -> nid;
+		}
+		else{
+	    drupal_set_message("Space $project_name cannot be found. og_group_ref is not assined.");
+		}
+		// other fields
+		
+	  $task_wrapper -> title = $subject;
+		$task_wrapper -> body = array('value' => $description, 'text_processing' => 1);
+	  $task_wrapper -> created = strtotime($created_on);
+	  $task_wrapper -> status = 1;
+	  $task_wrapper -> field_oa_worktracker_task_type = $tracker_name;
+	  $task_wrapper -> field_oa_worktracker_priority = $priority_id;
+	  $task_wrapper -> field_oa_worktracker_task_status = strtolower($status_name);
+	  $task_wrapper -> field_chili_id = $id;
+
+	  if ($due_date) $task_wrapper ->  field_oa_worktracker_duedate ->set(strtotime($due_date));
+	  if ($start_date) $task_wrapper -> field_start_date ->set(strtotime($start_date));
+
+		$author_id = user_load_by_name($author) -> uid;
+		if ($author_id){
+	    $task_wrapper -> author = $author_id;
+		}
+		else{
+			drupal_set_message("User $author cannot be found. Author is not assigned.");
+		}
+
+		if ($assigned_to){
+	    $assigned_to_id = user_load_by_name($assigned_to) -> uid;
+			if ($assigned_to_id){
+		    $task_wrapper -> field_oa_worktracker_assigned_to = $assigned_to_id;
+			}
+			else{
+				drupal_set_message("User $assigned_to cannot be found. Assigned to is not assigned.");
+			}
+		}
+  //drupal_set_message(nhpid_api_dump((array)$task_wrapper, 'purple', TRUE));
+		//custom fields
+
+    $sql2 =  "select cv.custom_field_id, cv.value from " . CHILIDB . ".custom_values cv  where cv.customized_type = 'Issue' and cv.customized_id = :id";
+		$result = db_query($sql2, array(':id' => $id));
+		while ($rc2 = $result -> fetchObject()){
+			$value = trim($rc2 -> value);
+			$custom_field_id = $rc2 -> custom_field_id;
+			$oa_custom_field_name = get_oa_custom_field_name($custom_field_id);
+			$field_info = field_info_field($oa_custom_field_name);
+			if($value){
+	      //drupal_set_message(nhpid_api_dump($oa_custom_field_name, 'purple', TRUE));
+	      //drupal_set_message(nhpid_api_dump("~$value~", 'purple', TRUE));
+				switch ($field_info['module']){
+					case 'date':
+	          $task_wrapper -> $oa_custom_field_name ->set(strtotime($value));
+					break;
+					default;
+	          $task_wrapper -> $oa_custom_field_name =$value;
+				}
+			}
+
+		}
+		// attachments
+    $attachments = $task_wrapper -> field_oa_media -> value();
+    //drupal_set_message(nhpid_api_dump((array)$attachments, 'purple', TRUE));
+	    
+    $sql2 =  "select a.*, u.login as author from " . CHILIDB . ".attachments a LEFT JOIN " . CHILIDB . ".users u on a.author_id=u.id  where a.container_type = 'Issue' and a.container_id = :id";
+		$result = db_query($sql2, array(':id' => $id));
+		//next fid
+    //$sql_next_fid = "SELECT `AUTO_INCREMENT` FROM  INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'oa_demo' AND  TABLE_NAME   = 'file_managed'";
+    //$next_fid = db_query($sql_next_fid )->fetchObject()->AUTO_INCREMENT;
+		while ($rc2 = $result -> fetchObject()){
+			$filename = $rc2 -> filename;
+      $disk_filename = $rc2 -> disk_filename;
+      $filesize = $rc2 -> filesize;
+      $content_type = $rc2 -> content_type;
+      $attachment_author = $rc2 -> author;
+      $created_on = $rc2 -> created_on;
+      $description = $rc2 -> description;
+      $attachment_author_id = user_load_by_name($attachment_author) -> uid;
+			
+			$exist = FALSE;
+			foreach($attachments as $attachment){
+				if ($attachment['uri'] == 'private://' . $disk_filename){
+					$exist = TRUE;
+					continue 2;
+				}
+			}
+
+			//if (!$exist){
+				$tmp_uri = 'private://tmp/' . $disk_filename;
+        $uri = 'private://' . $disk_filename;
+        //drupal_set_message(nhpid_api_dump(drupal_realpath($uri), 'purple', TRUE));
+        $file_temp = file_get_contents(drupal_realpath($tmp_uri));
+        $doc = file_save_data($file_temp, $uri, FILE_EXISTS_REPLACE);
+				/*
+				$doc = array(
+					'filename' => $filename,
+					'uri' => $uri,
+					'filemime' => $content_type,
+					'type' => 'document',
+					'display' => 1,
+					'timestamp' => strtotime($created_on),
+					'description' => $description,
+					'fid' => $next_fid,
+          'status' => FILE_STATUS_PERMANENT,
+				);
+			
+        if ($attachment_author_id){
+		    	$doc['uid'] = $attachment_author_id;
+				}
+        $doc = (object)$doc;
+				*/
+        //drupal_write_record('files', $doc);
+				$doc -> display = 1;
+				$doc -> status = FILE_STATUS_PERMANENT;
+				$doc -> uid = $attachment_author_id;
+        $doc -> filename = $filename;
+				file_save($doc);
+				//drupal_set_message(nhpid_api_dump($doc, 'purple', TRUE));
+        $task_wrapper -> field_oa_media ->offsetSet( $task_wrapper -> field_oa_media ->count(), (array)$doc);
+			//}
+
+		}
+
+    //drupal_set_message(nhpid_api_dump((array)$task_wrapper, 'purple', TRUE));
+    $task_wrapper -> save();
+
+		//comments, migrate comment only. No changes.
+		$sql = "select j.*, u.login as author from " . CHILIDB . ".journals j LEFT JOIN ". CHILIDB . ".users u ON j.user_id=u.id where j.type='IssueJournal' and j.journaled_id=:id";
+    $result2 = db_query($sql, array(':id' => $id));
+		while ($rc2 = $result2->fetchObject()){
+	    $comment_id = $rc2 -> id;
+			$commnet_author = $rc2 -> author;
+			$notes = $rc2 -> notes;
+			if(!$notes) continue;
+			$created_at = $rc2 -> created_at;
+      $sql = new EntityFieldQuery();
+		  $sql->entityCondition('entity_type', 'comment')
+		  	->propertyCondition('nid', $task_node ->nid, '=')
+	      ->fieldCondition('field_chili_journal_id', 'value', $comment_id, '=');
+	    $result3 =$sql ->execute();
+			$comment = null;
+			if ($result3){
+        $comment = comment_load(array_shift((array_keys($result3['comment']))));
+			}
+			else{
+        $comment = entity_create('comment',array('node_type'=>'comment_node_oa_worktracker_task', 'nid' => $task_node ->nid));
+			}
+			$comment_wrapper = entity_metadata_wrapper('comment',$comment);
+      if($notes) $comment_wrapper -> comment_body = array('value' => $notes, 'text_processing' => 1);
+      if($notes) $comment_wrapper -> subject = truncate_utf8(trim(decode_entities(strip_tags($notes))), 29, TRUE);
+		 	if($created_at) $comment_wrapper -> created = strtotime($created_at);
+		  $comment_wrapper -> status = 1;
+		  if($comment_id) $comment_wrapper -> field_chili_journal_id = $comment_id;
+      $comment_author_id = user_load_by_name($commnet_author) -> uid;
+			if ($comment_author_id){
+		    $comment_wrapper -> author = $comment_author_id;
+			}
+			$comment_wrapper -> save();
+      //drupal_set_message(nhpid_api_dump((array)$comment_wrapper, 'purple', TRUE));
+		}
+
+    drupal_set_message("Issue $subject ($id) has been successfully transferred.");
+    
+
+ }
+}
+
+function load_chiliproject_issue_data_2($id, $testing){
+	$sql = "select i.* from " . CHILIDB . ".issues i  where i.id = :id";
+  //drupal_set_message(nhpid_api_dump($id, 'purple', TRUE));
+	if (!$id) return;
+	$result = db_query($sql, array(':id' => $id));
+	if ($result->rowCount() < 1){
+    drupal_set_message("Chili issue $id cannot be found. Skipped");
+	}
+	else {
+
+		$rc = $result->fetchObject();
+	  //drupal_set_message(nhpid_api_dump($rc, 'purple', TRUE));
+		//return;
+    $subject = $rc -> subject;
+		$parent_id = $rc -> parent_id;
+
+    //return;
+
+		//parent task
+		$sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_worktracker_task')
+	    ->fieldCondition('field_chili_id', 'value', $id, '=');
+	  $result2 = $sql->execute();
+		$task_node = null;
+		if ($result2){
+			$task_node = node_load(array_shift((array_keys($result2['node']))));
+		}
+		else{
+			drupal_set_message("Task $subject cannot be found. The issue is skipped.");
+			return;
+		}
+		if ($parent_id){
+	    $sql = new EntityFieldQuery();
+		  $sql->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', 'oa_worktracker_task')
+		    ->fieldCondition('field_chili_id', 'value', $parent_id, '=');
+		  $result2 = $sql->execute();
+			$paretn_task_node = null;
+			if ($result2){
+				$parent_task_node = node_load(array_shift((array_keys($result2['node']))));
+        $task_node_wrapper = entity_metadata_wrapper('node',$task_node);
+				$task_node_wrapper -> field_parent_task -> set($parent_task_node);
+       // drupal_set_message(nhpid_api_dump((array)$task_node_wrapper, 'purple', TRUE));
+        $task_node_wrapper -> save();
+			}
+			else{
+	      drupal_set_message("Parent task($parent_id) for $subject cannot be found. The issue is skipped.");
+				return;
+			}
+			/*
+			$parent_task_wrapper = entity_metadata_wrapper('node',$parent_task_node);
+	    $subtasks = $parent_task_wrapper -> field_subtasks -> value(array('identifier' => TRUE));
+	    if (!in_array($task_node -> nid, $subtasks)){
+			  $parent_task_wrapper -> field_subtasks ->offsetSet( $parent_task_wrapper -> field_subtasks ->count(), $task_node);
+			}
+	    $parent_task_wrapper -> save();
+      */
+      
+		}
+
+		//related tasks
+		$sql = "select i.* from " . CHILIDB . ".issue_relations i  where i.issue_from_id = :id";
+    $result2 = db_query($sql, array(':id' => $id));
+		$lan = $task_node -> language;
+		while ($rc2 = $result2->fetchObject()){
+			$issue_to_id = $rc2 -> issue_to_id;
+			if (!$issue_to_id) continue;
+			$relation_type = $rc2 -> relation_type;
+      $sql = new EntityFieldQuery();
+		  $sql->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', 'oa_worktracker_task')
+		    ->fieldCondition('field_chili_id', 'value', $issue_to_id, '=');
+		  $result3 = $sql->execute();
+			$new_related_task_node_id = null;
+			if ($result3){
+				$new_related_task_node_id = array_shift((array_keys($result3['node'])));
+			}
+			else{
+	      drupal_set_message("Related task (chili id $issue_to_id) for $subject cannot be found. The related task is skipped.");
+				continue;
+			}
+
+      $new_related_task = array(
+				'field_relation_type'=>array(
+					$lan => array(array('value'=>$relation_type))
+				),
+				'field_related_task' => array(
+					$lan => array(array('target_id'=>$new_related_task_node_id))
+				),
+				'id' => multifield_get_next_id(),
+
+			);
+
+			$exist = FALSE;
+			foreach($task_node->field_related_tasks[$lan] as $item){
+				if ($item['field_relation_type'] == $new_related_task['field_relation_type'] and $item['field_related_task'] == $new_related_task['field_related_task']){
+          $exist = TRUE;
+				}
+			}
+			if (!$exist){
+        $task_node->field_related_tasks[$lan][] = $new_related_task;
+        //drupal_set_message(nhpid_api_dump($task_node, 'purple', TRUE));
+			}
+
+		}
+    //drupal_set_message(nhpid_api_dump($task_node->field_related_tasks, 'purple', TRUE));
+		node_save($task_node);
+    //drupal_set_message(nhpid_api_dump((array)$task_wrapper, 'purple', TRUE));
+
+ }
+}
+function load_chiliproject_project_data(){
+	//round 1
+	global $user;
+	$sql = 'select * from ' . CHILIDB . '.projects';
+  $result = db_query($sql);
+	while ($rc = $result ->fetchObject()){
+		$id = $rc -> id;
+		$name = $rc ->name;
+		$description = $rc -> description;
+		$is_public = $rc -> is_public;
+		$status = $rc -> status;
+
+    $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_space')
+	    ->fieldCondition('field_chili_project_id', 'value', $id, '=');
+	  $result2 = $sql->execute();
+		$space_node = null;
+		if ($result2){
+			$space_node = node_load(array_shift((array_keys($result2['node']))));
+		}
+		else{
+			$space_node =  entity_create('node', array('type' => 'oa_space'));
+		}
+		$field_lancode = field_language('node', $space_node, 'field_view_field');
+    $space_node -> field_view_field[$field_lancode][0] = array('vname'=>'customized_work_tracker|view_field_for_space', 'vargs'=>'[node:nid]');
+    $space_wrapper = entity_metadata_wrapper('node',$space_node);
+		$space_wrapper -> title = $name;
+		$space_wrapper -> body = array('value'=>$description, 'text_processing'=>1, 'format' => 'panopoly_wysiwyg_text');
+		$space_wrapper -> field_oa_section_override = 0;
+    $tid = array_shift(taxonomy_get_term_by_name('default', 'space_type')) -> tid;
+    $space_wrapper -> field_oa_space_type = $tid;
+    $space_wrapper -> group_access = !$is_public;
+    $space_wrapper -> group_group = 1;
+    $space_wrapper -> og_user_inheritance = 0;
+    $space_wrapper -> og_user_permission_inheritance = 0;
+    $space_wrapper -> field_chili_project_id = $id;
+    $space_wrapper -> author = $user;
+    //$space_wrapper -> field_view_field = array('vname'=>'customized_work_tracker|view_field_for_space', 'vargs'=>'[node:nid]');
+		$space_wrapper -> save();
+    //drupal_set_message(nhpid_api_dump((array)$space_wrapper, 'purple', TRUE));
+	}
+
+	//round 2
+  $sql = 'select * from ' . CHILIDB . '.projects where parent_id is not null';
+  $result = db_query($sql);
+	while ($rc = $result ->fetchObject()){
+		$id = $rc -> id;
+		$parent_id = $rc -> parent_id;
+    $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_space')
+	    ->fieldCondition('field_chili_project_id', 'value', $id, '=');
+	  $result2 = $sql->execute();
+    $space_node = node_load(array_shift((array_keys($result2['node']))));
+    $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_space')
+	    ->fieldCondition('field_chili_project_id', 'value', $parent_id, '=');
+	  $result3 = $sql->execute();
+		
+		if(!$result3){
+			drupal_set_messasge("Parent space (chili project id: $parent_id) could not be found.");
+			countinue;
+		}
+    $parent_node_id = array_shift((array_keys($result3['node'])));
+    $space_wrapper = entity_metadata_wrapper('node',$space_node);
+		$space_wrapper -> oa_parent_space = array('target_id' => $parent_node_id);
+    $space_wrapper -> save();
+	}
+
+	// issue sections
+  $tid = array_shift(taxonomy_get_term_by_name('Task Section', 'section_type')) -> tid;
+	$sql = 'select distinct project_id from ' . CHILIDB . '.issues';
+  $result = db_query($sql);
+	while ($rc = $result ->fetchObject()){
+		$project_id = $rc -> project_id;
+    $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_section')
+      ->fieldCondition('field_oa_section', 'tid', $tid, '=')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=');
+	  $result2 = $sql->execute();
+		$section_node = null;
+		if ($result2){
+			$section_node = node_load(array_shift((array_keys($result2['node']))));
+		}
+		else{
+			$section_node =  entity_create('node', array('type' => 'oa_section'));
+		}
+		$field_lancode = field_language('node', $section_node, 'field_view_field');
+    $section_node -> field_view_field[$field_lancode][0] = array('vname'=>'customized_work_tracker|view_field_for_section', 'vargs'=>'[node:nid]');
+
+    $section_wrapper = entity_metadata_wrapper('node',$section_node);
+		$section_wrapper -> title = TASK_SECTION_TITLE;
+		//$space_wrapper -> body = array('value'=>$description, 'text_processing'=>1; 'format' => 'panopoly_wysiwyg_text');
+		$section_wrapper -> field_oa_section_override = 0;
+    $tid = array_shift(taxonomy_get_term_by_name('Task Section', 'section_type')) -> tid;
+    $section_wrapper -> field_oa_section = $tid;
+    $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_space')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=');
+	  $result3 = $sql->execute();
+
+		if(!$result3){
+			drupal_set_messasge("Parent space (chili project id: $project_id) could not be found.");
+			countinue;
+		}
+    $parent_node = node_load(array_shift((array_keys($result3['node']))));
+		$section_wrapper -> og_group_ref = $parent_node;
+    $section_wrapper -> field_oa_node_types->offsetSet(0, 'oa_worktracker_task');
+
+    $section_wrapper -> field_chili_project_id = $project_id;
+    $section_wrapper -> author = $user;
+    //$section_wrapper -> field_view_field = array('vname'=>'customized_work_tracker|view_field_for_section', 'vargs'=>'[node:nid]');
+		$section_wrapper -> save();
+	}
+	//return;
+  // wiki sections
+  $tid = array_shift(taxonomy_get_term_by_name('Wiki Section', 'section_type')) -> tid;
+	$sql = 'select distinct project_id from ' . CHILIDB . '.wikis';
+  $result = db_query($sql);
+	while ($rc = $result ->fetchObject()){
+		$project_id = $rc -> project_id;
+    $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_section')
+      ->fieldCondition('field_oa_section', 'tid', $tid, '=')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=');
+	  $result2 = $sql->execute();
+		$section_node = null;
+		if ($result2){
+			$section_node = node_load(array_shift((array_keys($result2['node']))));
+		}
+		else{
+			$section_node =  entity_create('node', array('type' => 'oa_section'));
+		}
+    $section_wrapper = entity_metadata_wrapper('node',$section_node);
+		$section_wrapper -> title = WIKI_SECTION_TITLE;
+		//$space_wrapper -> body = array('value'=>$description, 'text_processing'=>1; 'format' => 'panopoly_wysiwyg_text');
+		$section_wrapper -> field_oa_section_override = 0;
+    $tid = array_shift(taxonomy_get_term_by_name('Wiki Section', 'section_type')) -> tid;
+    $section_wrapper -> field_oa_section = $tid;
+    $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_space')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=');
+	  $result3 = $sql->execute();
+
+		if(!$result3){
+			drupal_set_messasge("Parent space (chili project id: $project_id) could not be found.");
+			countinue;
+		}
+    $parent_node = node_load(array_shift((array_keys($result3['node']))));
+		$section_wrapper -> og_group_ref = $parent_node;
+    $section_wrapper -> field_oa_node_types->offsetSet(0, 'nhpd_wiki');
+
+    $section_wrapper -> field_chili_project_id = $project_id;
+    $section_wrapper -> author = $user;
+		$section_wrapper -> save();
+	}
+	drupal_set_message('The creation of spaces and sections has done.');
+	//statuses, trackers, and prioirty
+  transfer_status_tracker_priority();
+	//custom fields conditional field mapping
+  custom_fields_conditional_field_mapping();
+	
+
+}
+function transfer_status_tracker_priority(){
+  //Tracker, Chiliproject trackers are translated to OA task type as key-value pair tracker name - tracker name
+	$sql = 'select * from ' . CHILIDB . '.trackers order by position';
+  $result = db_query($sql);
+	
+	$options_text = '';
+	$options_value = '';
+	$default_value_text = 'Task';
+	$default_value_field = 'Task';
+	$variable_name = "oa_worktracker_allowed_values_task_type";
+	$setting = variable_get($variable_name, null);
+	$trackers = array();
+	while ($rc = $result ->fetchObject()){
+		$name = $rc -> name;
+		$id = $rc -> id;
+		$setting['options'][$name] = $name;
+		$trackers[$id] = $name;
+	}
+	foreach($setting['options'] as $key => $value){
+		$options_text = $options_text . "$key|$value\n";
+	}
+	$setting = array('options' => $setting['options'], 'options_text' => $options_text, 'options_field' => $options_text, 'default_value' => $default_value_field, 'default_value_text' => $default_value_text);
+  variable_del($variable_name);
+	variable_set($variable_name, $setting);
+  drupal_set_message(nhpid_api_dump( $variable_name, 'purple', TRUE));
+  drupal_set_message(nhpid_api_dump( $setting, 'purple', TRUE));
+  drupal_set_message(nhpid_api_dump( $id, 'purple', TRUE));
+   drupal_set_message(nhpid_api_dump( $trackers, 'purple', TRUE));
+
+	// setting for types (tracker) for task sections
+  $variable_name = "nhpd_oa_task_type_allowed_values_setting";
+  $sql = 'select * from ' . CHILIDB . '.projects_trackers';
+  $result = db_query($sql);
+  $options = array();
+  $tid = array_shift(taxonomy_get_term_by_name('Task Section', 'section_type')) -> tid;
+  while ($rc = $result ->fetchObject()){
+		$project_id = $rc -> project_id;
+		$tracker_id = $rc -> tracker_id;
+    $sql2 = new EntityFieldQuery();
+	  $sql2->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_section')
+      ->fieldCondition('field_oa_section', 'tid', $tid, '=')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=');
+	  $result2 = $sql2->execute();
+		if ($result2){
+			$section_node_nid = array_shift((array_keys($result2['node'])));
+			$options[$section_node_nid][] = $trackers[$tracker_id];
+		}
+	}
+	$setting = array('setting' => $options, 'all_options' => $setting['options']);
+	variable_del($variable_name);
+  variable_set($variable_name, $setting);
+  //  variable_set($variable_name, array());
+  drupal_set_message(nhpid_api_dump( $variable_name, 'purple', TRUE));
+  drupal_set_message(nhpid_api_dump( $setting, 'purple', TRUE));
+//return;
+// priority
+  $variable_name = "oa_worktracker_allowed_values_priority";
+	$sql = 'select * from ' . CHILIDB . '.enumerations where type =:IssuePriority';
+  $result = db_query($sql, array(':IssuePriority' => 'IssuePriority'));
+  $setting = variable_get($variable_name, null);
+  $options_text = '';
+	$options_value = '';
+	$default_value_text = '';
+	$default_value_field = '';
+  
+  while ($rc = $result ->fetchObject()){
+		//$name = str_replace(' ', '',str_replace(')', '',str_replace('(', '',$rc -> name)));
+		$name = preg_replace( '/[\(\)\d\s]/', '', $rc -> name);
+		$id = $rc -> id;
+    $setting['options'][$id] = $name;
+		if ($name == 'Normal'){
+      $default_value_text = $id;
+			$default_value_field = $id;
+		}
+	}
+  foreach($setting['options'] as $key => $value){
+		$options_text = $options_text . "$key|$value\n";
+	}
+	$setting = array('options' => $setting['options'], 'options_text' => $options_text, 'options_field' => $options_text, 'default_value' => $default_value_field, 'default_value_text' => $default_value_text);
+  variable_del($variable_name);
+	variable_set($variable_name, $setting);
+  
+  drupal_set_message(nhpid_api_dump( $variable_name, 'purple', TRUE));
+  drupal_set_message(nhpid_api_dump( $setting, 'purple', TRUE));
+  // status
+  $variable_name = "oa_worktracker_allowed_values_task_status";
+  $sql = 'select * from ' . CHILIDB . '.issue_statuses';
+  $result = db_query($sql);
+  $setting = variable_get($variable_name, null);
+  $options_text = '';
+	$options_value = '';
+	$default_value_text = '';
+	$default_value_field = '';
+  while ($rc = $result ->fetchObject()){
+		$name = $rc -> name;
+		$id = $rc -> id;
+    $setting['options'][strtolower($name)] = $name;
+		if ($rc->is_default){
+      $default_value_text = strtolower($name);
+			$default_value_field = strtolower($name);
+		}
+	}
+  foreach($setting['options'] as $key => $value){
+		$options_text = $options_text . "$key|$value\n";
+	}
+	$setting = array('options' => $setting['options'], 'options_text' => $options_text, 'options_field' => $options_text, 'default_value' => $default_value_field, 'default_value_text' => $default_value_text);
+  variable_del($variable_name);
+	variable_set($variable_name, $setting);
+
+  drupal_set_message(nhpid_api_dump( $variable_name, 'purple', TRUE));
+  drupal_set_message(nhpid_api_dump( $setting, 'purple', TRUE));
+  // TODo: setting for statuses  for task sections
+	/*
+  $variable_name = "nhpd_oa_task_status_allowed_values_setting";
+  $sql = 'select * from ' . CHILIDB . '.issue_categories';
+  $result = db_query($sql);
+  $options = array();
+  $tid = array_shift(taxonomy_get_term_by_name('Task Section', 'section_type')) -> tid;
+  while ($rc = $result ->fetchObject()){
+		$project_id = $rc -> project_id;
+		$name = $rc -> name;
+    $sql2 = new EntityFieldQuery();
+	  $sql2->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_section')
+      ->fieldCondition('field_oa_section', 'tid', $tid, '=')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=');
+	  $result2 = $sql2->execute();
+		if ($result2){
+			$section_node_nid = array_shift((array_keys($result2['node'])));
+			$options[$section_node_nid][] = $name;
+		}
+	}
+	$setting = array('setting' => $options, 'all_options' => $setting['options']);
+	variable_del($variable_name);
+  variable_set($variable_name, $setting);
+	*/
+  //  variable_set($variable_name, array());
+  drupal_set_message(nhpid_api_dump( $variable_name, 'purple', TRUE));
+  drupal_set_message(nhpid_api_dump( $setting, 'purple', TRUE));
+
+	// task category
+
+	$sql = 'select distinct name from ' . CHILIDB . '.issue_categories';
+  $result = db_query($sql);
+
+	$options_text = '';
+	$options_value = '';
+	$default_value_text = 'General';
+	$default_value_field = 'General';
+	$variable_name = "oa_worktracker_allowed_values_task_category";
+	$setting = variable_get($variable_name, null);
+	$trackers = array();
+	while ($rc = $result ->fetchObject()){
+		$name = $rc -> name;
+		$setting['options'][$name] = $name;
+	}
+	foreach($setting['options'] as $key => $value){
+		$options_text = $options_text . "$key|$value\n";
+	}
+	$setting = array('options' => $setting['options'], 'options_text' => $options_text, 'options_field' => $options_text, 'default_value' => $default_value_field, 'default_value_text' => $default_value_text);
+  variable_del($variable_name);
+	variable_set($variable_name, $setting);
+  drupal_set_message(nhpid_api_dump( $variable_name, 'purple', TRUE));
+  drupal_set_message(nhpid_api_dump( $setting, 'purple', TRUE));
+  drupal_set_message(nhpid_api_dump( $id, 'purple', TRUE));
+   drupal_set_message(nhpid_api_dump( $trackers, 'purple', TRUE));
+
+	// setting for types (tracker) for task sections
+  $variable_name = "nhpd_oa_task_category_allowed_values_setting";
+  $sql = 'select * from ' . CHILIDB . '.issue_categories';
+  $result = db_query($sql);
+  $options = array();
+  $tid = array_shift(taxonomy_get_term_by_name('Task Section', 'section_type')) -> tid;
+  while ($rc = $result ->fetchObject()){
+		$project_id = $rc -> project_id;
+		$name = $rc -> name;
+    $sql2 = new EntityFieldQuery();
+	  $sql2->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_section')
+      ->fieldCondition('field_oa_section', 'tid', $tid, '=')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=');
+	  $result2 = $sql2->execute();
+		if ($result2){
+			$section_node_nid = array_shift((array_keys($result2['node'])));
+			$options[$section_node_nid][] = $name;
+		}
+	}
+	$setting = array('setting' => $options, 'all_options' => $setting['options']);
+	variable_del($variable_name);
+  variable_set($variable_name, $setting);
+  //  variable_set($variable_name, array());
+  drupal_set_message(nhpid_api_dump( $variable_name, 'purple', TRUE));
+  drupal_set_message(nhpid_api_dump( $setting, 'purple', TRUE));
+//return;
+}
+
+
+function create_imdb_space(){
+
+	//IMDB
+	global $user;
+  $sql = new EntityFieldQuery();
+  $sql->entityCondition('entity_type', 'node')
+  	->entityCondition('bundle', 'oa_space')
+    ->propertyCondition('title', 'IMDB');
+  $result = $sql->execute();
+	$space_node = null;
+	if ($result){
+		$space_node = node_load(array_shift((array_keys($result['node']))));
+	}
+	else{
+		$space_node =  entity_create('node', array('type' => 'oa_space'));
+	}
+  $space_wrapper = entity_metadata_wrapper('node',$space_node);
+	$space_wrapper -> title = 'IMDB';
+	$space_wrapper -> body = array('value'=>'Issues migrated from the Lotus Node IMDB database', 'text_processing'=>1, 'format' => 'panopoly_wysiwyg_text');
+	$space_wrapper -> field_oa_section_override = 0;
+  $tid = array_shift(taxonomy_get_term_by_name('default', 'space_type')) -> tid;
+  $space_wrapper -> field_oa_space_type = $tid;
+  $space_wrapper -> group_access = 1;
+  $space_wrapper -> group_group = 1;
+  $space_wrapper -> og_user_inheritance = 0;
+  $space_wrapper -> og_user_permission_inheritance = 0;
+  $space_wrapper -> og_roles_permissions = 1;
+  $space_wrapper -> author = $user;
+	$space_wrapper -> save();
+
+  $sql = new EntityFieldQuery();
+  $sql->entityCondition('entity_type', 'node')
+  	->entityCondition('bundle', 'oa_section')
+    ->propertyCondition('title', 'IMDB');
+  $result = $sql->execute();
+	$section_node = null;
+	if ($result){
+		$section_node = node_load(array_shift((array_keys($result['node']))));
+	}
+	else{
+		$section_node =  entity_create('node', array('type' => 'oa_section'));
+	}
+  $section_wrapper = entity_metadata_wrapper('node',$section_node);
+	$section_wrapper -> title = 'IMDB';
+	//$space_wrapper -> body = array('value'=>$description, 'text_processing'=>1; 'format' => 'panopoly_wysiwyg_text');
+	$section_wrapper -> field_oa_section_override = 0;
+  $tid = array_shift(taxonomy_get_term_by_name('Task Section', 'section_type')) -> tid;
+  $section_wrapper -> field_oa_section = $tid;
+	$section_wrapper -> og_group_ref = $space_node;
+  $section_wrapper -> field_oa_node_types->offsetSet(0, 'nhpd_imdb');
+
+  $section_wrapper -> author = $user;
+	$section_wrapper -> save();
+  drupal_set_message('The creation of the IMDB space and section has done.');
+}
+function load_chiliproject_wiki_data_form(&$form_state = NULL){
+	$form = array();
+
+  $mapping = $form_state['values']['mapping_chili_project_id'];
+  $form['mapping_chili_project_id']=array(
+    '#type' => 'checkbox',
+    '#default_value' => $mapping,
+    '#title' => "Map chili project id to the Wiki sections? ",
+	);
+  $round2 = $form_state['values']['round2'];
+	$form['round2']=array(
+    '#type' => 'checkbox',
+    '#default_value' => $round2,
+    '#title' => "Round2 only?",
+	);
+	$test = $form_state['values']['test'];
+	$form['test']=array(
+    '#type' => 'checkbox',
+    '#default_value' => $test,
+    '#title' => "Testing? (first 1 record)",
+	);
+  $reload = $form_state['values']['reload'];
+	$form['reload']=array(
+    '#type' => 'checkbox',
+    '#default_value' => $reload,
+    '#title' => "Reload data?",
+	);
+  $form['action-submit']=array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+    '#attributes' => array('onclick' => 'return confirm("You are going to migrate all issues from chiliporject to OA. Are you sure you wish to continue?");'),
+  );
+
+  if ($form_state['clicked_button']['#id'] == 'edit-action-submit') {
+  	if ($mapping){
+			drupal_set_message("Stating mapping chili porject id to the Task sections...");
+	    mapping_chili_project_id_to_task_sections('Wiki Section');
+	    drupal_set_message("Mapping chili porject id to the Task sections is done.");
+		}
+    $sql = "select id from " . CHILIDB . ".wiki_pages order by id";
+		if ($test) $sql = "select id from " . CHILIDB . ".wiki_pages order by id limit 100";
+		$result = db_query($sql);
+		$operations = array();
+		if(!$round2){
+			while ($rc = $result ->fetchObject()){
+				$id = $rc -> id;
+		    $operations[] = array('load_chiliproject_wiki_data_batch', array($id, $reload, 1));
+			}
+		}
+    $result = db_query($sql);
+    while ($rc = $result ->fetchObject()){
+			$id = $rc -> id;
+			$round = 2;
+	    $operations[] = array('load_chiliproject_wiki_data_batch', array($id, $reload, $round));
+		}
+	  $batch = array(
+	    'operations' => $operations,
+	    'finished' => 'batch_op_finished',
+	    // We can define custom messages instead of the default ones.
+	    'title' => t('Migrating chili Wiki'),
+	    'init_message' => t('Migrating starting...'),
+	    'progress_message' => t('Processed @current out of @total steps.'),
+	    'error_message' => t('Migrating has encountered an error.'),
+	  );
+	  batch_set($batch);
+	  batch_process();
+    //drupal_set_message(nhpid_api_dump($operations, 'purple', TRUE));
+
+	}
+
+	return $form;
+}
+function load_chiliproject_wiki_data_batch($id, $reload,$round, $content){
+  //drupal_set_message(nhpid_api_dump("$id, $testing,$round", 'purple', TRUE));
+	$message = '';
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['current_file'] = 0;
+    $context['sandbox']['max'] = count($sheets);
+  }
+	if ($round == 2) {
+		load_chiliproject_wiki_data_2($id);
+	}
+	else{
+    load_chiliproject_wiki_data($id, $reload);
+	}
+  // Inform the batch engine that we are not finished,
+  // and provide an estimation of the completion level we reached.
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+}
+/**
+ *$reload: 1 - reloads wiki text from chiliproject; 0 - changes viki text from OA2
+ */
+
+function load_chiliproject_wiki_data($id, $reload=0){
+	$sql = "select w.*, wp.*, wc.*, au.login as author,  p.name as project_name from  ". CHILIDB . ".wikis w LEFT JOIN ". CHILIDB . ".wiki_pages wp on w.id=wp.wiki_id LEFT JOIN ". CHILIDB . ".wiki_contents wc on wp.id=wc.page_id LEFT JOIN ". CHILIDB . ".users au on wc.author_id=au.id LEFT JOIN ". CHILIDB . ".projects p on w.project_id=p.id where wp.id=:id";
+  //drupal_set_message(nhpid_api_dump($sql, 'purple', TRUE));
+//return;
+	if (!$id) return;
+	$result = db_query($sql, array(':id' => $id));
+	if ($result->rowCount() < 1){
+    drupal_set_message("Chili issue $id cannot be found. Skipped");
+		return;
+	}
+
+
+	while ($rc = $result->fetchObject()){
+	  //drupal_set_message(nhpid_api_dump($rc, 'purple', TRUE));
+
+		$project_id = $rc -> project_id;
+	  $project_name = $rc -> project_name;
+		$start_page = $rc -> start_page;
+		$title = $rc -> title;
+    $created_on = $rc -> created_on;
+		$protected = $rc -> protected;
+    $author = $rc -> author;
+		$text = $rc -> text;
+    $updated_on = $rc -> updated_on;
+		$parent_id = $rc -> parent_id;
+		$page_id = $rc -> page_id;
+    drupal_set_message(nhpid_api_dump($page_id, 'purple', TRUE));
+    drupal_set_message(nhpid_api_dump($title, 'purple', TRUE));
+
+		if(!$title) continue;
+    
+
+		//oa wiki
+		$sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'nhpd_wiki')
+	    ->fieldCondition('field_chili_id', 'value', $page_id, '=');
+	  $result2 = $sql->execute();
+		$wiki_node = null;
+
+		if ($result2){
+			$wiki_node = node_load(array_shift((array_keys($result2['node']))));
+		  if (!$reload){
+						$text = $wiki_node->field_wiki_page['und'][0]['value'];
+			}
+		}
+		else{
+			$wiki_node =  entity_create('node', array('type' => 'nhpd_wiki'));
+		}
+    $wiki_wrapper = entity_metadata_wrapper('node',$wiki_node);
+		//return;
+	   // oa_section_ref
+    $tid = array_shift(taxonomy_get_term_by_name('Wiki Section', 'section_type')) -> tid;
+	  $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_section')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=')
+			->fieldCondition('field_oa_section', 'tid', $tid, '=');
+	  $result2 = $sql->execute();
+		if ($result2){
+	    $section_nid = array_shift((array_keys($result2['node'])));
+	  	$wiki_wrapper -> oa_section_ref = $section_nid;
+		}
+		else{
+	    drupal_set_message("Task section under $project_name cannot be found. The issue is skipped.");
+			continue;
+		}
+		//return;
+	  // oa_group_ref
+		$space = node_load_by_title($project_name, 'oa_space');
+		if ($space){
+	    $wiki_wrapper -> og_group_ref = $space -> nid;
+		}
+		else{
+	    drupal_set_message("Space $project_name cannot be found. og_group_ref is not assined.");
+		}
+
+		//procesing TOC - {{toc}}
+		// Parses {{toc}} to [toc title] of drupla toc filter
+		$pattern = '/h1\..+\n/';
+		$matches = array();
+    preg_match($pattern, $text, $matches);
+		if (!empty($matches)){
+			$h1 = trim(str_replace('h1.', '', $matches[0]));
+		}
+		$text = str_replace('{{toc}}', "[toc $h1]", $text);
+    
+
+    //procesing image link - !{attributes}img.png!
+		// Parses !img.png! to !system/files/img.png
+		$pattern = '/\![^\!]+\!/';
+		$matches = array();
+    preg_match_all($pattern, $text, $matches);
+		$appended = 'system/files';
+		foreach ($matches[0] as $match){
+			if(preg_match('/^\!system\/files\//', $match)) continue; // skips parsed img links
+			$pattern = '/\{.+\}/';
+			$matches2 = array();
+      //drupal_set_message(nhpid_api_dump($match, 'purple', TRUE));
+      preg_match($pattern, $match, $matches2);
+      //drupal_set_message(nhpid_api_dump($matches2, 'purple', TRUE));
+			$file_name = '';
+			$attributes = '';
+			if($matches2[0]){
+				$attributes = $matches2[0];
+				$file_name = str_replace('!', '', str_replace($attributes, '', $match));
+        drupal_set_message(nhpid_api_dump($match, 'purple', TRUE));
+       
+			}
+			else{
+        $file_name = str_replace('!', '', $match);
+			}
+			//drupal_set_message(nhpid_api_dump($file_name, 'purple', TRUE));
+			$sql = "select * from " . CHILIDB . ".attachments where container_type = 'WikiPage' and container_id = :container_id and filename=:filename";
+
+      $result_img = db_query($sql, array(':container_id' => $page_id, ':filename' => $file_name));
+		
+			while ($rc_img = $result_img -> fetchObject()){
+				$filename = $rc_img -> filename;
+	      $disk_filename = $rc_img -> disk_filename;
+	      $filesize = $rc_img -> filesize;
+	      $content_type = $rc_img -> content_type;
+	      $created_on = $rc_img -> created_on;
+	      $description = $rc_img -> description;
+
+				$tmp_uri = 'private://tmp/' . $disk_filename;
+        $uri = 'private://' . $disk_filename;
+        //drupal_set_message(nhpid_api_dump(drupal_realpath($uri), 'purple', TRUE));
+        $file_temp = file_get_contents(drupal_realpath($tmp_uri));
+        $doc = file_save_data($file_temp, $uri, FILE_EXISTS_REPLACE);
+				$link = "!$attributes" . "$appended/$disk_filename($filename)!";
+        drupal_set_message(nhpid_api_dump($link, 'purple', TRUE));
+        $text = str_replace($match, $link, $text);
+			}
+			
+		}
+
+	  $wiki_wrapper -> title = $title;
+		$wiki_wrapper -> field_wiki_page = array('value' => $text, 'text_processing' => 1, 'format' => 'nhpd_wiki');
+	  $wiki_wrapper -> created = strtotime($created_on);
+	  $wiki_wrapper -> status = 1;
+	  $wiki_wrapper -> field_chili_id = $page_id;
+		if (str_replace(' ', '_', $start_page) == $title){
+      $wiki_wrapper -> field_is_first_page = 1;
+		}
+
+		$author_id = user_load_by_name($author) -> uid;
+		if ($author_id){
+	    $wiki_wrapper -> author = $author_id;
+		}
+		else{
+			drupal_set_message("User $author cannot be found. Author is not assigned.");
+		}
+    //drupal_set_message(nhpid_api_dump((array)$wiki_wrapper, 'purple', TRUE));
+    $wiki_wrapper -> save();
+
+    drupal_set_message("Wiki ($page_id) has been successfully transferred.");
+
+ }
+}
+
+function load_chiliproject_wiki_data_2($id){
+  if (!$id) return;
+	$sql = "select wp.*, wc.* from  " . CHILIDB . ".wiki_pages wp LEFT JOIN ". CHILIDB . ".wiki_contents wc on wp.id=wc.page_id  where wp.id=:id";
+  //drupal_set_message(nhpid_api_dump($sql, 'purple', TRUE));
+
+	//return;
+	$result = db_query($sql, array(':id' => $id));
+	if ($result->rowCount() < 1){
+    drupal_set_message("Chili wiki $id cannot be found. Skipped");
+		return;
+	}
+
+	while ($rc = $result->fetchObject()){
+		$title = $rc -> title;
+    $created_on = $rc -> created_on;
+		$protected = $rc -> protected;
+		//$text = $rc -> text;
+    $updated_on = $rc -> updated_on;
+		$parent_id = $rc -> parent_id;
+		$page_id = $rc -> page_id;
+		$wiki_id = $rc -> wiki_id;
+
+    
+    //drupal_set_message(nhpid_api_dump($page_id, 'purple', TRUE));
+    //drupal_set_message(nhpid_api_dump($wiki_id, 'purple', TRUE));
+		//oa wiki
+		$sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'nhpd_wiki')
+	    ->fieldCondition('field_chili_id', 'value', $page_id, '=');
+	  $result2 = $sql->execute();
+		$wiki_node = null;
+
+		if (!$result2){
+			drupal_set_message("Wiki node wiht $title ($page_id) could not be found.");
+			continue;
+		}
+
+    $wiki_node = node_load(array_shift((array_keys($result2['node']))));
+		$text = $wiki_node->field_wiki_page['und'][0]['value'];
+    //drupal_set_message(nhpid_api_dump((array)$text, 'purple', TRUE));
+    $wiki_wrapper = entity_metadata_wrapper('node',$wiki_node);
+
+		// parses internal links [[wiki title]]to freelinling syntax [[nid:n]]
+    //$pattern = '/[^!]\[\[[\w\s\d\/\-]+\]\]/';
+    $pattern = '/[^!]\[\[[^\[^\]]+\]\]/';
+		$matches = array();
+    
+    preg_match_all($pattern, $text, $matches);
+    //drupal_set_message(nhpid_api_dump($matches, 'purple', TRUE));
+		foreach($matches[0] as $match){
+			$linked_page_id = null;
+      $likined_wiki_nid = null;
+			$match = preg_replace('/^.\[\[/', '[[', $match);
+			$linked_text = str_replace(']]', '', str_replace('[[', '', $match));
+			if(preg_match('/^nid:\d+/', $linked_text)) continue; //skips parsed links
+      $linked_title = titleize($linked_text);
+      //drupal_set_message(nhpid_api_dump($match, 'purple', TRUE));
+      //drupal_set_message(nhpid_api_dump($linked_text, 'purple', TRUE));
+			$sql3 = "select wp.id from " . CHILIDB . ".wiki_pages wp where  wp.wiki_id = :wiki_id and wp.title = :title ";
+      $result3 = db_query($sql3, array(':wiki_id'=>$wiki_id, ':title'=> $linked_title));
+			$rc3 = $result3 ->fetchObject();
+      //drupal_set_message(nhpid_api_dump($sql3, 'purple', TRUE));
+      //drupal_set_message(nhpid_api_dump($linked_title, 'purple', TRUE));
+
+			if ($rc3){
+        $linked_page_id = $rc3 -> id;
+			}
+			else{ // check wiki_redirects
+      
+
+				$sql5 = "select wp.id as page_id, wp.title as title  from "  . CHILIDB . ".wiki_pages wp JOIN, " . CHILIDB . ".wiki_redirects wr on wp.wiki_id = wr.wiki_id and wp.title= wr.redirects_to where wr.wiki_id = :wiki_id and wr.title = :title ";
+	      //drupal_set_message(nhpid_api_dump($sql5, 'purple', TRUE));
+	      //drupal_set_message(nhpid_api_dump($wiki_id, 'purple', TRUE));
+	      //drupal_set_message(nhpid_api_dump($linked_title, 'purple', TRUE));
+				$result5 = db_query($sql3, array(':wiki_id'=>$wiki_id, ':title'=> $linked_title));
+				$rc5 = $result ->fetchObject();
+	      //drupal_set_message(nhpid_api_dump($rc5, 'purple', TRUE));
+				if ($rc5){
+					$linked_title=$rc5->title;
+					$linked_page_id = $rc5 -> page_id;
+	        $linked_text = str_replace('_', ' ', $rc5 -> title);
+				}
+     }
+      $sql4 = new EntityFieldQuery();
+		  $sql4->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', 'nhpd_wiki')
+		    ->fieldCondition('field_chili_id', 'value', $linked_page_id, '=');
+		  $result4 = $sql4->execute();
+      $likined_wiki_nid =  array_shift((array_keys($result4['node'])));
+      //drupal_set_message(nhpid_api_dump($likined_wiki_nid, 'purple', TRUE));
+			if ($likined_wiki_nid){
+				$link = "[[nid:$likined_wiki_nid|$linked_text]]";
+				$text = str_replace($match, $link, $text);
+			}
+
+		}
+    //drupal_set_message(nhpid_api_dump((array)$text, 'purple', TRUE));
+
+    // parses issue links #issue_id to freelinling syntax [[nid:n]]
+		$pattern = '/#\d+/';
+		$matches = array();
+    preg_match_all($pattern, $text, $matches);
+		foreach($matches[0] as $match){
+			$issue_id = trim(str_replace('#', '', $match));
+      $sql = new EntityFieldQuery();
+		  $sql->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', 'oa_worktracker_task')
+		    ->fieldCondition('field_chili_id', 'value', $issue_id, '=');
+		  $result6 = $sql->execute();
+			$task_node_id = array_shift((array_keys($result6['node'])));
+      //drupal_set_message(nhpid_api_dump($match, 'purple', TRUE));
+      //drupal_set_message(nhpid_api_dump($task_node_id, 'purple', TRUE));
+			if ($task_node_id){
+				$link = "[[nid:$task_node_id|$task_node_id]]";
+        $text = str_replace($match, $link, $text);
+			}
+      //drupal_set_message(nhpid_api_dump((array)$text, 'purple', TRUE));
+		}
+    $wiki_wrapper -> field_wiki_page = array('value' => $text, 'text_processing' => 1, 'format' => 'nhpd_wiki');
+    //drupal_set_message(nhpid_api_dump($page_id, 'purple', TRUE));
+    //drupal_set_message(nhpid_api_dump((array)$text, 'purple', TRUE));
+
+		//parent pages
+		/*
+		$sql = "select subpages.id as subpage_id, subpages.wiki_id  as subpage_wiki_id, subpages.title as subpage_title from ". CHILIDB . ".wiki_pages subpages where parent_id=:parent_id";
+    $result_subpage = db_query($sql, array(':parent_id' => $page_id));
+    //drupal_set_message(nhpid_api_dump($page_id, 'purple', TRUE));
+    //drupal_set_message(nhpid_api_dump($sql, 'purple', TRUE));
+		while ($rc_subpage = $result_subpage -> fetchObject()){
+			$subpage_id = $rc_subpage -> subpage_id;
+      $subpage_wiki_id = $rc_subpage -> subpage_wiki_id;
+      $subpage_title = $rc_subpage -> subpage_title;
+      //drupal_set_message(nhpid_api_dump($subpage_title, 'purple', TRUE));
+      //drupal_set_message(nhpid_api_dump($subpage_wiki_id, 'purple', TRUE));
+      //drupal_set_message(nhpid_api_dump($subpage_id, 'purple', TRUE));
+			//redirect
+      $sql = "select wp.id as page_id  from "  . CHILIDB . ".wiki_pages wp JOIN " . CHILIDB . ".wiki_redirects wr on wp.wiki_id = wr.wiki_id and wp.title= wr.redirects_to where wr.wiki_id = :wiki_id and wr.title = :title ";
+      //drupal_set_message(nhpid_api_dump($sql, 'purple', TRUE));
+			$result_subpage3 = db_query($sql, array(':wiki_id'=>$subpage_wiki_id, ':title'=> $subpage_title));
+			$rc_subpage3 = $result_subpage3 ->fetchObject();
+      //drupal_set_message(nhpid_api_dump($rc_subpage3, 'purple', TRUE));
+			if ($rc_subpage3){
+				$subpage_id = $rc_subpage3 -> page_id;
+			}
+      $sql = new EntityFieldQuery();
+		  $sql->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', 'nhpd_wiki')
+		    ->fieldCondition('field_chili_id', 'value', $subpage_id, '=');
+		  $result_subpage2 = $sql->execute();
+      $subpage_node = null;
+			if ($result_subpage2){
+				$subpage_node = node_load(array_shift((array_keys($result_subpage2['node']))));
+        $subpages = $wiki_wrapper -> field_subpage -> value(array('identifier' => TRUE));
+		    if (!in_array($subpage_node -> nid, $subpages)){
+					$wiki_wrapper -> field_subpage ->offsetSet( $wiki_wrapper -> field_subpage ->count(), $subpage_node);
+				}
+			}
+      else {
+	      drupal_set_message("Subpage (page_id: $subpage_id) could not found.");
+			}
+		}
+		*/
+    //drupal_set_message(nhpid_api_dump($parent_id, 'purple', TRUE));
+    if ($parent_id){
+	    $sql = new EntityFieldQuery();
+		  $sql->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', 'nhpd_wiki')
+		    ->fieldCondition('field_chili_id', 'value', $parent_id, '=');
+			  $result2 = $sql->execute();
+				$parent_node = null;
+				if ($result2){
+					$parent_node = node_load(array_shift((array_keys($result2['node']))));
+					$wiki_wrapper -> field_parent_page -> set($parent_node);
+				}
+				else{
+		      drupal_set_message("Parent task($parent_id) for $subject cannot be found. The issue is skipped.");
+					return;
+				}
+		}
+    $wiki_wrapper -> save();
+    //drupal_set_message(nhpid_api_dump((array)$wiki_wrapper, 'purple', TRUE));
+    drupal_set_message("Wiki  ($page_id) has been successfully updated.");
+
+ }
+
+}
+
+
+/**
+ * Based on http://drupal.stackexchange.com/a/34400
+ */
+
+/**
+ * Helper function; Load node by title
+ */
+
+ function node_load_by_title($title, $node_type) {
+  $query = new EntityFieldQuery();
+  $entities = $query->entityCondition('entity_type', 'node')
+    ->propertyCondition('type', $node_type)
+    ->propertyCondition('title', $title)
+    ->propertyCondition('status', 1)
+    ->range(0,1)
+    ->execute();
+  if(!empty($entities)) {
+    return node_load(array_shift(array_keys($entities['node'])));
+  }
+}
+/**
+ * 
+ *
+ */
+
+function custom_fields_conditional_field_mapping(){
+  $chili_custom_field_id_oa_field_name_mapping = chili_custom_field_id_oa_field_name_mapping();
+  $dependencies = conditional_fields_load_dependencies('node', 'oa_worktracker_task');
+  $tid = array_shift(taxonomy_get_term_by_name('Task Section', 'section_type')) -> tid;
+	// depdendee: oa_section_ref
+  $dependee_instance = field_read_instance('node', 'oa_section_ref', 'oa_worktracker_task');
+	$dependee_id = $dependee_instance['id'];
+	$basic_options = conditional_fields_dependency_default_options();
+	$basic_options['values_set'] = 3;
+  $basic_options['value_form'] = '_none';
+	foreach($chili_custom_field_id_oa_field_name_mapping as $chili_custom_field_id => $oa_custom_field_name){
+    drupal_set_message(nhpid_api_dump( "$chili_custom_field_id => $oa_custom_field_name", 'purple', TRUE));
+		// if custom field is for all project, skip
+		$sql = 'select is_for_all from ' . CHILIDB . '.custom_fields where id = :id';
+		$result =db_query($sql, array(':id' => $chili_custom_field_id));
+		if($result->fetchColumn(0)){
+			continue;
+		}
+
+    $dependent_instance = field_read_instance('node', $oa_custom_field_name, 'oa_worktracker_task');
+		$dependent_id = $dependent_instance['id'];
+		$sql = 'select * from ' . CHILIDB . '.custom_fields_projects where custom_field_id=:id';
+		$result = db_query($sql, array(':id' => $chili_custom_field_id));
+		$options_values = array();
+    $options_values[] = 0; // in case the custom field is not used for any project, it should be visible to project nid 0, which does not exist.
+		while ($rc = $result -> fetchObject()){
+			$project_id = $rc -> project_id;
+      $sql = new EntityFieldQuery();
+		  $sql->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', 'oa_section')
+        ->fieldCondition('field_chili_project_id', 'value', $project_id, '=')
+	      ->fieldCondition('field_oa_section', 'tid', $tid, '=');
+		  $result2 = $sql->execute();
+			$section_node = null;
+			if ($result2){
+				$section_id = array_shift((array_keys($result2['node'])));
+        $options_values[] = $section_id;
+			}
+		}
+		$dependency_id = null;
+		$options = array();
+		$result_options = db_select('conditional_fields', 'cf')
+    ->fields('cf', array('id', 'dependee', 'dependent', 'options'))
+    ->condition('dependee', $dependee_id)
+    ->condition('dependent', $dependent_id)
+    ->execute()
+    ->fetchAssoc();
+		if ($result_options){
+      $options = unserialize($result_options['options']);
+      $dependency_id = $result_options['id'];
+		}
+    $options['values'] = $options_values;
+		
+    if ($dependency_id){
+			$dependency = array(
+			'id'        => $dependency_id,
+			'dependee'  => $dependee_id,
+	    'dependent' => $dependent_id,
+	    'options'   => $options + $basic_options,
+	  	);
+	    drupal_set_message(nhpid_api_dump( $dependency, 'purple', TRUE));
+	    drupal_write_record('conditional_fields', $dependency, 'id');
+		}
+		else{
+      $dependency = array(
+			'dependee'  => $dependee_id,
+	    'dependent' => $dependent_id,
+	    'options'   => $options + $basic_options,
+	  	);
+	    drupal_set_message(nhpid_api_dump( $dependency, 'purple', TRUE));
+	    drupal_write_record('conditional_fields', $dependency);
+		}
+	}
+
+  // depdendee: field_oa_worktracker_task_type
+  $dependee_instance = field_read_instance('node', 'field_oa_worktracker_task_type', 'oa_worktracker_task');
+	$dependee_id = $dependee_instance['id'];
+	reset($chili_custom_field_id_oa_field_name_mapping);
+	foreach($chili_custom_field_id_oa_field_name_mapping as $chili_custom_field_id => $oa_custom_field_name){
+    drupal_set_message(nhpid_api_dump( $oa_custom_field_name, 'purple', TRUE));
+    	// if custom field is for all project, skip
+		$sql = 'select is_for_all from ' . CHILIDB . '.custom_fields where id = :id';
+		$result =db_query($sql, array(':id' => $chili_custom_field_id));
+		if($result->fetchColumn(0)){
+			continue;
+		}
+    $dependent_instance = field_read_instance('node', $oa_custom_field_name, 'oa_worktracker_task');
+		$dependent_id = $dependent_instance['id'];
+		$sql = 'select * from ' . CHILIDB . '.custom_fields_trackers ft, ' . CHILIDB . '.trackers t where t.id = ft.tracker_id and custom_field_id=:id';
+		$result = db_query($sql, array(':id' => $chili_custom_field_id));
+		$options_values = array();
+		while ($rc = $result -> fetchObject()){
+			$options_values[] = $rc -> name;
+ 		}
+		$dependency_id = null;
+		$options = array();
+		$result_options = db_select('conditional_fields', 'cf')
+    ->fields('cf', array('id', 'dependee', 'dependent', 'options'))
+    ->condition('dependee', $dependee_id)
+    ->condition('dependent', $dependent_id)
+    ->execute()
+    ->fetchAssoc();
+		if ($result_options){
+      $options = unserialize($result_options['options']);
+      $dependency_id = $result_options['id'];
+		}
+    $options['values'] = $options_values;
+    if ($dependency_id){
+			$dependency = array(
+			'id'        => $dependency_id,
+			'dependee'  => $dependee_id,
+	    'dependent' => $dependent_id,
+	    'options'   => $options + $basic_options,
+	  	);
+	    drupal_set_message(nhpid_api_dump( $dependency, 'purple', TRUE));
+	    drupal_write_record('conditional_fields', $dependency, 'id');
+		}
+		else{
+      $dependency = array(
+			'dependee'  => $dependee_id,
+	    'dependent' => $dependent_id,
+	    'options'   => $options + $basic_options,
+	  	);
+	    drupal_set_message(nhpid_api_dump( $dependency, 'purple', TRUE));
+	    drupal_write_record('conditional_fields', $dependency);
+		}
+	}
+}
+
+function get_oa_custom_field_name($chili_custom_field_id){
+	$chili_custom_field_id_oa_field_name_mapping = chili_custom_field_id_oa_field_name_mapping();
+		
+	return $chili_custom_field_id_oa_field_name_mapping[$chili_custom_field_id];
+}
+function chili_custom_field_id_oa_field_name_mapping(){
+  $chili_custom_field_id_oa_field_name_mapping = array(
+		1 => 'field_client_name',
+		34 => 'field_client_phone',
+    58 => 'field_client_phone',
+		5 => 'field_sub_category',
+    4 => 'field_client_email_or_other_cont',
+    76 => 'field_ias_sub_category',
+    75 => 'field_foods_sub_category',
+    77 => 'field_directorate_bureau',
+    6 => 'field_date_received',
+    7 => 'field_current_version',
+    8 => 'field_environment',
+    9 => 'field_resolution_details',
+    10 => 'field_issue_form_tracking_number',
+    12 => 'field_substance_type',
+    15 => 'field_submission_number',
+    65 => 'field_license_number',
+    16 => 'field_stream',
+    17 => 'field_reporter_name',
+    18 => 'field_defect_number',
+    19 => 'field_found_in',
+    20 => 'field_issue_source',
+    21 => 'field_subgroup',
+    25 => 'field_product',
+    22 => 'field_found_in_version',
+    23 => 'field_found_in_build',
+    24 => 'field_fixed_in_build',
+    26 => 'field_errata',
+    27 => 'field_root',
+    28 => 'field_appltype',
+    29 => 'field_component',
+    30 => 'field_tester',
+    31 => 'field_internal_group',
+    35 => 'field_directorate_or_division',
+    36 => 'field_dependencies',
+    40 => 'field_affects_external_stakehold',
+    41 => 'field_affects_directorate',
+    42 => 'field_affects_department',
+    43 => 'field_affects_branch',
+    49 => 'field_asr_number',
+    56 => 'field_estimated_cost',
+    57 => 'field_actual_cost',
+    39 => 'field_business_benefit',
+    33 => 'field_benefits_description',
+    44 => 'field_political_or_legal_require',
+    52 => 'field_total_rated_criteria',
+    45 => 'field_contractual_requirement',
+    53 => 'field_priorities_alignment',
+    54 => 'field_alignment_description',
+    81 => 'field_pci_batch',
+    83 => 'field_risk_category',
+    84 => 'field_no_of_affected_submissions',
+    59 => 'field_end_date',
+    63 => 'field_directorate',
+    68 => 'field_request_rationale',
+    60 => 'field_product_request_type',
+    62 => 'field_if_product_general_inquery',
+    69 => 'field_product_name',
+    72 => 'field_exempted_product',
+    61 => 'field_site_request_type',
+    66 => 'field_if_site_general_inquiry',
+    67 => 'field_if_gmp_request',
+    70 => 'field_ingredient_name',
+    71 => 'field_company_name',
+    73 => 'field_priority_category',
+    78 => 'field_final_class_decision',
+    79 => 'field_lotus_unique_id',
+    80 => 'field_target_release',
+    85 => 'field_entry_to_nhpid',
+    86 => 'field_consultation_completed',
+    87 => 'field_content_owner',
+    89 => 'field_document_version',
+    90 => 'field_consultation_required',
+    91 => 'field_rss_required',
+    92 => 'field_what_s_new_required',
+    93 => 'field_email_source',
+    94 => 'field_request_method',
+    95 => 'field_response_method',
+    99 => 'field_npn',
+    100 => 'field_cvp_issue_source',
+    101 => 'field_cr_sub_category',
+    103 => 'field_sau_sub_category',
+    104 => 'field_company_code',
+    105 => 'field_assigned_sme',
+    102 => 'field_language',
+	);
+	return $chili_custom_field_id_oa_field_name_mapping;
+}
+
+/***
+ *Conver text to redmine wiki title
+ *Translated from Wiki.titleize
+ *PeijunZhang
+ */
+
+function titleize($text){
+	$title = str_replace(' ', '_', $text);
+	//$unwanted_chars = preg_quote(',./?;|:');
+	$title = ucfirst(preg_replace('/[,;\.\?\|\:\/]/', '', $title));
+	return $title;
+}

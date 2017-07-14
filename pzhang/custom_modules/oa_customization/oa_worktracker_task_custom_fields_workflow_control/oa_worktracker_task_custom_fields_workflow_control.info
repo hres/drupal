@@ -1,0 +1,7 @@
+; $Id:  peijun zhang$
+name = OA Task custom fields and workflow control
+description = A modules for settings and controlling of task custom fields and workflow
+core = 7.x
+package = NHPD
+configure = admin/oa_worktracker_allowed_value_setting
+version = "7.x-1.0-dev"

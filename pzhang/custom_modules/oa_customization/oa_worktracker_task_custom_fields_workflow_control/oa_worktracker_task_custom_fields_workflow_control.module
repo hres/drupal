@@ -1,0 +1,521 @@
+<?php
+function oa_worktracker_task_custom_fields_workflow_control_init() {
+	//drupal_add_js("alert('Hoho.');", 'inline');
+	//drupal_add_js("document.getElementById('edit-field-oa-worktracker-task-type-und').change();", 'inline');
+}
+
+function oa_worktracker_task_custom_fields_workflow_control_permission() {
+    return array(
+    'administer task custom fields/workflow' => array(
+      'title' => t('Administer OA task custom fields/workflow control'),
+      'description' => t(''),
+      ),
+    );
+} 
+/* hook_og_permission*/
+function oa_worktracker_task_custom_fields_workflow_control_og_permission(){
+  $items = array();
+  return $items;
+}
+
+
+/**
+ *  hook theme
+ *
+*/
+
+
+function oa_worktracker_task_custom_fields_workflow_control_theme($existing, $type, $theme, $path) {
+  return array(
+    'oa_workflow_form' => array(
+      'render element' => 'element',
+      'file' => 'forms.inc',
+		),
+  );
+}
+function oa_worktracker_task_custom_fields_workflow_control_form(&$node, $form_state){
+	//drupal_set_message(nhpid_api_dump($node, 'blue', TRUE));
+	//drupal_set_message(nhpid_api_dump($form_state, 'blue', TRUE));
+}
+
+/***
+ *hook_form_alter
+ *
+ */
+
+
+function oa_worktracker_task_custom_fields_workflow_control_form_alter(&$form, &$form_state, $form_id) {
+	global $user;
+	
+	//drupal_set_message(nhpid_api_dump(form_process_container($form['field_oa_worktracker_task_status']['und'],$form_state), 'blue', TRUE));
+	switch($form_id){
+		
+		case 'comment_node_oa_worktracker_task_form':
+		case 'oa_worktracker_task_node_form':
+			//$lan = $form['#node'] -> language;
+			//drupal_set_message(nhpid_api_dump($form, 'blue', TRUE));
+			//drupal_set_message(nhpid_api_dump($form_state, 'blue', TRUE));
+			//drupal_set_message(nhpid_api_dump($form_state['node'], 'blue', TRUE));
+			if (isset($form['field_oa_worktracker_task_type']) && isset($form['field_oa_worktracker_task_status'])){
+			//$field_oa_worktracker_task_type = $form['field_oa_worktracker_task_type'][$lan];
+			//$field_oa_worktracker_task_status = $form['field_oa_worktracker_task_status'][$lan];
+			$ajax_setting = array(
+				'callback' => 'oa_worktracker_task_reset',
+				'wrapper' =>  'oa-worktracker-task-node-form',
+				'method' => 'replaceWith',
+				'effect' => 'none',
+				'event' => 'change',
+				'prevent' => 'change',
+			);
+			if (!isset($form['field_oa_worktracker_task_type']['#ajax'])){
+				$field_lancode = field_language('node', $form['#node'], 'field_oa_worktracker_task_type');
+				$form['field_oa_worktracker_task_type'][$field_lancode]['#ajax']= $ajax_setting;
+			}
+		}
+		//drupal_set_message(nhpid_api_dump($form_state, 'blue', TRUE));
+		// set visibility to custom fields
+		$field_lancode = field_language('node', $form['#node'], 	'field_oa_worktracker_task_type');
+		$field_lancode = $field_lancode ? $field_lancode : 'und';
+		$section_nid = !empty($_GET['oa_section_ref']) ? $_GET['oa_section_ref'] : oa_section_get_section_context();
+		$section_nid = $section_nid? $section_nid : $form['oa_section_ref'][$field_lancode]['#default_value'];
+		$section_nid = $section_nid? $section_nid : $form_state['values']['oa_section_ref'][$field_lancode][0]['target_id'];
+	
+		$task_type = $form['field_oa_worktracker_task_type'][$field_lancode]['#default_value'][0];
+		$task_type = $task_type ? $task_type : $form['field_oa_worktracker_task_type'][$field_lancode]['#value'];
+		$task_type = $task_type ? $task_type : $form_state['values']['field_oa_worktracker_task_type'][$field_lancode][0]['value'];
+		
+		//$task_type = null;
+		$visibilities = oa_worktracker_task_custom_fields_visibility($section_nid,$task_type);
+		//drupal_set_message(nhpid_api_dump($visibilities, 'blue', TRUE));
+		//drupal_set_message(nhpid_api_dump($section_nid, 'blue', TRUE));
+		//drupal_set_message(nhpid_api_dump($form['node'], 'blue', TRUE));
+		//drupal_set_message(nhpid_api_dump($task_type, 'blue', TRUE));
+		//drupal_set_message(nhpid_api_dump($form, 'blue', TRUE));
+		//drupal_set_message(nhpid_api_dump($form_state['node'], 'blue', TRUE));
+		$visible_custom_fields_section = array();
+		foreach($visibilities as $field_name => $visible){
+
+			//$form[$field_name]['#disabled'] = !$visible;
+			//$form[$field_name]['#access'] = $visible;
+			// if the field is not empty, show it anyway
+			if(field_get_items('node', $form['#node'], $field_name)){
+				$visible = TRUE;
+			}
+			$display = '';
+			if ($visible){
+				$display = 'block';
+				$visible_custom_fields_section[] = $field_name;
+			}
+			else{
+				$display = 'none';
+				//if ($form[$field_name]['und']['#required']==True){
+				//	$form[$field_name]['und']['#required'] = FALSE;
+				//}
+			}
+			$form[$field_name]['#attributes']['style'][] = "display:$display";
+			$form[$field_name]['#disabled'] = !$visible;
+			//$form[$field_name]['#disabled'] = FALSE;
+			//$form[$field_name]['#disabled'] = TRUE;
+			$form[$field_name]['#validated'] = !$visible;
+			/*
+			$form[$field_name]['und']['#required'] = FALSE;
+			$form[$field_name]['und'][0]['#required'] = FALSE;
+			$form[$field_name]['und'][0]['value']['#required'] = FALSE;
+			*/
+			//drupal_set_message(nhpid_api_dump($field_name, 'blue', TRUE));	
+			//drupal_set_message(nhpid_api_dump($form[$field_name], 'blue', TRUE));	
+		}
+		$form_state['visible_custom_fields_section'] = $visible_custom_fields_section;
+		
+		break;
+	}
+	
+}
+function oa_worktracker_task_custom_fields_workflow_control_form_after_build_callback(&$form, &$form_state){
+  //drupal_set_message(nhpid_api_dump($form, 'blue', TRUE));
+}
+
+/***
+ * hook_menu
+ */ 
+function oa_worktracker_task_custom_fields_workflow_control_menu() {
+
+  $items = array();
+
+  $root = 'admin/oa_worktracker_allowed_value_setting';
+
+  $items[$root] = array(
+    'title' => 'OA Worktracker Allowed Values Setting',
+    'description' => 'Settings of OA Worktracker allowed values',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('oa_task_status_form'),
+    'access arguments' => array('administer task custom fields/workflow'),
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'forms.inc',
+   );
+  $items[$root . '/oa_worktracker_task_status_setting'] = array(
+    'title' => 'Workflows',
+    'weight' => -2,
+    'access arguments' => array('administer task custom fields/workflow'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('oa_task_status_form'),
+    'file' => 'forms.inc',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  $items[$root . '/oa_worktracker_task_type_setting'] = array(
+    'title' => 'Task Type',
+    'weight' => -2,
+    'access arguments' => array('administer task custom fields/workflow'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('oa_task_type_form'),
+    'file' => 'forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/oa_worktracker_task_category_setting'] = array(
+    'title' => 'Task Category',
+		'weight' => -2,
+    'access arguments' => array('administer task custom fields/workflow'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('oa_task_category_form'),
+    'file' => 'forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items[$root . '/oa_worktracker_task_custom_fields_setting'] = array(
+    'title' => 'Task Custom Fields',
+    'weight' => -2,
+    'access arguments' => array('administer task custom fields/workflow'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('oa_task_custom_fields_form'),
+    'file' => 'forms.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  return $items;
+}
+function oa_worktracker_task_custom_fields_workflow_control_task_allowed_values_test($field, $field_instance, $entity_type, $entity, &$cachable){
+	$setting =  variable_get('oa_worktracker_allowed_values_task_category', array());
+	//drupal_set_message(nhpid_api_dump($field, 'purple', TRUE));
+	//drupal_set_message(nhpid_api_dump($entity, 'purple', TRUE));
+	//drupal_set_message(nhpid_api_dump($field_instance, 'purple', TRUE));
+	return $setting['options'];
+}
+// callback function for select field default value
+function oa_worktracker_task_custom_fields_workflow_control_task_default_value($entity_type, $entity, $field, $instance, $langcode){
+	$cachable = TRUE;
+	$options = oa_worktracker_task_custom_fields_workflow_control_task_allowed_values($field, $field_instance, $entity_type, $entity, $cachable);
+	$field_name = $field['field_name'];
+	$default_value = '';
+	switch ($field_name){
+		case 'field_oa_worktracker_task_type':
+		$value = array_shift(array_keys($options));
+		$default_value = array(0 => array('value' =>$value));
+		break;
+	}
+	$default = cck_default_value_php($entity_type, $entity, $field, $instance, $langcode);
+	return $default_value;
+}
+// callback function for select field allowed values
+function oa_worktracker_task_custom_fields_workflow_control_task_allowed_values($field, $field_instance, $entity_type, $entity, &$cachable){
+  //if (!$entity) return; // field setting form called.
+	//$current_space = oa_core_get_space_context();
+	//if (!$current_space) return array(); // No space has selected
+	$field_name = $field['field_name'];
+	$option_variable_name = 'oa_worktracker_allowed_values' . str_replace('field_oa_worktracker', '' , $field_name);
+	if ($field_name == 'field_issue_category'){
+		$option_variable_name = 'oa_worktracker_allowed_values_task_category';
+	}
+	$setting = variable_get($option_variable_name, array());
+	$all_options = $setting['options'];
+	if (!$entity) return $all_options; // field setting form called.
+	//$all_options = oa_worktracker_allowed_values_callback($field, $field_instance, $entity_type, $entity, $cachable);
+	//drupal_set_message(nhpid_api_dump( $field_name, 'purple', TRUE));
+	//drupal_set_message(nhpid_api_dump( $all_options, 'purple', TRUE));
+	//drupal_set_message(nhpid_api_dump( variable_get('oa_worktracker_allowed_values_task_category', ''), 'purple', TRUE));
+	$varialbe_name = '';
+	$options = array();
+	$current_space = oa_core_get_space_context();
+	switch ($field_name){
+		case 'field_oa_worktracker_task_status':
+		//drupal_set_message(nhpid_api_dump($all_options, 'purple', TRUE));
+		if (!$entity) return $all_options; // some callers do not give arg $entity
+		global $user;
+		$variable_name = 'nhpd_oa_task_status_allowed_values_setting';
+		$setting = variable_get($variable_name, array());
+		$task_statuses = variable_get_value('oa_worktracker_allowed_values_task_status');
+		$entity_wrapper =entity_metadata_wrapper('node', $entity);
+		$task_type = $entity_wrapper -> field_oa_worktracker_task_type -> value();
+		$author = $entity_wrapper -> author -> value();
+		$assignee = $entity_wrapper -> field_oa_worktracker_assigned_to -> value();
+		$current_status = $entity_wrapper -> field_oa_worktracker_task_status -> value();
+		
+		if($current_space){
+			$user_og_roles = og_get_user_roles('node', $current_space, $user -> uid);
+		}
+		else{
+			$user_og_roles =array();
+		}
+		
+		$allowed_statuses = array();
+		// If the node is new, return default status
+		//drupal_set_message(nhpid_api_dump($assignee, 'purple', TRUE));
+		//drupal_set_message(nhpid_api_dump($user, 'purple', TRUE));
+		$stop = FALSE;
+		if ((isset($entity->is_new) && $entity->is_new ) || !isset($entity->nid) || empty($entity->nid)){
+			$allowed_statuses[] = $task_statuses['default_value'];
+			$stop = TRUE;
+		}
+		// If dynamic task status setting is not set, return all options
+		if (!isset($setting[$task_type]) || empty($setting[$task_type])){
+			$allowed_statuses = array_keys($all_options);
+			$stop = TRUE;
+		}
+		if (!$stop){
+			
+			foreach($user_og_roles as $rid => $role){
+				$workflow_setting =isset($setting[$task_type][$rid]['all_options'])? $setting[$task_type][$rid]['all_options'] : array();
+				//drupal_set_message(nhpid_api_dump( $workflow_setting, 'purple', TRUE));
+				if (!empty($workflow_setting)){
+					$general_setting = $workflow_setting['general_setting'];
+					if (isset($general_setting[$current_status])){
+						foreach($general_setting[$current_status] as $status => $allowed){
+							if ($allowed){
+								$allowed_statuses[] = $status;
+							}
+						}
+					}
+					if ($user -> uid == $author -> uid && isset($workflow_setting['author_setting'][$current_status])){
+						$author_setting = $workflow_setting['author_setting'];
+						foreach($author_setting[$current_status] as $status => $allowed){
+							if ($allowed){
+								$allowed_statuses[] = $status;
+							}
+						}
+					}
+					if (($assignee) && $user -> uid == $assignee -> uid && isset($workflow_setting['assignee_setting'][$current_status])){
+						$assignee_setting = $workflow_setting['assignee_setting'];
+						foreach($assignee_setting[$current_status] as $status => $allowed){
+							if ($allowed){
+								$allowed_statuses[] = $status;
+							}
+						}
+					}
+				}
+			}
+		}
+		  
+		// If no options, set it to all options
+		if (empty($allowed_statuses)){
+			$allowed_statuses = array_keys($all_options);
+			// add current status to the  options if it is not in the options
+			if ($current_status) $allowed_statuses[] = $current_status;
+		}
+		$allowed_statuses = array_unique($allowed_statuses);
+		//drupal_set_message(nhpid_api_dump( $allowed_statuses , 'purple', TRUE));
+		//drupal_set_message(nhpid_api_dump( $task_statuses , 'purple', TRUE));
+		foreach($allowed_statuses as $allowed_status){
+			$options[$allowed_status] = $task_statuses['options'][$allowed_status];
+		}
+		//add previous value of the entity
+		$entity_wrapper = entity_metadata_wrapper('node', $entity);
+		$previous_status = $entity_wrapper -> $field_name -> raw();
+		if ($previous_status){
+			//$options[$previous_status] = $task_statuses['options'][$previous_status] . t('(previous value)');
+			$options[$previous_status] = $task_statuses['options'][$previous_status];
+		}
+		break;
+    case 'field_oa_worktracker_task_type':
+    case 'field_issue_category':
+
+		if ($field_name == 'field_oa_worktracker_task_type') $variable_name = 'nhpd_oa_task_type_allowed_values_setting';
+		if ($field_name == 'field_issue_category')$variable_name = 'nhpd_oa_task_category_allowed_values_setting';
+		$field_lancode = field_language('node', $entity, 'oa_section_ref');
+		//drupal_set_message(nhpid_api_dump(field_language('node', $entity, 'body'), 'purple', TRUE));
+		$section_nid =($entity && property_exists($entity, 'oa_section_ref')) ? $entity -> oa_section_ref[$field_lancode][0]['target_id'] : oa_core_get_section_context();
+		// If adding a task under space, oa_core_get_section_context() returns null;
+		$section_nid = $section_nid ? $section_nid : $_GET['oa_section_ref'];
+		$setting = variable_get($variable_name, array());
+		/*
+		if(!$setting && $field_name!='field_issue_category'){
+			return $all_options;
+		}
+		*/
+		//$all_options = $setting['all_options'];
+		$options = isset($setting['setting'][$current_space][$section_nid])? $setting['setting'][$current_space][$section_nid] : array();
+
+		foreach($options as $item){
+			$options[$item]=$all_options[$item];
+		}
+		$options = array_intersect_key($all_options, $options);
+		break;
+	}
+	
+  if (empty($options) && $field_name!='field_issue_category') $options = $all_options;
+	
+	return $options;
+}
+function oa_worktracker_task_reset(&$form, $form_state){
+	$element = $form_state['triggering_element'];
+	//ddl($element, 'element');
+	$wrapper = $element['#ajax']['wrapper'];
+	$form['#id'] = $wrapper;
+	$commands = array();
+	$commands = oa_worktracker_task_custom_fields_visibility_reset($form, $form_state);
+	$commands = array_merge($commands, oa_worktracker_task_status_reset($form, $form_state));
+	//$wrapper = $form['#id'];
+	//$form['#processed'] = false;
+	//ddl($form_state, 'form_state_oa_worktracker_task_reset');
+	//ddl ($commands, '$commands');
+	//$commands[] = ajax_command_replace('#' . $wrapper, drupal_render($form));
+	
+	return array('#type' => 'ajax', '#commands' => $commands);
+}
+
+function oa_worktracker_task_status_reset(&$form, $form_state){
+ 	$element = $form_state['triggering_element'];
+	//$lan = $form['#node'] -> language;
+	if (isset($form['field_oa_worktracker_task_type']) && isset($form['field_oa_worktracker_task_status'])){
+		//$new_task_type_value = $form['field_oa_worktracker_task_type']['und']['#value'];
+		$entity = $form['#node'];
+		$entity -> {'field_oa_worktracker_task_type'}=$form_state['values']['field_oa_worktracker_task_type'];
+		$entity -> {'oa_section_ref'}=$form_state['values']['oa_section_ref'];
+		$field = field_info_field('field_oa_worktracker_task_status');
+		$field_instance = field_info_instance('node', 'field_oa_worktracker_task_status', $form['#node'] -> type);
+		$entity_type = 'node';
+		$cachable = True;
+		$options = oa_worktracker_task_custom_fields_workflow_control_task_allowed_values($field, $field_instance, $entity_type, $entity, $cachable);
+		//ddl($options, "options");
+		$field_lancode = field_language('node', $form['#node'], 'field_oa_worktracker_task_status');
+		$form['field_oa_worktracker_task_status'][$field_lancode]['#options'] = $options;
+		//return $form['field_oa_worktracker_task_status'];
+		$commands = array();
+		$wrapper = $form_state['complete form']['field_oa_worktracker_task_status']['#id'];
+		$pattern = '/--(\d)$/';
+		$replace = '';
+		$wrapper = preg_replace ($pattern, $replace , $wrapper);
+		//$wrapper ='#' . $wrapper;
+		//ddl($wrapper, 'wrapper');
+		$form['field_oa_worktracker_task_status']['#id'] = $wrapper;
+		$form['field_oa_worktracker_task_status']['#printed'] = FALSE;
+		$html = drupal_render($form['field_oa_worktracker_task_status']);
+		$commands[] = ajax_command_replace('#' . $wrapper, $html);
+		//ddl($entity -> {'field_oa_worktracker_task_type'}, 'task_type');
+		//ddl($html, "field_oa_worktracker_task_status:html");
+		//ddl(($form[field_oa_worktracker_task_status]), "field_oa_worktracker_task_status");
+    return $commands;
+	}
+	//return array();
+}
+function oa_worktracker_task_custom_fields_visibility_reset(&$form, $form_state){
+	//$lan = $form['#node'] -> language;
+	$field_lancode = field_language('node', $form['#node'], 'oa_section_ref');
+	$section_nid = !empty($_GET['oa_section_ref']) ? $_GET['oa_section_ref'] : oa_section_get_section_context();
+	$section_nid = $section_nid? $section_nid : $form['oa_section_ref'][$field_lancode]['#value'];
+	$section_nid = $section_nid? $section_nid : $_SESSION['section_nid'];
+	$field_lancode = field_language('node', $form['#node'], 'field_oa_worktracker_task_type');
+	$new_task_type_value = $form['field_oa_worktracker_task_type'][$field_lancode]['#value'];
+	$visibilities = oa_worktracker_task_custom_fields_visibility($section_nid, $new_task_type_value);
+	$commands = array();
+	$visible_custom_fields_section =  oa_worktracker_task_custom_fields_visibility($section_nid);
+	//$visible_custom_fields_section = $form_state['visible_custom_fields_section'];// visible fields for the section, set in oa_worktracker_task_custom_fields_workflow_control_form_alter
+	//reset field visibility based on setting of section id and task type
+	foreach($visibilities as $field_name =>$visible){
+		//$visible = FALSE;
+		$wrapper = $form_state['complete form'][$field_name]['#id'];
+		$pattern = '/--(\d)$/';
+		$replace = '';
+		$wrapper = preg_replace ($pattern, $replace , $wrapper);
+		$display = '';
+		if ($visible){
+			$display = 'block';
+		}
+		else{
+			$display = 'none';
+		}
+	
+		
+		//$function = 'ajax_command_insert';
+		$form[$field_name]['#access'] = $visible;
+		//$form[$field_name]['#printed'] = FALSE;
+		//$form[$field_name]['#disabled'] = !$visible;
+		$form[$field_name]['#disabled'] = FALSE;
+		$form[$field_name]['#id'] = $wrapper;
+		$html = drupal_render($form[$field_name]);
+		$commands[] = ajax_command_replace('#' . $wrapper, $html);
+		$commands[] = ajax_command_css('#' . $wrapper, array('display' => $display));
+		if($visible){
+			//ddl($html, "$field_name:html");
+			//ddl($visible, $field_name);
+			//ddl(($form[$field_name]), $field_name);
+		}
+	}
+	/*foreach($visible_custom_fields_section as $field_name =>$visible){
+		if(!$visible){
+			$form[$field_name]['und']['#required'] = FALSE;
+			continue;
+		}
+		$visible = $visibilities[$field_name];
+		// if the field is not empty, show it anyway
+		if(field_get_items('node', $form['#node'], $field_name)){
+			$visible = TRUE;
+		}
+		$wrapper = $form_state['complete form'][$field_name]['#id'];
+		$pattern = '/--(\d)$/';
+		$replace = '';
+		$wrapper = preg_replace ($pattern, $replace , $wrapper);
+		$display = '';
+		if ($visible){
+			$display = 'block';
+		}
+		else{
+			$display = 'none';
+			if ($form[$field_name]['und']['#required']==True){
+				$form[$field_name]['und']['#required'] = FALSE;
+			}
+		}
+		//ddl(($form[$field_name]), $field_name);
+		//$function = 'ajax_command_insert';
+		//$form[$field_name]['#access'] = $visible;
+		$form[$field_name]['#printed'] = FALSE;
+		//$form[$field_name]['#disabled'] = $visible;
+		$form[$field_name]['#id'] = $wrapper;
+		$html = drupal_render($form[$field_name]);
+		$commands[] = ajax_command_replace('#' . $wrapper, $html);
+		$commands[] = ajax_command_css('#' . $wrapper, array('display' => $display));
+		if($visible){
+			//ddl($html, "$field_name:html");
+			//ddl(($form[$field_name]), $field_name);
+		}
+	}
+	*/
+	//$commands[] = ajax_command_replace('#' . $form['#id'], drupal_render($form));
+	//ddl($section_nid, 'section_nid');
+	//ddl($new_task_type_value, 'new_task_type_value');
+	//ddl($commands, 'commands_field_visibility');
+	//ddl($visibilities, 'visibilities');
+	//ddl($form_state, 'form_state');
+	//ddl($form, 'form');
+	return  $commands;
+
+}
+
+function oa_worktracker_task_custom_fields_visibility($section_nid, $task_type = null){
+	$setting = variable_get('nhpd_oa_task_custom_fields_allowed_values_setting', array());
+	$all_custom_fields = isset($setting['all_custom_fields']) ?   $setting['all_custom_fields'] : array();
+	$visible_custom_fields_sections = isset($setting['sections'][$section_nid])? $setting['sections'][$section_nid] : array();
+	//drupal_set_message(nhpid_api_dump( $task_type, 'purple', TRUE));
+	//drupal_set_message(nhpid_api_dump( $section_nid, 'purple', TRUE));
+	$visible_custom_fields_task_types = isset($setting['task_types'][$task_type])? $setting['task_types'][$task_type] : array();
+	$visibilities = array();
+	foreach($all_custom_fields as $custom_field){
+		$visibilities[$custom_field] = FALSE;
+		if (in_array($custom_field, $visible_custom_fields_sections)){
+			$visibilities[$custom_field] = TRUE;
+			if (!empty($visible_custom_fields_task_types) && !in_array($custom_field, $visible_custom_fields_task_types)){
+				$visibilities[$custom_field] = FALSE;
+			}
+		}
+	}
+	arsort($visibilities,SORT_NUMERIC);
+	//drupal_set_message(nhpid_api_dump($visibilities, 'purple', TRUE));
+	return $visibilities;
+}
+

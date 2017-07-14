@@ -1,0 +1,9 @@
+; $Id: overdue_task_notification.info Peijun Zhang$
+name = Overdue Task Notification
+description = A modules to handle notification of overdue tasks.
+core = 7.x
+package = NHPD
+dependencies[] = panels
+dependencies[] = oa_notifications
+version = "7.x-1.0-dev"
+

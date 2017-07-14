@@ -1,0 +1,561 @@
+<?php
+/*
+function nhpid_tips_and_tricks_user($op, &$edit, &$account, $category = NULL){
+	drupal_set_message($op);
+	switch($op){
+		case 'load':
+    global $user;
+    $selection_method = variable_get('nhpid_tips_and_tricks_selection_method', '');
+    switch ($selection_method){
+      case 'off':
+				break;
+			case 'announcement':
+        //nhpid_tips_and_tricks_view_popup_tip();
+				break;
+			default:
+        if ($user-> name and $user-> login >= $user -> timestamp) {
+					nhpid_tips_and_tricks_view_popup_tip();
+				}
+		}
+		break;
+	}
+}
+*/
+
+function nhpid_tips_and_tricks_init(){
+   
+	global $user;
+  //drupal_set_message(nhpid_api_dump('testing', 'red', TRUE));
+  //drupal_set_message(nhpid_api_dump($user, 'red', TRUE));
+  $selection_method = variable_get('nhpid_tips_and_tricks_selection_method', '');
+  switch ($selection_method){
+    case 'off':
+			break;
+		case 'announcement':
+      nhpid_tips_and_tricks_view_popup_tip();
+			break;
+		default:
+      if ($user-> name and $user-> login >= $user -> timestamp) {
+				nhpid_tips_and_tricks_view_popup_tip();
+			}
+	}
+}
+///// Supporting functions ////
+
+function nhpid_tips_and_tricks_permission() {
+    return array(
+    'access nhpid tips and tricks' => array(
+      'title' => t('Access to NHPID Tips and Tricks'),
+      'description' => t(''),
+      ),
+    'administer nhpid tips and tricks' => array(
+      'title' => t('Administer NHPID Tips and Tricks'),
+      'description' => t(''),
+      ),
+      );
+} // function nhpid_perm()
+/**
+ * Implement hook_menu().
+ *
+ * Set up a page with an e-mail contact form on it.
+ */
+function nhpid_tips_and_tricks_menu() {
+$root = 'nhpid_tips_and_tricks';
+	$items[$root] = array(
+    'title' => 'Tips and Tricks',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_tips_and_tricks_list_form'),
+    'access arguments' => array('access nhpid tips and tricks'),
+    'description' => 'NHPID DMS Tips and Tricks',
+    'menu_name' => 'navigation',
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items[$root . '/list'] = array(
+    'title' => 'List',
+    'weight' => -11,
+    'access arguments' => array('access nhpid tips and tricks'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_tips_and_tricks_list_form'),
+    //'file' => 'workflow.admin.inc',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+	/*
+  $items[$root . '/view_popup'] = array(
+    //'title' => 'NHPID DMS Tips and Tricks',
+    //'weight' => -10,
+    'access arguments' => array('access nhpid tips and tricks'),
+    'page callback' => 'nhpid_tips_and_tricks_view_popup',
+    //'page arguments' => array('nhpid_tips_and_tricks_view_form',3),
+    //'type' => MENU_LOCAL_TASK,
+    );
+	*/
+  $items[$root . '/view_popup'] = array(
+    'title' => 'Detail',
+    'weight' => -10,
+    'access arguments' => array('access nhpid tips and tricks'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_tips_and_tricks_view_form'),
+    'type' => MENU_LOCAL_TASK,
+    );
+
+  $items[$root . '/admin'] = array(
+    'title' => 'Administer',
+    'weight' => -10,
+    'access arguments' => array('administer nhpid tips and tricks'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_tips_and_tricks_admin_form'),
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  $items[$root . '/user_settings'] = array(
+    'title' => 'Settings',
+    'weight' => -10,
+    'access arguments' => array('access nhpid tips and tricks'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpid_tips_and_tricks_user_settings_form'),
+    'type' => MENU_LOCAL_TASK,
+  );
+  return $items;
+}
+
+/**
+ *
+ */
+function nhpid_tips_and_tricks_list_form($form, &$form_state=NULL) {
+  global $user;
+  $node_type = variable_get('nhpid_tips_and_tricks_node_type', '');
+  $title_field = variable_get('nhpid_tips_and_tricks_title_field', 'title');
+  $content_field = variable_get('nhpid_tips_and_tricks_content_field', 'body');
+	//$sql = "select nid from node where type = '$node_type'";
+	//$sql_count ="select count(1) from node where type = '$node_type'";
+  //drupal_set_message(nhpid_api_dump($sql, 'red', TRUE));
+  //drupal_set_message(nhpid_api_dump($sql_count, 'red', TRUE));
+  $lines_per_page = 20;
+  //$rs = pager_query($sql, $lines_per_page, 0, $sql_count);
+	$query = db_select('node', 'n')->fields('n', array('nid'))->condition('type', $node_type, '=');
+	$query = $query -> extend('PagerDefault');
+	$query -> limit($lines_per_page);
+  //drupal_set_message(nhpid_api_dump($query, 'red', TRUE));
+  $rs = $query-> execute();
+  //drupal_set_message(nhpid_api_dump((string)$query, 'red', TRUE));
+	$rows = array();
+  while ($record = $rs->fetchObject()) {
+		$nid = $record -> nid;
+		$node = node_load(array('nid' => $nid));
+		$title = '';
+		if ($title_field == 'title'){
+      $title = $node ->$title_field;
+		}
+		else {
+      $title = $node ->{$title_field}[0][value];
+		}
+		$content = $node ->{$content_field}[$node->language][0]['value'];
+
+		$content = snippetwop(drupal_html_to_text($content), 50);
+    $path = 'nhpid_tips_and_tricks/view_popup/' . $nid;
+    $expand = l('<span>' .t('Expand') .'</span>', $path, array('attributes' => array('title' =>'Expand', 'class' => 'button', 'target' => '_blank'),'html' => true));
+		$edit = '';
+		if (user_access('administer nhpid tips and tricks')){
+      $path = 'node/' . $nid . '/edit';
+    	$edit = l('<span>' .t('Edit') .'</span>', $path, array('attributes' => array('title' =>'Edit', 'class' => 'button', 'target' => '_blank'),'html' => true));
+		}
+		$rows[] = array(
+      'nid' => $nid,
+	    'title' => $title,
+	    'content' => $content,
+	    'op' => $expand . ' ' . $edit,
+		);
+		
+	}
+  $header = array(
+    'nid' => array('data' => t('ID'), 'field' => 'nid', 'sort' => 'asc'),
+    'title' => array('data' => t('Title'), ),
+    'content' => array('data' => t('Content'), ),
+    'op' => array('data' => t('Operation'), ),
+		);
+  //drupal_set_message(nhpid_api_dump($rows, 'red', TRUE));
+  $output = "<h4> Tips and Tricks </h4>";
+	$output = $output . theme('table', array('header' =>$header, 'rows' => $rows));
+  $form['list'] = array(
+            '#type' => 'item',
+            '#markup' => $output,
+           );
+
+  return $form;
+}
+
+
+/**
+ *
+ */
+function nhpid_tips_and_tricks_admin_form($form, &$form_state) {
+  global $user;
+	$node_type = variable_get('nhpid_tips_and_tricks_node_type', 'nhpid_tips_and_tricks');
+	$node_type = in_array($node_type,  array_keys(node_type_get_names()))? $node_type : NULL;
+	$form['nhpid_tips_and_tricks_node_type'] = array(
+    '#type' => 'textfield',
+    '#title' => "Tips and tricks node type",
+    '#default_value' => $node_type,
+    '#required' => true,
+    '#maxlength' => 100,
+    '#size' => 40,
+  );
+  $default = variable_get('nhpid_tips_and_tricks_title_field', 'title');
+  $form['nhpid_tips_and_tricks_title_field'] = array(
+    '#type' => 'textfield',
+    '#title' => "Tips and tricks title field name",
+    '#default_value' => $default,
+    '#required' => true,
+    '#maxlength' => 100,
+    '#size' => 40,
+  );
+
+  $default = variable_get('nhpid_tips_and_tricks_content_field', 'body');
+  $form['nhpid_tips_and_tricks_content_field'] = array(
+    '#type' => 'textfield',
+    '#title' => "Tips and tricks content field name",
+    '#default_value' => $default,
+    '#required' => true,
+    '#maxlength' => 100,
+    '#size' => 40,
+  );
+
+  $default = variable_get('nhpid_tips_and_tricks_selection_method', 'balancedly_randomly');
+  $form['nhpid_tips_and_tricks_selection_method'] = array(
+    '#type' => 'select',
+    '#title' => "How tips and tricks is selected ",
+    '#default_value' => $default,
+    '#required' => true,
+    '#options' => array('randomly' => 'Randomly', 'latest_only' => 'Latest only', 'balancedly_randomly' =>"Banlancedly randomly", 'announcement' => 'Annoncement', 'off' =>'Off' ),
+
+  );
+  $default = variable_get('nhpid_tips_and_tricks_popup_width', 600);
+  $form['nhpid_tips_and_tricks_popup_width'] = array(
+    '#type' => 'textfield',
+    '#title' => "Popup window width",
+    '#default_value' => $default,
+    '#required' => true,
+    '#maxlength' => 100,
+    '#size' => 40,
+  );
+  $default = variable_get('nhpid_tips_and_tricks_popup_height', 600);
+  $form['nhpid_tips_and_tricks_popup_height'] = array(
+    '#type' => 'textfield',
+    '#title' => "Popup window height",
+    '#default_value' => $default,
+    '#required' => true,
+    '#maxlength' => 100,
+    '#size' => 40,
+  );
+
+
+	$default = reset(variable_get('nhpid_tips_and_tricks_announcement', array()));
+	$filter_formats = filter_formats();
+	//$filter_format = null;
+	$filter_format = $default['format'] ? $default['format'] : NULL;
+	//if ($filter_format_index) $filter_format = $filter_formats[$filter_format_index];
+
+  if (!$filter_format){
+		foreach($filter_formats as $format){
+			if ($format -> name == 'Full HTML' AND filter_access($format)){
+	      $filter_format = $format->format;
+			}
+			else if($format -> name == 'Filtered HTML' AND filter_access($format)){
+	      $filter_format = $format->format;
+			}
+			if ($filter_format) break;
+		}
+	}
+  //drupal_set_message(nhpid_api_dump($filter_format, 'red', TRUE));
+	$form['nhpid_tips_and_tricks_announcement'] = array(
+    '#type' => 'text_format',
+    '#base_type' => 'textarea',
+    '#title' => "Announcement",
+    '#default_value' => $default['value'],
+    '#required' => false,
+		'#cols' => 100,
+		'#rows' => 10,
+		'#format' =>$filter_format? $filter_format:filter_default_format() ,
+    //'#format' =>'full_html',
+
+  );
+	
+  $form['desc']=array(
+    '#type' => 'item',
+    '#markup' => 'Save first then test.',
+	);
+	$form['nhpid_tips_and_tricks_save_settings'] = array(
+      '#type' => 'submit',
+      '#value' => 'Save settings',
+  );
+  $form['nhpid_tips_and_tricks_test'] = array(
+      '#type' => 'submit',
+      '#value' => 'Test',
+  );
+	if ($node_type){
+
+		$path = "node/add/" . str_replace('_', '-', $node_type);
+  	$link = l('<span>' .t('Add new tips&tricks') .'</span>', $path, array('attributes' => array('title' =>'Add new', 'class' => 'button', 'target' => '_blank'),'html' => true));
+    $form['nhpid_tips_and_tricks_create_new'] = array(
+	      '#type' => 'item',
+	      '#markup' => $link,
+	  );
+	}
+	
+  return $form;
+}
+
+/**
+ *
+ */
+function nhpid_tips_and_tricks_admin_form_validate($form, &$form_state) {
+//drupal_set_message(nhpid_api_dump($form_state['triggering_element'], 'red', TRUE));
+	switch ($form_state['triggering_element']['#id']) {
+		case 'edit-nhpid-tips-and-tricks-save-settings':
+    case 'edit-nhpid-tips-and-tricks-test':
+    //drupal_set_message(nhpid_api_dump($form_state['values'], 'red', TRUE));
+		$selection_method = $form_state['values']['nhpid_tips_and_tricks_selection_method'];
+	  $announcement = drupal_html_to_text($form_state['values']['nhpid_tips_and_tricks_announcement']['value']);
+    //$announcement = $form_state['values']['nhpid_tips_and_tricks_announcement']['value'];
+		if ($selection_method == 'announcement' and !$announcement ){
+			form_set_error('nhpid_tips_and_tricks_announcement', "When the selection method is annoucement, announcement textbox have to be filled. ");
+		}
+		break;
+	}
+}
+
+/**
+ *
+ */
+function nhpid_tips_and_tricks_admin_form_submit($form, &$form_state) {
+  
+  switch ($form_state['triggering_element']['#id']) {
+    case 'edit-nhpid-tips-and-tricks-test':
+    nhpid_tips_and_tricks_view_popup_tip();
+		break;
+		case 'edit-nhpid-tips-and-tricks-save-settings':
+    //drupal_set_message(nhpid_api_dump($form_state['values'], 'red', TRUE));
+		$node_type = $form_state['values']['nhpid_tips_and_tricks_node_type'];
+		variable_set('nhpid_tips_and_tricks_node_type', $node_type);
+    $title_field = $form_state['values']['nhpid_tips_and_tricks_title_field'];
+		variable_set('nhpid_tips_and_tricks_title_field', $title_field);
+    $content_field = $form_state['values']['nhpid_tips_and_tricks_content_field'];
+		variable_set('nhpid_tips_and_tricks_content_field', $content_field);
+    $width = $form_state['values']['nhpid_tips_and_tricks_popup_width'];
+		variable_set('nhpid_tips_and_tricks_popup_width', $width);
+    $height = $form_state['values']['nhpid_tips_and_tricks_popup_height'];
+		variable_set('nhpid_tips_and_tricks_popup_height', $height);
+    $selection_method = $form_state['values']['nhpid_tips_and_tricks_selection_method'];
+		variable_set('nhpid_tips_and_tricks_selection_method', $selection_method);
+    $announcement = $form_state['values']['nhpid_tips_and_tricks_announcement'];
+		variable_set('nhpid_tips_and_tricks_announcement', array(time() => $announcement));
+    drupal_set_message('The settings have been modified successfully.');
+		break;
+
+		case 'edit-nhpid-tips-and-tricks-create-new':
+    $node_type = variable_get('nhpid_tips_and_tricks_node_type', '');
+    $node_type = str_replace('_', '-', $node_type);
+    $form_state['redirect']="node/add/$node_type";
+		break;
+	}
+  
+  $form_state['storage']['values'] = $form_state['values'];
+	$form_state['rebuild'] = TRUE;
+}
+
+function nhpid_tips_and_tricks_user_settings_form($form, &$form_state=NULL) {
+  global $user;
+ 	$default = $user ->data['nhpid_tips_and_tricks_user_show_tips_and_tricks'];
+  $form['nhpid_tips_and_tricks_user_show_tips_and_tricks'] = array(
+    '#type' => 'checkbox',
+    '#title' => "Show Tips and tricks",
+    '#default_value' => isset($default) ? $default : true,
+  );
+  $default = $user ->data['nhpid_tips_and_tricks_user_announcement_show_times'];
+	if (is_null($default)) $default = true;
+  $form['nhpid_tips_and_tricks_user_announcement_show_times'] = array(
+    '#type' => 'select',
+    '#title' => "How many times will announcement be showed",
+    '#default_value' => $default,
+		'#options' => array(1=>1, 2=>2, 3=>3, 5=>5, 1=>10, 50=>50),
+    '#required' => true,
+  );
+  $form['nhpid_tips_and_tricks_settings_save'] = array(
+      '#type' => 'submit',
+      '#value' => 'Save',
+  );
+	return $form;
+}
+function nhpid_tips_and_tricks_user_settings_form_submit($form, &$form_state) {
+  global $user;
+	$show_tips = $form_state['values']['nhpid_tips_and_tricks_user_show_tips_and_tricks'];
+  $announcement_show_times = $form_state['values']['nhpid_tips_and_tricks_user_announcement_show_times'];
+	$user = user_save($user, array('data'=>array('nhpid_tips_and_tricks_user_show_tips_and_tricks' => $show_tips, 'nhpid_tips_and_tricks_user_announcement_show_times' => $announcement_show_times)));
+	if ($user){
+		drupal_set_message('Your settings have been modified successfully.');
+	}
+	else{
+    drupal_set_message('Your settings have not been modified successfully.', 'warning');
+	}
+	$form_state['storage']['values'] = $form_state['values'];
+	$form_state['rebuild'] = TRUE;
+}
+function nhpid_tips_and_tricks_view_form($form, &$form_state, $nid){
+  //drupal_set_message(nhpid_api_dump($nid, 'red', TRUE));
+	$node_type = variable_get('nhpid_tips_and_tricks_node_type', '');
+  $title_field = variable_get('nhpid_tips_and_tricks_title_field', 'title');
+  $content_field = variable_get('nhpid_tips_and_tricks_content_field', 'body');
+  $node = node_load(array('nid' => $nid));
+	$title = '';
+	if ($title_field == 'title'){
+    $title = $node ->$title_field;
+	}
+	else {
+    $title = $node ->{$title_field}[0][value];
+	}
+	$content = $node ->{$content_field}[$node->language][0]['value'];
+	drupal_set_title("Tips and Tricks");
+	$form['tips_and_tricks']= array(
+    '#type' => 'item',
+    '#title' => t($title),
+    '#markup' => $content,
+	);
+	return $form;
+}
+
+function nhpid_tips_and_tricks_view_popup($nid){
+  $node_type = variable_get('nhpid_tips_and_tricks_node_type', '');
+  $title_field = variable_get('nhpid_tips_and_tricks_title_field', 'title');
+  $content_field = variable_get('nhpid_tips_and_tricks_content_field', 'body');
+  $node = node_load(array('nid' => $nid));
+	$title = '';
+	if ($title_field == 'title'){
+    $title = $node ->$title_field;
+	}
+	else {
+    $title = $node ->{$title_field}[0][value];
+	}
+	$content = $node ->{$content_field}[$node->language][0]['value'];
+	$content = "<h5>$title</h5>" . $content;
+  $path = 'nhpid_tips_and_tricks/list/';
+  //$link = l('<span>' .t('More Tips') .'</span>', $path, array('attributes' => array('title' =>'More', 'class' => 'button', 'target' => '_blank'),'html' => true));
+	$link = l(t('More Tips'), $path, array('attributes' => array('target' => '_blank'),'html' => true));
+
+	$content = $content . "<br>$link";
+	//drupal_set_message(nhpid_api_dump($content, 'blue', TRUE));
+  nhpid_show_popup_message($content, "Tip of the day");
+}
+function nhpid_tips_and_tricks_view_popup_tip(){
+	
+	global $user;
+	$node_type = variable_get('nhpid_tips_and_tricks_node_type', '');
+  $selection_method = variable_get('nhpid_tips_and_tricks_selection_method', 'balancedly_randomly');
+	$nid = null;
+  //drupal_set_message(nhpid_api_dump($selection_method, 'red', TRUE));
+  $annoucement_show_times = $user ->data['nhpid_tips_and_tricks_user_announcement_show_times'];
+	if (!$annoucement_show_times) $annoucement_show_times = 2;
+  $show_tips = $user ->data['nhpid_tips_and_tricks_user_show_tips_and_tricks'];
+  //drupal_set_message(nhpid_api_dump($show_tips, 'red', TRUE));
+	if (!isset($show_tips)) $show_tips = true;
+	
+	switch ($selection_method){
+		case 'randomly':
+			if ($show_tips) $nid = nhpid_tips_and_tricks_view_popup_random_nid();
+      //drupal_set_message(nhpid_api_dump($nid, 'red', TRUE));
+			break;
+		
+		case 'latest_only':
+	    if ($show_tips) $nid = nhpid_tips_and_tricks_view_popup_random_nid(true);
+			break;
+		case 'balancedly_randomly':
+	    if ($show_tips) $nid = nhpid_tips_and_tricks_get_least_presented_nid();
+			break;
+		case 'announcement':
+			$announcement = variable_get('nhpid_tips_and_tricks_announcement', array());
+			$content = reset($announcement);
+      $content = $content['value'];
+			$key = key($announcement);
+			$title = 'Announcement';
+      if (!isset($_SESSION['nhpid_tips_and_tricks_user_announcement_show_count_' . $key])) $_SESSION['nhpid_tips_and_tricks_user_announcement_show_count_' . $key] = 0;
+      if ($annoucement_show_times >= $_SESSION['nhpid_tips_and_tricks_user_announcement_show_count_' . $key]){
+	    	nhpid_show_popup_message($content, $title);
+        $_SESSION['nhpid_tips_and_tricks_user_announcement_show_count_' . $key] ++;
+			}
+			return;
+			break;
+    case 'off':
+			//drupal_set_message('Tips and Tricks is off currently.');
+			return;
+			break;
+		default:
+    if ($show_tips) $nid = nhpid_tips_and_tricks_get_lest_presented_nid();
+	}
+  //return;
+  //drupal_set_message(nhpid_api_dump($nid, 'red', TRUE));
+  if ($show_tips and $nid) nhpid_tips_and_tricks_view_popup($nid);
+	//return $random_nid;
+}
+
+function nhpid_tips_and_tricks_view_popup_random_nid($newest=false){
+  $node_type = variable_get('nhpid_tips_and_tricks_node_type', '');
+  $random_nid = nhpid_get_type_random_nid($node_type, $newest);
+	return $random_nid;
+}
+function nhpid_get_type_random_nid($node_type, $newest=false){
+  $sql = '';
+	$random_nid = '';
+	if ($newest){
+		$sql = "select max(nid) from node where type = '$node_type'";
+		$random_nid = db_query($sql)->fetchField();
+	}
+	else{
+		$sql ="select max(nid) as max, min(nid) as min from node where type='$node_type'";
+		$result = db_query($sql);
+    while ($row = $result->fetchObject()) {
+		    $min = $row->min;
+				$max = $row->max;
+        $random_nid = rand($min, $max);
+		}
+
+	}
+	return $random_nid;
+}
+
+function nhpid_tips_and_tricks_get_least_presented_nid(){
+	global $user;
+	
+	if (!property_exists($user, 'tips_and_tricks_history')){
+		$user = user_save($user, array('tips_and_tricks_history' => array()));
+	}
+  
+	$node_type = variable_get('nhpid_tips_and_tricks_node_type', '');
+	$presented_history = $user -> tips_and_tricks_history;
+	unset($presented_history['']);
+	asort($presented_history);
+	$sql = "select nid from node where type='$node_type'";
+  $result = db_query($sql);
+	reset($presented_history);
+  //drupal_set_message(nhpid_api_dump($presented_history, 'red', TRUE));
+	$least_presented = key($presented_history);
+  //drupal_set_message(nhpid_api_dump($least_presented, 'red', TRUE));
+	$nid_to_select = null;
+  while ($row = $result->fetchObject()) {
+		$nid = $row -> nid;
+		if (!array_key_exists($nid, $presented_history)){
+      $nid_to_select = $nid;
+			break;
+		}
+	}
+	if (!$nid_to_select){
+		$nid_to_select = $least_presented;
+	}
+  
+	$presented_history[$nid_to_select] ++;
+  //return;
+  user_save($user, array('tips_and_tricks_history' => $presented_history));
+  
+	return $nid_to_select;
+}
+/**
+ * @} End of "defgroup nhpid_email".
+ */

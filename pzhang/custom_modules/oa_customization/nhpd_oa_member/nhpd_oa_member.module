@@ -1,0 +1,129 @@
+<?php
+// $Id$
+
+
+
+/* hook_permission*/
+function nhpd_oa_member_permission() {
+    return array(
+    'administer nhpd oa member' => array(
+      'title' => t('Administer NHPD OA members'),
+      'description' => t(''),
+    ),
+   );
+} 
+
+
+/* hook_ctools_plugin_directory */
+function nhpd_oa_member_ctools_plugin_directory($module, $plugin) {
+  if ($module == 'ctools') {
+    return 'plugins/' . $plugin;
+  }
+}
+
+/***
+ * hook_menu
+ */ 
+function nhpd_oa_member_menu() {
+	//drupal_set_message(nhpid_api_dump("nhpd_oa_memeber_menu", 'red', TRUE));
+  $items = array();
+	$items['group/%/%/add-other-role/%/%'] = array(
+    'title' => 'Add Admin',
+    'type' => MENU_CALLBACK,
+    'page callback' => 'nhpd_oa_member_add_role',
+    'page arguments' => array(1, 2, 4, 5),
+    'access callback' => 'og_ui_user_access_group',
+    'access arguments' => array('manage members', 1, 2),
+  );
+  $items['group/%/%/remove-other-role/%/%'] = array(
+    'title' => 'Add Admin',
+    'type' => MENU_CALLBACK,
+    'page callback' => 'nhpd_oa_member_remove_role',
+    'page arguments' => array(1, 2, 4, 5),
+    'access callback' => 'og_ui_user_access_group',
+    'access arguments' => array('manage members', 1, 2),
+  );
+
+	return $items;
+}
+// hook_theme
+function nhpd_oa_member_theme() {
+  $path = drupal_get_path('module', 'nhpd_oa_member') . '/templates';
+  return array(
+    'nhpd_oa_members_widget' => array(
+      'template'  => 'nhpd-oa-members-widget',
+      'arguments' => array(
+        'public' => NULL,
+        'links'  => array(),
+      ),
+      'path' => $path,
+    ),
+	);
+}
+
+/**
+ * Menu callback to add user to og role
+ * @param  $group_type
+ * @param  $gid
+ * @param  $uid
+ * @param  $og_role
+ */
+function nhpd_oa_member_add_role($group_type, $gid, $uid, $rid, $type = 'nojs') {
+  if (!isset($_GET['token']) || !drupal_valid_token($_GET['token'], $group_type . '_' . $gid . '_' . $uid)) {
+    return MENU_ACCESS_DENIED;
+  }
+	//drupal_set_message(hc_irc_dump("$group_type, $gid, $uid, $rid", 'red', TRUE));
+  $account = user_load($uid);
+  $group = entity_load_single($group_type, $gid);
+  $label = entity_label($group_type, $group);
+	$og_role = og_role_load($rid)->name;
+  if ($rid > 0) {
+    og_role_grant($group_type, $gid, $uid, $rid);
+    og_invalidate_cache();
+    //drupal_set_message(nhpid_api_dump("$group_type, $gid, $uid, $rid", 'red', TRUE));
+    drupal_set_message(t('%user has been added as %og_role to the space %title.', array('%user' => format_username($account), '%og_role'=>$og_role, '%title' => $label)));
+  }
+  if ($type != 'ajax') {
+    drupal_goto();
+  }
+  else {
+    $commands = array();
+    $commands[] = ajax_command_append('#oa-core-messages', theme('status_messages'));
+    $page = array('#type' => 'ajax', '#commands' => $commands);
+    ajax_deliver($page);
+  }
+}
+
+/**
+ * Menu callback to remove user from a  og role
+ * @param  $group_type
+ * @param  $gid
+ * @param  $uid
+ * @param  $og_role
+ */
+function nhpd_oa_member_remove_role($group_type, $gid, $uid, $rid, $type = 'nojs') {
+  if (!isset($_GET['token']) || !drupal_valid_token($_GET['token'], $group_type . '_' . $gid . '_' . $uid)) {
+    return MENU_ACCESS_DENIED;
+  }
+  $account = user_load($uid);
+  $group = entity_load_single($group_type, $gid);
+  $label = entity_label($group_type, $group);
+
+  $og_role = og_role_load($rid)->name;
+  if ($rid > 0) {
+    og_role_revoke($group_type, $gid, $uid, $rid);
+    og_invalidate_cache();
+
+    drupal_set_message(t('%user has been removed as %og_role of space %title.', array('%user' => format_username($account), '%og_role'=>$og_role, '%title' => $label)));
+  }
+  if ($type != 'ajax') {
+    drupal_goto();
+  }
+  else {
+    $commands = array();
+    $commands[] = ajax_command_append('#oa-core-messages', theme('status_messages'));
+    $page = array('#type' => 'ajax', '#commands' => $commands);
+    ajax_deliver($page);
+  }
+  return;
+}

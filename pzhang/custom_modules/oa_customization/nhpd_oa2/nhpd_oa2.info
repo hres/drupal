@@ -1,0 +1,22 @@
+; $Id: nhpd_oa2.info,v 1.0.0  peijun zhang$
+name = NHPD OA2
+description = A modules for managing OA2.
+core = 7.x
+package = NHPD
+dependencies[] = panels
+dependencies[] = cck
+dependencies[] = exclude_node_title
+dependencies[] = freelinking
+dependencies[] = insert
+dependencies[] = insert_block
+dependencies[] = insert_view
+dependencies[] = oa_print
+dependencies[] = print
+dependencies[] = textile
+dependencies[] = toc_filter
+dependencies[] = vars
+dependencies[] = viewfield
+dependencies[] = prepopulate
+dependencies[] = better_formats
+dependencies[] = title
+version = "7.x-1.0-dev"

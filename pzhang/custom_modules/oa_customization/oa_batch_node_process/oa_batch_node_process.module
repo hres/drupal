@@ -1,0 +1,158 @@
+<?php
+
+function oa_batch_node_process_permission() {
+    return array(
+    'clean up task data' => array(
+      'title' => t('Clean up task data'),
+      'description' => t(''),
+      ),
+    );
+}
+function oa_batch_node_process_menu() {
+
+  $items = array();
+
+  $items['admin/migrating_task_multifield_2_field_collection'] = array(
+    'title' => 'Migrate field multifield to field collection',
+    'description' => '',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('node_bacth_process_form'),
+    'access arguments' => array('clean up task data'),
+    'type' => MENU_NORMAL_ITEM,
+   );
+ return $items;
+}
+
+function node_bacth_process_form($form, &$form_state = NULL){
+	
+	$form['#tree'] = true;
+	$form['warning']=array(
+    '#type' => 'item',
+    '#markup' => "Those operations will migrate data from multifield to field collection.",
+	);
+	$form['op'] = array(
+		'#type' => 'select',
+		'#title' => t('Operation'), 
+		'#options' => array('move_only' => 'Move Only', 'move_and_delete' => 'Move and delete multifield'),
+		'#required' => true,
+	);
+	$form['multifield_field_name'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Multifield name'), 
+		'#default_value' => 'field_related_tasks',
+		'#required' => true,
+	);
+	$form['fc_field_name'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Multifield name'), 
+		'#default_value' => 'field_related_tasks2',
+		'#required' => true,
+	);
+	$form['is_test'] = array(
+		'#type' => 'radios',
+		'#required' => true,
+		'#title' => t('Test?'), 
+		'#options' => array(1 => 'Yes', 0 => 'No'),
+		'#default_value' => 1,
+		
+	);
+	
+	$form['process'] = array(
+		'#type' => 'submit',
+		'#value' => 'Process',
+		'#name' => 'oa_space_process',
+	);
+	
+	
+	return $form;
+}
+
+function node_bacth_process_form_submit(&$form, &$form_state){
+	$form_state['rebuild'] = true;
+	$op = $form_state['values']['op'];
+	$field_to = $form_state['values']['fc_field_name'];
+	$field_from = $form_state['values']['multifield_field_name'];
+	$test = $form_state['values']['is_test'];
+	
+	$type = 'oa_worktracker_task';
+	$nids = db_query('SELECT nid FROM {node} where type = :type', array(':type' => $type))->fetchCol();
+	//dpm($nids);
+	$queue = DrupalQueue::get('node_processing');
+	$queue -> deleteQueue(); // delete all un-done items
+	$op = 'move_only';
+	$count = 0;
+	foreach($nids as $nid){
+		$item = array('id' => $nid, 'op' => $op, 'multifield_field_name' => $field_from, 'fc_field_name' => $field_to);
+		$queue->createItem($item);
+		$count ++;
+		if ($count > 1000 && $test) break;
+	}
+	$operations = array();
+	$operations[] = array('node_process_batch', array($queue->numberOfItems()));
+	$batch = array(
+		'operations' => $operations,
+		'finished' => 'com_batch_op_finished',
+		// We can define custom messages instead of the default ones.
+		'title' => t('Process all tasks'),
+		'init_message' => t('Processing starting...'),
+		'progress_message' => t('Processed @current out of @total steps.'),
+		'error_message' => t('Processing has encountered an error.'),
+	);
+	//dpm($operations);
+	batch_set($batch);
+	batch_process();
+	
+		
+}
+	
+function node_process_batch($total_items, &$context){
+	$queue = DrupalQueue::get('node_processing');
+	if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['max'] = $total_items;
+    $context['results']['log'] = array();
+  }
+	
+	$item = $queue->claimItem();
+	//dpm($item);
+	if ($item) {
+		processing_node($item->data);
+	}
+	
+
+	// Provide an estimation of the completion level we've reached.
+	$context['sandbox']['progress'] += 1;
+	$context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+	$context['message'] = t('Processed @current out of @total', array('@current' => $context['sandbox']['progress'], '@total' => $context['sandbox']['max']));
+}
+
+function processing_node($data){
+	$nid = $data['id'];
+	$op = $data['op'];
+	$multifield_field_name = $data['multifield_field_name'];
+	$fc_field_name = $data['fc_field_name'];
+	$node = node_load($nid);
+	//return;
+	
+
+	$related_tasks = $node->$multifield_field_name;
+	if(!empty($related_tasks)){
+		//dpm($related_tasks);
+		//return;
+		$node -> $fc_field_name = array();
+		foreach($related_tasks['und'] as $item){
+			$field_collection_item = entity_create('field_collection_item', array('field_name' => $fc_field_name));
+			$field_collection_item->field_relation_type = $item['field_relation_type'];
+			$field_collection_item->field_related_task = $item['field_related_task'];
+			$field_collection_item->setHostEntity('node', $node);
+			$field_collection_item->save(TRUE);
+		}
+		if ($op != 'move_only'){
+			//$node -> $multifield_field_name = array();
+		}
+		
+		node_save($node);
+		//dpm($nid);
+		//dpm($node);
+	}
+}

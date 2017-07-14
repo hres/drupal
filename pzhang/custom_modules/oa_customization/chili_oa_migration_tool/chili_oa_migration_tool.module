@@ -1,0 +1,2888 @@
+<?php
+########################################################################################################################
+# Before migration, you have do:
+# 1. dump your chiliproject mysql database and install it on the same server holding OA
+# 2. Grant select privilege on all tables of the database to your OA db user
+# 3. Copy all attachment files from chili server to the temp_attachment_files_folder on OA server defined below
+# 4. Create all custom fields which will be migrated (including customfields in issues, projects, users, wikis)
+# 5. Modify oa_worktracker_task by adding field: field_chili_id, field_parent_task, field_related_tasks (multifields). Enable oa_worktracker_duedate.
+# 6. Create a content type for wiki similar to oa_worktracker_task. Special fields: field_id_first_page, field_parent_page, 
+# 		field_insert_image, field_wiki_page, field_chili_id. Disable body.
+# 7. Create oa_section panelizer wiki section, Or install corresponding feature download
+# 8. Create Taxonomy term Wiki Section under Section type
+# 9. create text filter wiki 
+# 10. Modify the ini file
+#
+# Migration strategies
+# All OA entities are linked to chili entities by a link key. If the link key of an entity exists in OA, update will be perfomed,
+# otherwise, new entity is created.
+# 
+# Users, user groups, roles, and permissions
+# Chili users are migrated to OA users as (chili -> OA):
+# link key: users.login -> user.name
+# login -> name
+#	firstname -> field_first_name
+# lastnmae -> field_last_name
+# firstname lastname -> realname
+# mail -> mail
+# status -> status
+# created_on -> created
+# 'password' -> pass chili password cannot be migrated to OA since the salt setting is different. User should reset her password when login.
+# custom fields:
+# Co-op -> field_co_op
+# SERLO -> field_serlo
+# NHPD -> field_nhpd
+#
+# Chili groups are migrated to OA OG groups
+# link key: users.lastname -> oa_group.title
+#	users.lastname (type = Group) -> oa_group.title
+# users.created_on -> oa_group.created
+# users.status -> oa_group.status
+# users_groups.user_id -> user.og_user_node
+#
+#	Chili projects are migrated to OA Spaces
+# link key: projects.id -> oa_space.field_chili_project_id
+# projects.name -> oa_spece.title
+# projects.description -> oa_space.body
+# projects.is_public -> oa_space.group_access
+# projects.parent_id -> oa_space.oa_parent_space
+# 
+# OA sections
+# No corresponding entities in chili. Two types of section are created: task and wiki
+# link key: projects.id -> oa_ssection.field_chili_project_id
+# oa_section.title: defined in the ini file
+# oa_section.body: empty
+#
+# OA task
+# link key: issue.id -> oa_worktracker_task.field_chili_id
+# issues.subject -> oa_worktracker_task.title
+# issues.description -> oa_worktracker_task.body
+# issues.created_on -> oa_worktracker_task.created
+#	issues.tracker_id -> oa_worktracker_task.field_oa_worktracker_task_type
+# issues.priority_id -> oa_worktracker_task.field_oa_worktracker_priority
+# issues.status_id -> oa_worktracker_task.field_oa_worktracker_task_status
+# issue.author_id -> oa_worktracker_task.author
+# issues.assigned_to_id -> oa_worktracker_task.field_oa_worktracker_assigned_to
+# issues.parent_id -> oa_worktracker_task.field_parent_task
+# issue_relations.issue_to_id -> oa_worktracker_task.field_related_tasks (multifield)
+# issues.due_date -> oa_worktracker_task.field_oa_worktracker_duedate
+# issues.start_date -> oa_worktracker_task.field_start_date
+# attachments.* -> oa_worktracker_task.field_oa_media
+#
+# OA comments
+# chili changes are not migrated
+# Link key: journals.id -> comment.field_chili_journal_id
+# journals.notes -> comment.coment_body
+# journals.created_at -> comment.created
+# journal.author -> comment.author
+#
+# OA Wiki
+# Note: OA Wiki is managed by custom content type> The default OA documents is not good enough for real wiki
+# link key: issue.id -> oa_worktracker_task.field_chili_id
+# default text filter: nhpd_wiki
+# wikis.start_page -> nhpd_wiki.field_is_first_page
+# wiki_pages.title -> nhpd_wiki.title
+# wiki_contents.text -> nhpd_wiki.field_wiki_page, text is reformatted to make it compatible to the nhpd_wik filter
+# wiki_contents.author_id ->nhpd_wiki.author
+# wiki_contents.created_od -> nhpd_wiki.created
+# wiki_pages.parent_id -> nhpd_wiki.field_parent_page
+#
+# OA Watchers
+# Oa watchers are differently defined from that in chili. OA watchers are users who are non-members and have permission to view the task only.
+# With chili, watchers can be member of the projects. In migration, if any watchers are members, they will be mapped to OA notifications.
+# Otherwise, mapped to OA watchers.
+#
+# Removing existing chili data
+# Existing chili data can be removed completely. However, since the dependency between Drupal entities (such as node and user), some kinds of entities 
+# cannot removed specifically.
+
+
+
+
+
+define('TOOL_ROOT', drupal_get_path('module', 'chili_oa_migration_tool'));
+define('TEST_RECORDS', 100);
+
+function chili_oa_migration_tool_init(){
+	global $ini_setting;
+	$ini_setting =com_read_ini_setting();
+	drupal_set_time_limit(0);
+	//drupal_set_message(_dump($ini_setting, 'purple', TRUE));
+}
+function chili_oa_migration_tool_permission() {
+    return array(
+    'migrate chili data' => array(
+      'title' => t('Migrate chili data'),
+      'description' => t(''),
+      ),
+    );
+}
+function chili_oa_migration_tool_menu() {
+
+  $items = array();
+
+  $items['admin/chili_oa_migration'] = array(
+    'title' => 'Chili OA migration',
+    'description' => 'Migrating Chili data to OA',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('com_admin_form'),
+    'access arguments' => array('migrate chili data'),
+    'type' => MENU_NORMAL_ITEM,
+   );
+ return $items;
+}
+function chili_oa_migration_selection_page() {
+  drupal_set_title('Migrating Chiliproject to OA');
+  $elements = drupal_get_form('com_admin_form');
+  $output = drupal_render($elements);
+  //drupal_set_message(_dump($output, 'purple', TRUE));
+  return $output;
+}
+
+
+
+function com_admin_form($form, &$form_state = NULL) {
+	$form_header = array();
+
+    $action_option =  array('select_task' => 'Select A Task',
+                'load_chiliproject_project_data' => 'Migrate Chiliproject project data',
+                'load_chiliproject_user_data' => 'Migrate Chiliproject user data',
+                'load_chiliproject_issue_data' => 'Migrate Chiliproject issue data',
+                'load_chiliproject_wiki_data' => 'Migrate Chiliproject Wiki data',
+				'load_chiliproject_settings' => 'Migrate Chiliproject tracker, categories, status and their settings',
+				'load_watchers' => 'Load watchers (Included in load_chiliproject_issue_data, round 2)',
+				'remove_chiliproject_data' => 'Remove Chiliproject data',
+				'remove_watchers' => 'Remove watchers(Included in remove_chiliproject_data)',
+				);
+
+ // }
+  $action_default = !empty($form_state['values']['action']) ? $form_state['values']['action'] : '';
+  $action = null;
+  if (isset($form_state['values'])) $action = $form_state['values']['action'];
+  $form_header['#attributes'] = array('enctype' => "multipart/form-data");
+   $form_header['action'] = array(
+    '#type' => 'select',
+    '#title' => t('Actions'),
+    '#default_value' => $action_default,
+    '#options' => $action_option,
+    '#description' => t('Select an action.'),
+    '#attributes' => array('onchange' => 'this.form.submit();'),
+  );
+
+  $form_header['next'] = array(
+    '#type' => 'submit',
+    '#value' => 'Next >>',
+    '#attributes' => array('onclick' => 'return confirm("Are you sure you wish to continue?");'),
+  );
+  //if ($action) {
+    timer_start('nhpid_init');
+    switch ($action) {
+
+		case 'load_chiliproject_user_data':
+        $form = $form_header + com_load_chiliproject_user_data_form($form_state);
+        break;
+		case 'load_chiliproject_issue_data':
+        $form = $form_header + com_load_chiliproject_issue_data_form($form_state);
+        break;
+		case 'load_chiliproject_wiki_data':
+        $form = $form_header + com_load_chiliproject_wiki_data_form($form_state);
+        break;
+		case 'load_chiliproject_project_data':
+        $form = $form_header + com_load_chiliproject_project_data_form($form_state);
+        break;
+			case 'remove_chiliproject_data':
+        $form = $form_header + com_remove_chiliproject_data_form($form_state);
+        break;
+		case 'load_watchers':
+        $form = $form_header + com_oa_watchers_form($form_state, 'load');
+        break;
+		case 'remove_watchers':
+        $form = $form_header + com_oa_watchers_form($form_state, 'remove');
+        break;
+		case 'load_chiliproject_settings':
+		$form = $form_header + com_load_chiliproject_settings_form($form_state);
+        break;	
+      default:
+        $form = $form_header;
+
+    }
+		
+		cache_clear_all();
+
+  //}
+	$form_state['values']['action'] = $action;
+	//$form = $form_header;
+  return $form;
+}
+function com_admin_form_submit($form, &$form_state) {
+  $form_state['rebuild'] = TRUE;
+  $form_state['storage']['values'] = $form_state['values'];
+
+}
+
+
+function com_batch_op_finished($success, $results, $operations) {
+  if ($success) {
+    // Here we could do something meaningful with the results.
+    // We just display the number of nodes we processed...
+    $message = count($results) . ' processed.';
+    //field_reference_update_all_cached_option_lists();
+  }
+  else {
+    // An error occurred.
+    // $operations contains the operations that remained unprocessed.
+    $error_operation = reset($operations);
+    $message = 'An error occurred while processing ' . $error_operation[0] . ' with arguments :' . print_r($error_operation[0], TRUE);
+  }// remove temp variable
+	variable_del('chili_oa_migration_ids_to_delete');
+  drupal_set_message($message);
+}
+
+/* chiliproject migaration
+
+*/
+
+function com_load_chiliproject_user_data_form(&$form_state = NULL){
+	$form = array();
+
+	$form['warning']=array(
+    '#type' => 'item',
+    '#markup' => "This operation will re-migrate user data from chili project. The existng user data will be replaced with chili data.",
+	);
+
+  $form['action-submit']=array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+    '#attributes' => array('onclick' => 'return confirm("You are going to migrate all issues from chiliporject to OA. Are you sure you wish to continue?");'),
+  );
+
+  if ($form_state['clicked_button']['#id'] == 'edit-action-submit') {
+
+    com_load_chiliproject_user_data();
+	}
+
+	return $form;
+}
+
+function com_load_chiliproject_user_data(){
+  global $ini_setting;
+  $temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+	$task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping']) ? $ini_setting['issue_status_mapping'] : array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping']) ? $ini_setting['tracker_mapping'] : array();
+	$role_mapping = isset($ini_setting['role_mapping']) ? $ini_setting['role_mapping'] : array();
+	$user_custom_field_mapping = isset($ini_setting['user_custom_field_mapping']) ? $ini_setting['user_custom_field_mapping'] : array();
+  require_once DRUPAL_ROOT . '/' . variable_get('password_inc', 'includes/password.inc');
+	$form = array();
+	//goto SPACEMEMBER;
+	# roles and Og roles
+	# roles. Chili dose not have user role setting. However, we still create OA user role based chili roles
+	drupal_set_message('Migragting roles...');
+	$table = $chili_db. '.roles';
+	$sql = db_select($table, 'r') -> fields('r') -> execute();
+	while ($rc = $sql -> fetchObject()){
+		$name = $rc->name;
+		if(isset($role_mapping[$name])) $name = $role_mapping[$name];
+		/* user role is not required
+		if (!user_role_load_by_name($name)){
+			$role = new stdClass();
+			$role -> name = $name;
+			user_role_save($role);
+		}
+		*/
+		// OG role
+		if(!array_search($name, og_roles('node', 'oa_space'))){
+			og_role_save( og_role_create($name, 'node', 0,  'oa_space'));
+		}
+	}
+
+  drupal_set_message('Migragting roles is done.');
+	# user
+  drupal_set_message('Mgragting users...');
+	$table = $chili_db. '.users';
+	$sql = db_select($table, 'u') -> fields('u') -> execute();
+	while ($rc = $sql -> fetchObject()){
+		$login = $rc->login;
+		if (!$login) continue; // skip Anonymous
+		$firstname = $rc->firstname;
+		$lastname = $rc->lastname;
+		$mail = $rc->mail;
+		$last_login = $rc->last_login_on;
+		$created_on = $rc->created_on;
+		$status = $rc->status;
+		$uid = $rc -> id;
+		$custom_fields = array();
+		/*
+		$sql2 = db_select($chili_db. '.custom_values', 'cv')
+		-> join ($chili_db. '.custom_fields', 'cf', 'cv.cystom_field_id=cf.id')
+		-> fields('cf', array('name'))
+		-> fields('cv', array('value'))
+		-> condition('cf.type', 'UserCustomField', '=')
+		-> condition ('cv.customized_id', $uid, '=')
+		-> execute();
+		*/
+    $sql2 =  "select cv.customized_id, cv.customized_type, cv.value, cf.id, cf.type, cf.name from $chili_db.custom_values cv, $chili_db.custom_fields cf  where customized_id in (select id from $chili_db.users) and cv.custom_field_id = cf.id and cf.type = 'UserCustomField' and customized_id = :uid order by customized_id";
+		$result = db_query($sql2, array(':uid' => $uid));
+		while ($rc2 = $result -> fetchObject()){
+		  //drupal_set_message(_dump($rc, 'purple', TRUE,true, true));
+			$chili_custom_field_id = $rc2 -> id;
+			$custom_fields[$user_custom_field_mapping[$chili_custom_field_id]] = $rc2->value;
+		}
+
+		$roles = array(DRUPAL_AUTHENTICATED_RID);
+    $account = new stdClass();
+		$account -> is_new = TRUE;
+		$new_user = array(
+			'name' => $login,
+			'pass' => 'password',
+			'status' => $status == 1? $status: 0,
+			'roles' => $roles,
+			'timezone' =>'America/New_York',
+			'mail' => $mail,
+			'created' => strtotime($created_on),
+			'access' => strtotime($last_login),
+		);
+		$a_user = user_load_by_name($new_user['name']);
+		if (!$a_user){
+		 $a_user = user_save($account, $new_user);
+		}
+		//drupal_set_message(_dump($a_user, 'purple', TRUE,true, true));
+		$user_wrapper = entity_metadata_wrapper('user', $a_user);
+		$user_wrapper -> field_first_name = $firstname;
+		$user_wrapper -> field_last_name = $lastname;
+		$user_wrapper -> field_user_display_name = "$firstname $lastname";
+     
+		foreach($custom_fields as $field => $value){
+			$user_wrapper -> {$field} = $value;
+		}
+   	$user_wrapper->save();
+
+	}
+  drupal_set_message('Migragting users is done.');
+
+	# groups
+	global $user;
+	drupal_set_message('Migragting groups');
+	$table = $chili_db. '.users';
+	$sql = "select * from $table where type = 'Group'";
+	$result = db_query($sql);
+	while ($rc = $result->fetchObject()){
+		$group_id = $rc -> id;
+		$group_name = $rc -> lastname;
+		$last_login = $rc->last_login_on;
+		$created_on = $rc->created_on;
+		$entity = entity_create('node', array('type' => 'oa_group'));
+		$entity_wrapper = entity_metadata_wrapper('node',$entity);
+		//drupal_set_message(_dump($type, 'purple', TRUE));
+		//$entity -> uid = $user -> uid;
+
+		$oa_group_node = com_node_load_by_title($group_name, 'oa_group');
+		$oa_group_node_nid = null;
+
+		if ($oa_group_node){
+			$entity_wrapper = entity_metadata_wrapper('node',$oa_group_node);
+		}
+		$entity_wrapper -> title = $group_name;
+		$entity_wrapper -> created = strtotime($created_on);
+		$entity_wrapper -> og_user_inheritance = 1;
+		$entity_wrapper -> og_user_permission_inheritance = 1;
+		$entity_wrapper -> group_access = 1;
+		$entity_wrapper -> status = 1;
+		$entity_wrapper -> author = $user;
+		$entity_wrapper -> save();
+		$oa_group_node = node_load($entity_wrapper -> value()-> nid);
+		//drupal_set_message(_dump((array)$entity_wrapper, 'purple', TRUE));
+
+		$oa_group_node_nid = $oa_group_node -> nid;
+
+
+		//group members
+		$sql2 = "select u.* from " . $chili_db. ".users u, " . $chili_db. ".groups_users gu where gu.user_id = u.id and group_id = :group_id ";
+		$result2 = db_query($sql2, array(":group_id" => $group_id));
+
+		while($rc2 =$result2 -> fetchObject()){
+			$login = $rc2->login;
+			$member = user_load_by_name($login);
+			if ($member){
+        $user_wrapper = entity_metadata_wrapper('user',$member);
+        $og_user_node = $user_wrapper -> og_user_node -> value(array('identifier' => TRUE));
+        if (!in_array($oa_group_node_nid, $og_user_node)){
+				  $user_wrapper -> og_user_node ->offsetSet( $user_wrapper -> og_user_node ->count(), $oa_group_node);
+					$user_wrapper -> save();
+				}
+			}
+			else{
+				drupal_set_message ("User $login cannot be found.");
+			}
+
+		}
+
+	}
+  drupal_set_message('Migrating group is done.');
+SPACEMEMBER:
+	//space members
+  drupal_set_message('Migrating space members');
+	$sql = "select project_id, name, login, lastname, user_id , type from " . $chili_db. ".members m, " . $chili_db. ".users u, " . $chili_db. ".projects p where m.user_id = u.id and p.id = m.project_id";
+  $result = db_query($sql);
+
+	while($rc =$result -> fetchObject()){
+		$project_name = $rc -> name;
+    $login = $rc -> login;
+    $lastname = $rc -> lastname;
+    $member_type = $rc -> type;
+    $user_id = $rc -> user_id;
+    $project_id = $rc -> project_id;
+    $oa_space_node = com_node_load_by_title($project_name, 'oa_space');
+		if (!$oa_space_node){
+      drupal_set_message ("Space $project_name (chili id: $project_id) cannot be found.");
+			continue;
+		}
+
+		if ($member_type == "User"){
+			$member = user_load_by_name($login);
+			if ($member){
+				$user_wrapper = entity_metadata_wrapper('user',$member);
+				$og_user_node = $user_wrapper -> og_user_node -> value(array('identifier' => TRUE));
+				if (!in_array($oa_space_node->nid, $og_user_node)){
+				  $user_wrapper -> og_user_node ->offsetSet( $user_wrapper -> og_user_node ->count(), $oa_space_node);
+					$user_wrapper -> save();
+				}
+				// mapping chili role to og_user_role
+				$sql_member_role = "select r.name as role_name from $chili_db.member_roles mr, $chili_db.roles r , $chili_db.members m where m.id = mr.member_id and mr.role_id = r.id and m.user_id = :user_id";
+				$result_member_role = db_query($sql_member_role, array(':user_id' => $user_id));
+				while($rc_member_role = $result_member_role-> fetchObject()){
+					$role_name = $rc_member_role -> role_name;
+					if(isset($role_mapping[$role_name])) $role_name = $role_mapping[$role_name];
+					$og_roles = og_roles('node', 'oa_space');
+					$rid = array_search($role_name, $og_roles);
+					if ($rid){
+						og_role_grant('node', $oa_space_node->nid, $member->uid, $rid);
+					}
+				}
+			}
+			else{
+				drupal_set_message ("User $login(chili id: $user_id) cannot be found.");
+			}
+			
+		}
+		elseif ($member_type == "Group"){
+		$group = com_node_load_by_title($lastname, 'oa_group');
+		if($group){
+			$space_wrapper = entity_metadata_wrapper('node',$oa_space_node);
+			$oa_parent_space = $space_wrapper -> oa_parent_space -> value(array('identifier' => TRUE));
+			if (!in_array($group->nid, $oa_parent_space)){
+				  $space_wrapper -> oa_parent_space ->offsetSet( $space_wrapper -> oa_parent_space ->count(), $group);
+					$space_wrapper -> save();
+				}
+				################################################## Note #########################################################
+				# With chili, the roles for a user group are assigned to project dynamically as whole. Users with the group are #
+				# not assigned roles directly. However with OA, user groups (OG group) are assigned to spaces as inheritance. No#
+				# specific roles are assigned. Instead, the roles are assigned to users of the group. This incompatibility does #
+				# not allow chili group roles to be migrated to OA.
+				# To enable use to use roles of group (such as workflow control), we migrate users of the group to spaces.      #
+				#################################################################################################################
+				$sql_groups_users = "select u.login, gu.user_id from $chili_db.groups_users gu, $chili_db.users u where gu.user_id=u.id and gu.group_id=:group_id";
+				$result_groups_users = db_query($sql_groups_users, array(':group_id' => $user_id));
+				while($rc_groups_users = $result_groups_users ->fetchObject()){
+					$group_user_login = $rc_groups_users -> login;
+					$group_user_id = $rc_groups_users -> user_id;
+					## add user to space
+					$group_member = user_load_by_name($group_user_login);
+					if ($group_member){
+						$group_user_wrapper = entity_metadata_wrapper('user',$group_member);
+						$group_og_user_node = $group_user_wrapper -> og_user_node -> value(array('identifier' => TRUE));
+						if (!in_array($oa_space_node->nid, $group_og_user_node)){
+							$group_user_wrapper -> og_user_node ->offsetSet( $group_user_wrapper -> og_user_node ->count(), $oa_space_node);
+							$group_user_wrapper -> save();
+						}
+						// mapping chili role to og_user_role
+						$sql_member_role = "select r.name as role_name from $chili_db.member_roles mr, $chili_db.roles r , $chili_db.members m where m.id = mr.member_id and mr.role_id = r.id and m.user_id = :user_id";
+						$result_member_role = db_query($sql_member_role, array(':user_id' => $group_user_id));
+						while($rc_member_role = $result_member_role-> fetchObject()){
+							$role_name = $rc_member_role -> role_name;
+							if(isset($role_mapping[$role_name])) $role_name = $role_mapping[$role_name];
+							$og_roles = og_roles('node', 'oa_space');
+							$rid = array_search($role_name, $og_roles);
+							if ($rid){
+								og_role_grant('node', $oa_space_node->nid, $group_member->uid, $rid);
+							}
+						}
+					}
+				}
+			}
+			else{
+				drupal_set_message ("Group $lastname (chili id: $user_id)cannot be found.");
+			}
+		}
+	}
+	
+	#Mapping members to og user roles
+	drupal_set_message('Migrating space members is done.');
+	# custom fields control and workflow mapping
+	com_custom_field_control_workflow_mapping();
+}
+
+function com_load_chiliproject_issue_data_form(&$form_state = NULL){
+	global $ini_setting;
+	$temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+	$task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping']) ? $ini_setting['issue_status_mapping'] : array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping']) ? $ini_setting['tracker_mapping'] : array();
+	$role_mapping = isset($ini_setting['role_mapping']) ? $ini_setting['role_mapping'] : array();
+	$bilingual_site = isset($ini_setting['role_mapping']) ? $ini_setting['role_mapping'] : false;
+	$form = array();
+
+	$mapping = isset($form_state['values']['mapping_chili_project_id']) ? $form_state['values']['mapping_chili_project_id'] : 0;
+
+  /*$form['mapping_chili_project_id']=array(
+    '#type' => 'checkbox',
+    '#default_value' => $mapping,
+    '#title' => "Map chili project id to the Task sections? ",
+	);*/
+
+	$round2 = isset($form_state['values']['round2']) ? $form_state['values']['round2'] : 0;
+	$form['round2']=array(
+    '#type' => 'checkbox',
+    '#default_value' => $round2,
+    '#title' => "Round2 (parent task, related tasks, watchers, and notifications) only?",
+	);
+
+	$test = isset($form_state['values']['test']) ? $form_state['values']['test'] : 0;
+	$form['test']=array(
+    '#type' => 'checkbox',
+    '#default_value' => $test,
+    '#title' => "Testing? (first " . TEST_RECORDS . " records)",
+	);
+	$form['action-submit']=array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+    '#attributes' => array('onclick' => 'return confirm("You are going to migrate all issues from chiliporject to OA. Are you sure you wish to continue?");'),
+  );
+
+  if ($form_state['clicked_button']['#id'] == 'edit-action-submit') {
+  	if ($mapping){
+			drupal_set_message("Stating mapping chili porject id to the Task sections...");
+	    com_mapping_chili_project_id_to_task_sections($task_section_name);
+	    drupal_set_message("Mapping chili porject id to the Task sections is done.");
+		}
+    $sql = "select id from " . $chili_db . ".issues order by id";
+		if ($test) $sql = "select id from " . $chili_db. ".issues order by id limit " . TEST_RECORDS;
+		$result = db_query($sql);
+		$operations = array();
+		$rcs_chunks = array_chunk($result -> fetchAll(), 20);
+		
+		if(!$round2){
+			foreach($rcs_chunks as $chunk){
+				$ids = array();
+				foreach($chunk as $rc){
+					$ids[] = $rc -> id;
+				}
+				$round = 1;
+				$operations[] = array('com_load_chiliproject_issue_data_batch', array($ids, $test, $round ,$temp_attachment_file_folder,$official_attachment_file_folder,$chili_db,$custom_fields_mapping));
+			}
+		}
+		foreach($rcs_chunks as $chunk){
+			$ids = array();
+			foreach($chunk as $rc){
+				$ids[] = $rc -> id;
+			}
+			$round = 2;
+			$operations[] = array('com_load_chiliproject_issue_data_batch', array($ids, $test, $round ,$temp_attachment_file_folder,$official_attachment_file_folder,$chili_db,$custom_fields_mapping));
+		}
+    
+	  $batch = array(
+	    'operations' => $operations,
+	    'finished' => 'com_batch_op_finished',
+	    // We can define custom messages instead of the default ones.
+	    'title' => t('Migrating chili issues'),
+	    'init_message' => t('Migrating starting...'),
+	    'progress_message' => t('Processed @current out of @total steps.'),
+	    'error_message' => t('Migrating has encountered an error.'),
+	  );
+    //drupal_set_message(_dump($operations, 'purple', TRUE));
+	  batch_set($batch);
+	  batch_process();
+    //drupal_set_message(_dump($operations, 'purple', TRUE));
+
+	}
+
+	return $form;
+}
+function com_test($id, $testing,$round, $temp_attachment_file_folder,$official_attachment_file_folder,$chili_db,$custom_fields_mapping, $content){
+  
+	drupal_set_message(_dump("$chili_db, $official_attachment_file_folder", 'purple', TRUE));
+}
+
+function com_load_chiliproject_issue_data_batch($ids, $testing,$round, $temp_attachment_file_folder,$official_attachment_file_folder,$chili_db,$custom_fields_mapping, &$context){
+  //drupal_set_message(_dump("$id, $testing,$round", 'purple', TRUE));
+	$message = '';
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['max'] = count($ids);
+  }
+	foreach ($ids as $id){
+		if ($round == 2) {
+			com_load_chiliproject_issue_data_2($id, $testing,$temp_attachment_file_folder,$official_attachment_file_folder,$chili_db,$custom_fields_mapping);
+		}
+		else{
+			com_load_chiliproject_issue_data($id, $testing, $temp_attachment_file_folder,$official_attachment_file_folder,$chili_db,$custom_fields_mapping);
+		}
+		// Inform the batch engine that we are not finished,
+		// and provide an estimation of the completion level we reached.
+		$context['sandbox']['progress'] += 1;
+	}
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+}
+
+function com_mapping_chili_project_id_to_spaces(){
+  global $ini_setting;
+  $temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+  $task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping'])?$ini_setting['issue_status_mapping']: array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping'])?$ini_setting['tracker_mapping']:array();
+	$role_mapping = isset($ini_setting['role_mapping'])?$ini_setting['role_mapping']: array();
+  $sql = "select id, name from " . $chili_db. ".projects order by id";
+
+	$result = db_query($sql);
+	while ($rc = $result ->fetchObject()){
+		$project_id = $rc -> id;
+		$project_name = $rc -> name;
+		$oa_space_node = com_node_load_by_title($project_name, 'oa_space');
+    $oa_space_node_wrapper = entity_metadata_wrapper('node',$oa_space_node);
+    $oa_space_node_wrapper -> field_chili_project_id = $project_id;
+	  $oa_space_node_wrapper -> save();
+	}
+}
+
+function com_mapping_chili_project_id_to_task_sections($section = NULL){
+	global $ini_setting;
+	$temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+	$task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping'])?$ini_setting['issue_status_mapping']: array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping'])?$ini_setting['tracker_mapping']:array();
+	$role_mapping = isset($ini_setting['role_mapping'])?$ini_setting['role_mapping']: array();
+	if (!$section) $section = $task_section_name;
+	$tid = array_shift(taxonomy_get_term_by_name($section, 'section_type')) -> tid;
+  //drupal_set_message(_dump($tid, 'purple', TRUE));
+	$sql = "select id, name from " . $chili_db. ".projects order by id";
+
+	$result = db_query($sql);
+	while ($rc = $result ->fetchObject()){
+		$project_id = $rc -> id;
+		$project_name = $rc -> name;
+		$oa_space_node = com_node_load_by_title($project_name, 'oa_space');
+		if (!$oa_space_node){
+      drupal_set_message ("Space $project_name (chili id: $project_id) cannot be found.");
+		}
+		else{
+      $sql = new EntityFieldQuery();
+		  $sql->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', 'oa_section')
+		    ->fieldCondition('og_group_ref', 'target_id', $oa_space_node -> nid, '=')
+        ->fieldCondition('field_oa_section', 'tid', $tid, '=');
+		  $result2 = $sql->execute();
+      //drupal_set_message(_dump($result2, 'purple', TRUE));
+			if ($result2){
+				$section_nid = array_shift((array_keys($result2['node'])));
+				$section_node = node_load($section_nid);
+				$section_wrapper = entity_metadata_wrapper('node',$section_node);
+	      $section_wrapper -> field_chili_project_id = $project_id;
+	      $section_wrapper -> save();
+	      //drupal_set_message(_dump((array)$section_wrapper, 'purple', TRUE));
+	      //drupal_set_message(_dump($project_name, 'purple', TRUE));
+	      //drupal_set_message(_dump($oa_space_node, 'purple', TRUE));
+			}
+		}
+
+	}
+}
+
+function com_load_chiliproject_issue_data($id, $testing, $temp_attachment_file_folder,$official_attachment_file_folder,$chili_db,$custom_fields_mapping){
+	global $ini_setting;
+	$temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+	$task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$task_filter_name = isset($ini_setting['task_filter_name'])? $ini_setting['task_filter_name'] : 'nhpd_wiki';
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping']) ? $ini_setting['issue_status_mapping'] : array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping']) ? $ini_setting['tracker_mapping'] : array();
+	$role_mapping = isset($ini_setting['role_mapping']) ? $ini_setting['role_mapping'] : array();
+	$bilingual_site = isset($ini_setting['bilingual_site'])? $ini_setting['bilingual_site'] : FALSE;
+	$section = $task_section_name;
+	$sql = "select i.*, ic.name as category_name, ist.name as status_name, au.login as author, ast.login as assigned_to, p.name as project_name, t.name as tracker_name from  ". $chili_db. ".issues i LEFT JOIN ". $chili_db. ".issue_categories ic on i.category_id=ic.id LEFT JOIN ". $chili_db. ".issue_statuses ist on i.status_id=ist.id LEFT JOIN ". $chili_db. ".users au on i.author_id=au.id LEFT JOIN ". $chili_db. ".users ast ON i.assigned_to_id=ast.id LEFT JOIN ". $chili_db. ".projects p on i.project_id=p.id LEFT JOIN ". $chili_db. ".trackers t ON i.tracker_id=t.id where  i.id = :id";
+	//drupal_set_message(_dump($sql, 'purple', TRUE));
+	//drupal_set_message(_dump($chili_db, 'purple', TRUE));
+
+	if (!$id) return;
+	$result = db_query($sql, array(':id' => $id));
+	if ($result->rowCount() < 1){
+	drupal_set_message("Chili issue $id cannot be found. Skipped");
+	}
+	else {
+
+		$rc = $result->fetchObject();
+	  //drupal_set_message(_dump($rc, 'purple', TRUE));
+		//return;
+
+		$tracter_id = $rc -> tracker_id;
+		$project_id = $rc -> project_id;
+		$project_name = $rc -> project_name;
+		$subject = $rc -> subject;
+		$description = $rc -> description;
+		$due_date = $rc -> due_date;
+		$category_id = $rc -> category_id;
+		$status_id = $rc -> status_id;
+		$assigned_to = $rc -> assigned_to;
+		$priority_id = $rc -> priority_id;
+		$author = $rc -> author;
+		$created_on = $rc -> created_on;
+		$updated_on = $rc -> updated_on;
+		$start_date = $rc -> start_date;
+		$parent_id = $rc -> parent_id;
+		$status_name = $rc -> status_name;
+		$category_name = $rc -> category_name;
+		if(isset($issue_status_mapping[$status_name])) $status_name = $issue_status_mapping[$status_name];
+		$tracker_name = $rc -> tracker_name;
+		if(isset($tracker_mapping[$tracker_name])) $tracker_name = $tracker_mapping[$tracker_name];
+    //return;
+
+		//oa task
+		$sql = new EntityFieldQuery();
+		$sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', $task_node_type)
+	    ->fieldCondition('field_chili_id', 'value', $id, '=');
+		$result2 = $sql->execute();
+		$task_node = null;
+
+		if ($result2){
+			$task_node = node_load(array_shift((array_keys($result2['node']))));
+		}
+		else{
+			$task_node =  entity_create('node', array('type' => $task_node_type));
+		}
+		$task_wrapper = entity_metadata_wrapper('node',$task_node);
+		//return;
+	   // oa_section_ref
+
+		$tid = array_shift(taxonomy_get_term_by_name($task_section_name, 'section_type')) -> tid;
+		$sql = new EntityFieldQuery();
+		$sql->entityCondition('entity_type', 'node')
+			->entityCondition('bundle', 'oa_section')
+			->fieldCondition('field_chili_project_id', 'value', $project_id, '=')
+				->fieldCondition('field_oa_section', 'tid', $tid, '=');
+		$result2 = $sql->execute();
+		if ($result2){
+	    $section_nid = array_shift((array_keys($result2['node'])));
+	  	$task_wrapper -> oa_section_ref = $section_nid;
+		}
+		else{
+	    drupal_set_message("Task section under $project_name ($project_id) cannot be found. The issue is skipped.");
+			return;
+		}
+		//return;
+	  // oa_group_ref
+		$space = com_node_load_by_title($project_name, 'oa_space');
+		if ($space){
+	    $task_wrapper -> og_group_ref = $space -> nid;
+		}
+		else{
+	    drupal_set_message("Space $project_name cannot be found. og_group_ref is not assined.");
+		}
+		// other fields
+		
+		$task_wrapper -> title = $subject;
+		$task_wrapper -> body = array('value' => $description, 'text_processing' => 1, 'format' => $task_filter_name);
+		$task_wrapper -> created = strtotime($created_on);
+		$task_wrapper -> status = 1;
+		$task_wrapper -> field_oa_worktracker_task_type = $tracker_name;
+		$task_wrapper -> field_issue_category = $category_name;
+		$task_wrapper -> field_oa_worktracker_priority = $priority_id;
+		$task_wrapper -> field_oa_worktracker_task_status = strtolower($status_name);
+		$task_wrapper -> field_chili_id = $id;
+
+		if ($due_date) $task_wrapper ->  field_oa_worktracker_duedate ->set(strtotime($due_date));
+		if ($start_date) $task_wrapper -> field_start_date ->set(strtotime($start_date));
+
+		$author_id = user_load_by_name($author) -> uid;
+		if ($author_id){
+	    $task_wrapper -> author = $author_id;
+		}
+		else{
+			drupal_set_message("User $author cannot be found. Author is not assigned.");
+		}
+
+		if ($assigned_to){
+	    $assigned_to_id = user_load_by_name($assigned_to) -> uid;
+			if ($assigned_to_id){
+		    $task_wrapper -> field_oa_worktracker_assigned_to = $assigned_to_id;
+			}
+			else{
+				drupal_set_message("User $assigned_to cannot be found. Assigned to is not assigned.");
+			}
+		}
+		//drupal_set_message(_dump((array)$task_wrapper, 'purple', TRUE));
+		//custom fields
+
+		$sql2 =  "select cv.custom_field_id, cv.value from " . $chili_db. ".custom_values cv  where cv.customized_type = 'Issue' and cv.customized_id = :id";
+		$result = db_query($sql2, array(':id' => $id));
+		while ($rc2 = $result -> fetchObject()){
+			$value = trim($rc2 -> value);
+			$custom_field_id = $rc2 -> custom_field_id;
+			$oa_custom_field_name = com_get_oa_custom_field_name($custom_field_id);
+			$field_info = field_info_field($oa_custom_field_name);
+			if($value){
+	      //drupal_set_message(_dump($oa_custom_field_name, 'purple', TRUE));
+	      //drupal_set_message(_dump("~$value~", 'purple', TRUE));
+				switch ($field_info['module']){
+					case 'date':
+	          $task_wrapper -> $oa_custom_field_name ->set(strtotime($value));
+					break;
+					default;
+	          $task_wrapper -> $oa_custom_field_name =$value;
+				}
+			}
+
+		}
+		// node language
+		$node_lancode = LANGUAGE_NONE;
+		$language_list = language_list();
+		if ($bilingual_site){
+			if ($task_wrapper ->field_language->value() == 'French'){
+				$node_lancode = isset($language_list['fr']) ? $language_list['fr']['language'] : LANGUAGE_NONE;
+			}
+			elseif($task_wrapper ->field_language->value() == 'English'){
+				$node_lancode = isset($language_list['en']) ? $language_list['en']['language'] : LANGUAGE_NONE;
+			}
+		}
+		$task_wrapper -> language = $node_lancode;
+		// attachments
+		$attachments = $task_wrapper -> field_oa_media -> value();
+		//drupal_set_message(_dump((array)$attachments, 'purple', TRUE));
+
+		$sql2 =  "select a.*, u.login as author from " . $chili_db. ".attachments a LEFT JOIN " . $chili_db. ".users u on a.author_id=u.id  where a.container_type = 'Issue' and a.container_id = :id";
+		$result = db_query($sql2, array(':id' => $id));
+		//next fid
+		//$sql_next_fid = "SELECT `AUTO_INCREMENT` FROM  INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'oa_demo' AND  TABLE_NAME   = 'file_managed'";
+		//$next_fid = db_query($sql_next_fid )->fetchObject()->AUTO_INCREMENT;
+		while ($rc2 = $result -> fetchObject()){
+			$filename = $rc2 -> filename;
+			$disk_filename = $rc2 -> disk_filename;
+			$filesize = $rc2 -> filesize;
+			$content_type = $rc2 -> content_type;
+			$attachment_author = $rc2 -> author;
+			$created_on = $rc2 -> created_on;
+			$description = $rc2 -> description;
+			$attachment_author_id = user_load_by_name($attachment_author) -> uid;
+
+			$exist = FALSE;
+			//drupal_set_message(_dump($attachment['uri'], 'purple', TRUE));
+			//drupal_set_message(_dump($official_attachment_file_folder . $disk_filename, 'purple', TRUE));
+			foreach($attachments as $attachment){
+				if ($attachment['uri'] == $official_attachment_file_folder . $disk_filename){
+					$exist = TRUE;
+					continue 2;
+				}
+			}
+
+			//if (!$exist){
+			$tmp_uri = $temp_attachment_file_folder . $disk_filename;
+			$uri = $official_attachment_file_folder . $disk_filename;
+			//drupal_set_message(_dump(drupal_realpath($uri), 'purple', TRUE));
+			$file_temp = file_get_contents(drupal_realpath($tmp_uri));
+			$doc = file_save_data($file_temp, $uri, FILE_EXISTS_REPLACE);
+				/*
+				$doc = array(
+					'filename' => $filename,
+					'uri' => $uri,
+					'filemime' => $content_type,
+					'type' => 'document',
+					'display' => 1,
+					'timestamp' => strtotime($created_on),
+					'description' => $description,
+					'fid' => $next_fid,
+          'status' => FILE_STATUS_PERMANENT,
+				);
+
+        if ($attachment_author_id){
+		    	$doc['uid'] = $attachment_author_id;
+				}
+        $doc = (object)$doc;
+				*/
+        //drupal_write_record('files', $doc);
+			$doc -> display = 1;
+			$doc -> status = FILE_STATUS_PERMANENT;
+			$doc -> uid = $attachment_author_id;
+			$doc -> filename = $filename;
+			file_save($doc);
+				//drupal_set_message(_dump($doc, 'purple', TRUE));
+			$task_wrapper -> field_oa_media ->offsetSet( $task_wrapper -> field_oa_media ->count(), (array)$doc);
+			//}
+
+		}
+
+		//drupal_set_message(_dump((array)$task_wrapper, 'purple', TRUE));
+		$task_wrapper -> save();
+
+		//comments, migrate comment only. No changes.
+		$sql = "select j.*, u.login as author from " . $chili_db. ".journals j LEFT JOIN ". $chili_db. ".users u ON j.user_id=u.id where j.type='IssueJournal' and j.journaled_id=:id";
+		$result2 = db_query($sql, array(':id' => $id));
+		while ($rc2 = $result2->fetchObject()){
+			$comment_id = $rc2 -> id;
+			$commnet_author = $rc2 -> author;
+			$notes = $rc2 -> notes;
+			if(!$notes) continue;
+			$created_at = $rc2 -> created_at;
+			$sql = new EntityFieldQuery();
+			$sql->entityCondition('entity_type', 'comment')
+				->propertyCondition('nid', $task_node ->nid, '=')
+				->fieldCondition('field_chili_journal_id', 'value', $comment_id, '=');
+			$result3 =$sql ->execute();
+			$comment = null;
+			if ($result3){
+				$comment = comment_load(array_shift((array_keys($result3['comment']))));
+			}
+			else{
+				$comment = entity_create('comment',array('node_type'=>"comment_node_$task_node_type", 'nid' => $task_node ->nid));
+			}
+			$comment_wrapper = entity_metadata_wrapper('comment',$comment);
+			if($notes) $comment_wrapper -> comment_body = array('value' => $notes, 'text_processing' => 1, 'format' => 'panopoly_wysiwyg_text');
+			if($notes) $comment_wrapper -> subject = truncate_utf8(trim(decode_entities(strip_tags($notes))), 29, TRUE);
+		 	if($created_at) $comment_wrapper -> created = strtotime($created_at);
+			$comment_wrapper -> status = 1;
+			if($comment_id) $comment_wrapper -> field_chili_journal_id = $comment_id;
+			$comment_author_id = user_load_by_name($commnet_author) -> uid;
+			if ($comment_author_id){
+				$comment_wrapper -> author = $comment_author_id;
+			}
+			$comment_wrapper -> save();
+      //drupal_set_message(_dump((array)$comment_wrapper, 'purple', TRUE));
+		}
+
+    drupal_set_message("Issue $subject ($id) has been successfully transferred.");
+
+
+ }
+}
+
+function com_load_chiliproject_issue_data_2($id, $testing, $temp_attachment_file_folder,$official_attachment_file_folder,$chili_db,$custom_fields_mapping){
+  global $ini_setting;
+  $temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+  $task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping'])?$ini_setting['issue_status_mapping']: array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping'])?$ini_setting['tracker_mapping']:array();
+	$role_mapping = isset($ini_setting['role_mapping'])?$ini_setting['role_mapping']: array();
+	if (!$section) $section = $task_section_name;
+	$sql = "select i.* from " . $chili_db. ".issues i  where i.id = :id";
+  //drupal_set_message(_dump($id, 'purple', TRUE));
+	if (!$id) return;
+	$result = db_query($sql, array(':id' => $id));
+	if ($result->rowCount() < 1){
+    drupal_set_message("Chili issue $id cannot be found. Skipped");
+	}
+	else {
+		$rc = $result->fetchObject();
+    $subject = $rc -> subject;
+		$parent_id = $rc -> parent_id;
+	
+		$sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', $task_node_type)
+	    ->fieldCondition('field_chili_id', 'value', $id, '=');
+	  $result2 = $sql->execute();
+		$task_node = null;
+		if ($result2){
+			$task_node = node_load(array_shift((array_keys($result2['node']))));
+		}
+		else{
+			drupal_set_message("Task $subject ($id) cannot be found. The issue is skipped.");
+			return;
+		}
+		
+
+		//related tasks
+    $field_info = field_info_field('field_related_tasks');
+		if ($field_info){
+
+			$sql = "select i.* from " . $chili_db. ".issue_relations i  where i.issue_from_id = :id";
+	    $result2 = db_query($sql, array(':id' => $id));
+			$lan = $task_node -> language;
+			while ($rc2 = $result2->fetchObject()){
+				$issue_to_id = $rc2 -> issue_to_id;
+				if (!$issue_to_id) continue;
+				$relation_type = $rc2 -> relation_type;
+	      $sql = new EntityFieldQuery();
+			  $sql->entityCondition('entity_type', 'node')
+			  	->entityCondition('bundle', $task_node_type)
+			    ->fieldCondition('field_chili_id', 'value', $issue_to_id, '=');
+			  $result3 = $sql->execute();
+				$new_related_task_node_id = null;
+				if ($result3){
+					$new_related_task_node_id = array_shift((array_keys($result3['node'])));
+				}
+				else{
+		      drupal_set_message("Related task (chili id $issue_to_id) for $subject cannot be found. The related task is skipped.");
+					continue;
+				}
+        if ($field_info['module'] == 'multifield'){
+		      $new_related_task = array(
+						'field_relation_type'=>array(
+							$lan => array(array('value'=>$relation_type))
+						),
+						'field_related_task' => array(
+							$lan => array(array('target_id'=>$new_related_task_node_id))
+						),
+						'id' => multifield_get_next_id(),
+
+					);
+				}
+        elseif ($field_info['module'] == 'entityreference'){
+        	$new_related_task = array(
+						'target_id'=>$new_related_task_node_id
+					);
+				}
+				$field_lancode = field_language('node', $task_node, 'field_related_tasks');
+        $task_node->field_related_tasks[$field_lancode][] = $new_related_task;
+        $task_node->field_related_tasks[$field_lancode] = array_map("unserialize", array_unique(array_map("serialize", $task_node->field_related_tasks[$field_lancode])));
+
+			}
+	    //drupal_set_message(_dump($task_node->field_related_tasks, 'purple', TRUE));
+			node_save($task_node);
+	    //drupal_set_message(_dump((array)$task_wrapper, 'purple', TRUE));
+		}
+		
+		//parent_task
+		$task_node_wrapper = entity_metadata_wrapper('node',$task_node);
+		if ($parent_id){
+	    $sql = new EntityFieldQuery();
+		  $sql->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', $task_node_type)
+		    ->fieldCondition('field_chili_id', 'value', $parent_id, '=');
+		  $result2 = $sql->execute();
+			$paretn_task_node = null;
+			if ($result2){
+				$parent_task_node = node_load(array_shift((array_keys($result2['node']))));
+        
+				$task_node_wrapper -> field_parent_task -> set($parent_task_node);
+       // drupal_set_message(_dump((array)$task_node_wrapper, 'purple', TRUE));
+        $task_node_wrapper -> save();
+			}
+			else{
+	      drupal_set_message("Parent task($parent_id) for $subject cannot be found. The issue is skipped.");
+				return;
+			}
+		}
+		## watchers
+		if (module_exists('oa_watchers')){
+			$sql_watcher = "select * from $chili_db.watchers w , $chili_db.users u where w.user_id=u.id and w.watchable_type='Issue' and w.watchable_id = :id";
+			$result = db_query($sql_watcher, array(':id' => $id));
+			//$space_users = oa_notifications_get_users_for_node($task_node);
+			//drupal_set_message(_dump($space_users, 'purple', TRUE));
+			//drupal_set_message(_dump('add watchers...', 'purple', TRUE));
+			$og_group_ref = $task_node_wrapper->og_group_ref->raw();
+			$watchers = array();
+			while($rc = $result->fetchObject()){
+				$watchable_id = $rc -> watchable_id;
+				$user_login = $rc -> login;
+				$a_user = user_load_by_name($user_login);
+				//drupal_set_message(_dump($a_user, 'purple', TRUE));
+				if(!og_is_member('node',$og_group_ref, 'user', $a_user, array())){ // Only non-members can be  watchers
+					$watchers[$a_user->uid]=$a_user->uid;
+				}
+				else{ // add the user to notifications
+					db_merge('oa_notifications')
+						-> key(array('source_type' => 'node', 'source_id' => $task_node -> nid, 'target_type' =>'user', 'target_id' => $a_user->uid))
+						-> fields(array('source_type' => 'node', 'source_id' => $task_node -> nid, 'target_type' =>'user', 'target_id' => $a_user->uid))
+						-> execute();
+				}
+			}
+			//drupal_set_message(_dump($watchers, 'purple', TRUE));
+			oa_watchers_update($task_node -> nid, $watchers, $notify = TRUE);
+		}
+ }
+}
+function com_oa_watchers_form(&$form_state = NULL, $op = 'load'){
+	$form = array();
+
+	$form['warning']=array(
+    '#type' => 'item',
+    '#markup' => "This operation will $op watchers data from chili project. The existng space data will be replaced with chili data.",
+	);
+  $form['action-submit']=array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+    '#attributes' => array('onclick' => 'return confirm("You are going to migrate all issues from chiliporject to OA. Are you sure you wish to continue?");'),
+  );
+
+  if ($form_state['clicked_button']['#id'] == 'edit-action-submit') {
+
+    com_oa_watchers_queue($op);
+	}
+
+	return $form;
+}
+function com_oa_watchers_queue($op = 'load'){
+	global $ini_setting;
+	$temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+	$task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping'])?$ini_setting['issue_status_mapping']: array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping'])?$ini_setting['tracker_mapping']:array();
+	$role_mapping = isset($ini_setting['role_mapping'])?$ini_setting['role_mapping']: array();
+	$sql = "select distinct watchable_id from $chili_db.watchers where watchable_type='Issue'";
+	//$sql = $sql . " and watchable_id in (732, 783, 782,778)";
+	$result = db_query($sql);
+	$queue = DrupalQueue::get('com_oa_watchers');
+	$queue -> deleteQueue(); // delete all un-done items
+	while ($rc = $result -> fetchObject()){
+		$id = $rc -> watchable_id;
+		$item = array('id' => $id, 'op' => $op,);
+		$queue->createItem($item);
+	}
+	$operations = array();
+	$operations[] = array('com_oa_watchers_batch', array($queue->numberOfItems()));
+	$batch = array(
+		'operations' => $operations,
+		'finished' => 'com_batch_op_finished',
+		// We can define custom messages instead of the default ones.
+		'title' => t('Migrating chili watchers'),
+		'init_message' => t('Migrating starting...'),
+		'progress_message' => t('Processed @current out of @total steps.'),
+		'error_message' => t('Migrating has encountered an error.'),
+	);
+	//drupal_set_message(_dump($batch, 'purple', TRUE));
+	batch_set($batch);
+	batch_process();
+}
+function com_oa_watchers_batch($total_items, &$context){
+	$queue = DrupalQueue::get('com_oa_watchers');
+	if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['max'] = $total_items;
+    $context['results']['log'] = array();
+  }
+	//drupal_set_message(_dump($queue, 'purple', TRUE));
+	$item = $queue->claimItem();
+	//drupal_set_message(_dump($item, 'purple', TRUE));
+	if ($item) {
+		//drupal_set_message(_dump($item, 'purple', TRUE));
+		$id = $item->data['id'];
+		$op = $item->data['op'];
+		if ($op == 'load'){
+			if (com_load_watchers($id)){
+				$queue->deleteItem($item);
+			}
+		}
+		elseif($op == 'remove'){
+			if (com_remove_watchers($id)){
+				$queue->deleteItem($item);
+			}
+		}
+		//usleep(100);
+	}
+	
+
+	// Provide an estimation of the completion level we've reached.
+	$context['sandbox']['progress'] += 1;
+	$context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+	$context['message'] = t("$op OA watchers. " . 'Processed @current out of @total', array('@current' => $context['sandbox']['progress'], '@total' => $context['sandbox']['max']));
+}
+function com_load_watchers($id = null){
+	global $ini_setting;
+	//return;
+ 	$chili_db = $ini_setting['chili_db'];
+	$task_node_type = $ini_setting['task_node_type'];
+	if (module_exists('oa_watchers')){
+		
+		//drupal_set_message(_dump($id, 'purple', TRUE));
+		$sql_task = new EntityFieldQuery();
+		$sql_task->entityCondition('entity_type', 'node')
+			->entityCondition('bundle', $task_node_type)
+			->fieldCondition('field_chili_id', 'value', $id, '=');
+		$result_task = $sql_task->execute();
+		$task_node = null;
+		
+		if ($result_task){
+			$task_node = node_load(array_shift((array_keys($result_task['node']))));
+			$task_node_wrapper = entity_metadata_wrapper('node',$task_node);
+			$og_group_ref = $task_node_wrapper->og_group_ref->raw();
+			//drupal_set_message(_dump($id, 'purple', TRUE));
+			$sql_watcher = "select * from $chili_db.watchers w , $chili_db.users u where w.user_id=u.id and w.watchable_type='Issue' and w.watchable_id = :id";
+			$result_watcher = db_query($sql_watcher, array(':id' => $id));
+			//$space_users = oa_notifications_get_users_for_node($task_node);
+			$watchers = array();
+			while($rc_watcher = $result_watcher->fetchObject()){
+				$watchable_id = $rc_watcher -> watchable_id;
+				$user_login = $rc_watcher -> login;
+				$a_user = user_load_by_name($user_login);
+				//drupal_set_message(_dump($a_user, 'purple', TRUE));
+				if(!og_is_member('node',$og_group_ref, 'user', $a_user, array())){ // Only non-members can be  watchers
+					$watchers[$a_user->uid]=$a_user->uid;
+				}
+				else{ // add the user to notifications
+				db_merge('oa_notifications')
+					-> key(array('source_type' => 'node', 'source_id' => $task_node -> nid, 'target_type' =>'user', 'target_id' => $a_user->uid))
+					-> fields(array('source_type' => 'node', 'source_id' => $task_node -> nid, 'target_type' =>'user', 'target_id' => $a_user->uid))
+					-> execute();
+				}
+			}
+			oa_watchers_update($task_node -> nid, $watchers, $notify = TRUE);
+			if (!empty($watchers)){
+				//drupal_set_message(_dump($id, 'purple', TRUE));
+				//drupal_set_message(_dump($watchers, 'purple', TRUE));
+				//drupal_set_message(_dump($task_node, 'purple', TRUE));
+			}
+			return TRUE;
+		}
+		
+	}
+	return FALSE;
+}
+function com_remove_watchers($id = null){
+	global $ini_setting;
+	//return;
+ 	$chili_db = $ini_setting['chili_db'];
+	$task_node_type = $ini_setting['task_node_type'];
+	if (module_exists('oa_watchers')){
+		
+		//drupal_set_message(_dump($id, 'purple', TRUE));
+		$sql_task = new EntityFieldQuery();
+		$sql_task->entityCondition('entity_type', 'node')
+			->entityCondition('bundle', $task_node_type)
+			->fieldCondition('field_chili_id', 'value', $id, '=');
+		$result_task = $sql_task->execute();
+		$task_node = null;
+		if ($result_task){
+			$task_node = node_load(array_shift((array_keys($result_task['node']))));
+			//drupal_set_message(_dump($task_node, 'purple', TRUE));
+			$sql_watcher = "select * from $chili_db.watchers w , $chili_db.users u where w.user_id=u.id and w.watchable_type='Issue' and w.watchable_id = :id";
+			$result_watcher = db_query($sql_watcher, array(':id' => $id));
+			$space_users = oa_notifications_get_users_for_node($task_node);
+			//drupal_set_message(_dump($space_users, 'purple', TRUE));
+			$watchers = array();
+			while($rc_watcher = $result_watcher->fetchObject()){
+				$watchable_id = $rc_watcher -> watchable_id;
+				$user_login = $rc_watcher -> login;
+				$a_user = user_load_by_name($user_login);
+				//drupal_set_message(_dump($a_user, 'purple', TRUE));
+				if(!isset($space_users[$a_user->uid])){ // Only non-members can be  watchers
+					remove_watcher_from_node($task_node -> nid, $a_user);
+				}
+				else{ // remove the user to notifications
+				db_delete('oa_notifications')
+					-> condition('source_type', 'node')
+					->condition('source_id', $task_node -> nid)
+					->condition('target_type', 'user')
+					->condition('target_id', $a_user->uid)
+					-> execute();
+				}
+			}
+		}
+		
+		return TRUE;
+	}
+	return FALSE;
+}
+function com_load_chiliproject_project_data_form(&$form_state = NULL){
+	$form = array();
+
+	$form['warning']=array(
+    '#type' => 'item',
+    '#markup' => "This operation will re-migrate project structure data from chili project. The existng space data will be replaced with chili data.",
+	);
+  $form['action-submit']=array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+    '#attributes' => array('onclick' => 'return confirm("You are going to migrate all issues from chiliporject to OA. Are you sure you wish to continue?");'),
+  );
+
+  if ($form_state['clicked_button']['#id'] == 'edit-action-submit') {
+
+    com_load_chiliproject_project_data();
+	}
+
+	return $form;
+}
+function com_load_chiliproject_project_data(){
+  global $ini_setting;
+  $temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+  $task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_section_title = $ini_setting['task_section_title'];
+	$wiki_section_title = $ini_setting['wiki_section_title'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping'])?$ini_setting['issue_status_mapping']: array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping'])?$ini_setting['tracker_mapping']:array();
+	$role_mapping = isset($ini_setting['role_mapping'])?$ini_setting['role_mapping']: array();
+  drupal_set_message('Creating of spaces and sections ...');
+	//round 1
+	global $user;
+	$sql = 'select * from ' . $chili_db. '.projects';
+  $result = db_query($sql);
+	while ($rc = $result ->fetchObject()){
+		$id = $rc -> id;
+		$name = $rc ->name;
+		$description = $rc -> description;
+		$is_public = $rc -> is_public;
+		$status = $rc -> status;
+
+    $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_space')
+	    ->fieldCondition('field_chili_project_id', 'value', $id, '=');
+	  $result2 = $sql->execute();
+		$space_node = null;
+		if ($result2){
+			$space_node = node_load(array_shift((array_keys($result2['node']))));
+		}
+		else{
+			$space_node =  entity_create('node', array('type' => 'oa_space'));
+		}
+		$field_lancode = field_language('node', $space_node, 'field_view_field');
+    $space_node -> field_view_field[$field_lancode][0] = array('vname'=>'customized_work_tracker|view_field_for_space', 'vargs'=>'[node:nid]');
+    $space_wrapper = entity_metadata_wrapper('node',$space_node);
+		$space_wrapper -> title = $name;
+		$space_wrapper -> body = array('value'=>$description, 'text_processing'=>1, 'format' => 'panopoly_wysiwyg_text');
+		$space_wrapper -> field_oa_section_override = 0;
+    $tid = array_shift(taxonomy_get_term_by_name('default', 'space_type')) -> tid;
+    $space_wrapper -> field_oa_space_type = $tid;
+    $space_wrapper -> group_access = !$is_public;
+    $space_wrapper -> group_group = 1;
+    $space_wrapper -> og_user_inheritance = 0;
+    $space_wrapper -> og_user_permission_inheritance = 0;
+    $space_wrapper -> field_chili_project_id = $id;
+    $space_wrapper -> author = $user;
+    //$space_wrapper -> field_view_field = array('vname'=>'customized_work_tracker|view_field_for_space', 'vargs'=>'[node:nid]');
+		$space_wrapper -> save();
+    //drupal_set_message(_dump((array)$space_wrapper, 'purple', TRUE));
+	}
+
+	//round 2
+  $sql = 'select * from ' . $chili_db. '.projects where parent_id is not null';
+  $result = db_query($sql);
+	while ($rc = $result ->fetchObject()){
+		$id = $rc -> id;
+		$parent_id = $rc -> parent_id;
+    $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_space')
+	    ->fieldCondition('field_chili_project_id', 'value', $id, '=');
+	  $result2 = $sql->execute();
+    $space_node = node_load(array_shift((array_keys($result2['node']))));
+    $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_space')
+	    ->fieldCondition('field_chili_project_id', 'value', $parent_id, '=');
+	  $result3 = $sql->execute();
+
+		if(!$result3){
+			drupal_set_messasge("Parent space (chili project id: $parent_id) could not be found.");
+			countinue;
+		}
+		# space parent
+    $parent_node_id = array_shift((array_keys($result3['node'])));
+    $space_wrapper = entity_metadata_wrapper('node',$space_node);
+		$space_wrapper -> oa_parent_space = array('target_id' => $parent_node_id);
+    $space_wrapper -> save();
+	}
+
+	// issue sections
+  $tid = array_shift(taxonomy_get_term_by_name($task_section_name, 'section_type')) -> tid;
+	$sql = 'select distinct project_id from ' . $chili_db. '.issues';
+  $result = db_query($sql);
+	while ($rc = $result ->fetchObject()){
+		$project_id = $rc -> project_id;
+    $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_section')
+      ->fieldCondition('field_oa_section', 'tid', $tid, '=')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=');
+	  $result2 = $sql->execute();
+		$section_node = null;
+		if ($result2){
+			$section_node = node_load(array_shift((array_keys($result2['node']))));
+		}
+		else{
+			$section_node =  entity_create('node', array('type' => 'oa_section'));
+		}
+		$field_lancode = field_language('node', $section_node, 'field_view_field');
+    $section_node -> field_view_field[$field_lancode][0] = array('vname'=>'customized_work_tracker|view_field_for_section', 'vargs'=>'[node:nid]');
+
+    $section_wrapper = entity_metadata_wrapper('node',$section_node);
+		$section_wrapper -> title = $task_section_title ;
+		//$space_wrapper -> body = array('value'=>$description, 'text_processing'=>1; 'format' => 'panopoly_wysiwyg_text');
+		$section_wrapper -> field_oa_section_override = 0;
+    $tid = array_shift(taxonomy_get_term_by_name($task_section_name, 'section_type')) -> tid;
+    $section_wrapper -> field_oa_section = $tid;
+    $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_space')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=');
+	  $result3 = $sql->execute();
+
+		if(!$result3){
+			drupal_set_messasge("Parent space (chili project id: $project_id) could not be found.");
+			countinue;
+		}
+    $parent_node = node_load(array_shift((array_keys($result3['node']))));
+		$section_wrapper -> og_group_ref = $parent_node;
+    $section_wrapper -> field_oa_node_types->offsetSet(0, $task_node_type);
+
+    $section_wrapper -> field_chili_project_id = $project_id;
+    $section_wrapper -> author = $user;
+    //$section_wrapper -> field_view_field = array('vname'=>'customized_work_tracker|view_field_for_section', 'vargs'=>'[node:nid]');
+		$section_wrapper -> save();
+		// reset panelizer
+		com_set_panelizer($section_wrapper -> nid -> value(), $tid);
+	}
+	//return;
+  // wiki sections
+  $tid = array_shift(taxonomy_get_term_by_name($wiki_section_name, 'section_type')) -> tid;
+	$sql = 'select distinct project_id from ' . $chili_db. '.wikis';
+  $result = db_query($sql);
+	while ($rc = $result ->fetchObject()){
+		$project_id = $rc -> project_id;
+    $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_section')
+      ->fieldCondition('field_oa_section', 'tid', $tid, '=')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=');
+	  $result2 = $sql->execute();
+		$section_node = null;
+		if ($result2){
+			$section_node = node_load(array_shift((array_keys($result2['node']))));
+		}
+		else{
+			$section_node =  entity_create('node', array('type' => 'oa_section'));
+		}
+    $section_wrapper = entity_metadata_wrapper('node',$section_node);
+		$section_wrapper -> title = $wiki_section_title ;
+		//$space_wrapper -> body = array('value'=>$description, 'text_processing'=>1; 'format' => 'panopoly_wysiwyg_text');
+		$section_wrapper -> field_oa_section_override = 0;
+    $tid = array_shift(taxonomy_get_term_by_name($wiki_section_name, 'section_type')) -> tid;
+    $section_wrapper -> field_oa_section = $tid;
+    $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_space')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=');
+	  $result3 = $sql->execute();
+
+		if(!$result3){
+			drupal_set_messasge("Parent space (chili project id: $project_id) could not be found.");
+			countinue;
+		}
+    $parent_node = node_load(array_shift((array_keys($result3['node']))));
+		$section_wrapper -> og_group_ref = $parent_node;
+    $section_wrapper -> field_oa_node_types->offsetSet(0, $wiki_node_type);
+
+    $section_wrapper -> field_chili_project_id = $project_id;
+    $section_wrapper -> author = $user;
+		$section_wrapper -> save();
+		com_set_panelizer($section_wrapper -> nid -> value(), $tid);
+	}
+	
+	# statuses, trackers, and prioirty
+  com_transfer_status_tracker_priority();
+	//custom fields conditional field mapping
+  //com_custom_fields_conditional_field_mapping();
+	# custom fields control and workflow mapping
+	//com_custom_field_control_workflow_mapping();
+  drupal_set_message('The creation of spaces and sections has done.');
+
+}
+function com_load_chiliproject_settings_form(&$form_state = NULL){
+	com_load_chiliproject_project_data();
+	com_custom_field_control_workflow_mapping();
+	return array();
+}
+function com_transfer_status_tracker_priority(){
+  global $ini_setting;
+  $temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+  $task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping'])?$ini_setting['issue_status_mapping']: array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping'])?$ini_setting['tracker_mapping']:array();
+	$role_mapping = isset($ini_setting['role_mapping'])?$ini_setting['role_mapping']: array();
+	# Tracker, Chiliproject trackers are translated to OA task type as key-value pair tracker name - tracker name
+  drupal_set_message('Migrating chili trackers.');
+	$sql = 'select * from ' . $chili_db. '.trackers order by position';
+  $result = db_query($sql);
+
+	$options_text = '';
+	$options_value = '';
+	$default_value_text = 'Task';
+	$default_value_field = 'Task';
+	$variable_name = "oa_worktracker_allowed_values_task_type";
+	$setting = variable_get($variable_name, null);
+	$trackers = array();
+	while ($rc = $result ->fetchObject()){
+		$name = $rc -> name;
+		if(isset($tracker_mapping[$name])) $name = $tracker_mapping[$name];
+		$id = $rc -> id;
+		$setting['options'][$name] = $name;
+		$trackers[$id] = $name;
+	}
+	foreach($setting['options'] as $key => $value){
+		$options_text = $options_text . "$key|$value\n";
+	}
+	$setting = array('options' => $setting['options'], 'options_text' => $options_text, 'options_field' => $options_text, 'default_value' => $default_value_field, 'default_value_text' => $default_value_text);
+  variable_del($variable_name);
+	variable_set($variable_name, $setting);
+  //drupal_set_message(_dump( $variable_name, 'purple', TRUE));
+  //drupal_set_message(_dump( $setting, 'purple', TRUE));
+  //drupal_set_message(_dump( $id, 'purple', TRUE));
+  //drupal_set_message(_dump( $trackers, 'purple', TRUE));
+
+	# setting for types (tracker) for task sections
+  $variable_name = "nhpd_oa_task_type_allowed_values_setting";
+  $sql = "select * from $chili_db.projects_trackers pt, $chili_db.trackers t where pt.tracker_id=t.id";
+  $result = db_query($sql);
+  $options = array();
+  $tid = array_shift(taxonomy_get_term_by_name($task_section_name, 'section_type')) -> tid;
+  while ($rc = $result ->fetchObject()){
+		$project_id = $rc -> project_id;
+		$tracker_id = $rc -> tracker_id;
+		$name = $rc -> name;
+    $sql2 = new EntityFieldQuery();
+	  $sql2->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_section')
+      ->fieldCondition('field_oa_section', 'tid', $tid, '=')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=');
+	  $result2 = $sql2->execute();
+		$sql3 = new EntityFieldQuery();
+	  $sql3->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_space')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=');
+	  $result3 = $sql3->execute();
+		if ($result2 && $result3){
+			$space_node_nid = array_shift((array_keys($result3['node'])));
+			$section_node_nid = array_shift((array_keys($result2['node'])));
+			$options[$space_node_nid][$section_node_nid][] = $name;
+		}
+	}
+	$setting = array('setting' => $options, 'all_options' => $setting['options']);
+	variable_del($variable_name);
+  variable_set($variable_name, $setting);
+
+  //drupal_set_message(_dump( $variable_name, 'purple', TRUE));
+  //drupal_set_message(_dump( $setting, 'purple', TRUE));
+//return;
+  drupal_set_message('Migration of trackers is done.');
+ # priority
+  drupal_set_message('Migrating chili priority...');
+  $variable_name = "oa_worktracker_allowed_values_priority";
+	$sql = 'select * from ' . $chili_db. '.enumerations where type =:IssuePriority';
+  $result = db_query($sql, array(':IssuePriority' => 'IssuePriority'));
+  $setting = variable_get($variable_name, null);
+  $options_text = '';
+	$options_value = '';
+	$default_value_text = '';
+	$default_value_field = '';
+
+  while ($rc = $result ->fetchObject()){
+		//$name = str_replace(' ', '',str_replace(')', '',str_replace('(', '',$rc -> name)));
+		$name = preg_replace( '/[\(\)\d\s]/', '', $rc -> name);
+		$id = $rc -> id;
+    $setting['options'][$id] = $name;
+		if ($name == 'Normal'){
+      $default_value_text = $id;
+			$default_value_field = $id;
+		}
+	}
+  foreach($setting['options'] as $key => $value){
+		$options_text = $options_text . "$key|$value\n";
+	}
+	$setting = array('options' => $setting['options'], 'options_text' => $options_text, 'options_field' => $options_text, 'default_value' => $default_value_field, 'default_value_text' => $default_value_text);
+  variable_del($variable_name);
+	variable_set($variable_name, $setting);
+	drupal_set_message('Migration of priority is done.');
+
+  //drupal_set_message(_dump( $variable_name, 'purple', TRUE));
+  //drupal_set_message(_dump( $setting, 'purple', TRUE));
+  # status
+	drupal_set_message('Migrating chili task statuses...');
+  $variable_name = "oa_worktracker_allowed_values_task_status";
+  $sql = 'select * from ' . $chili_db. '.issue_statuses';
+  $result = db_query($sql);
+  $setting = variable_get($variable_name, null);
+  $options_text = '';
+	$options_value = '';
+	$default_value_text = '';
+	$default_value_field = '';
+  while ($rc = $result ->fetchObject()){
+		$name = $rc -> name;
+		if(isset($issue_status_mapping[$name])) $name = $issue_status_mapping[$name];
+		$id = $rc -> id;
+    $setting['options'][strtolower($name)] = $name;
+		if ($rc->is_default){
+      $default_value_text = strtolower($name);
+			$default_value_field = strtolower($name);
+		}
+	}
+  foreach($setting['options'] as $key => $value){
+		$options_text = $options_text . "$key|$value\n";
+	}
+	$setting = array('options' => $setting['options'], 'options_text' => $options_text, 'options_field' => $options_text, 'default_value' => $default_value_field, 'default_value_text' => $default_value_text);
+  variable_del($variable_name);
+	variable_set($variable_name, $setting);
+
+  drupal_set_message('Migration of task statuses is done.');
+	
+	# task category
+  drupal_set_message('Migrating chili task category...');
+	
+	$sql = 'select distinct name from ' . $chili_db. '.issue_categories';
+  $result = db_query($sql);
+
+	$options_text = '';
+	$options_value = '';
+	$default_value_text = 'General';
+	$default_value_field = 'General';
+	$variable_name = "oa_worktracker_allowed_values_task_category";
+	$setting = variable_get($variable_name, null);
+	$trackers = array();
+	while ($rc = $result ->fetchObject()){
+		$name = $rc -> name;
+		$setting['options'][$name] = $name;
+	}
+	foreach($setting['options'] as $key => $value){
+		$options_text = $options_text . "$key|$value\n";
+	}
+	$setting = array('options' => $setting['options'], 'options_text' => $options_text, 'options_field' => $options_text, 'default_value' => $default_value_field, 'default_value_text' => $default_value_text);
+  variable_del($variable_name);
+	variable_set($variable_name, $setting);
+
+	// setting for category for task sections
+  $variable_name = "nhpd_oa_task_category_allowed_values_setting";
+  $sql = 'select * from ' . $chili_db. '.issue_categories';
+  $result = db_query($sql);
+  $options = array();
+  $tid = array_shift(taxonomy_get_term_by_name($task_section_name, 'section_type')) -> tid;
+  while ($rc = $result ->fetchObject()){
+		$project_id = $rc -> project_id;
+		$name = $rc -> name;
+    $sql2 = new EntityFieldQuery();
+	  $sql2->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_section')
+      ->fieldCondition('field_oa_section', 'tid', $tid, '=')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=');
+	  $result2 = $sql2->execute();
+		
+		$sql3 = new EntityFieldQuery();
+	  $sql3->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_space')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=');
+	  $result3 = $sql3->execute();
+		if ($result2 && $result3){
+			$space_node_nid = array_shift((array_keys($result3['node'])));
+			$section_node_nid = array_shift((array_keys($result2['node'])));
+			$options[$space_node_nid][$section_node_nid][] = $name;
+		}
+	}
+	$setting = array('setting' => $options, 'all_options' => $setting['options']);
+	variable_del($variable_name);
+  variable_set($variable_name, $setting);
+  drupal_set_message('Migration of task category is done.');
+
+//return;
+}
+function com_remove_chiliproject_data_form(&$form_state = NULL){
+  global $ini_setting;
+  $temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+  $task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping'])?$ini_setting['issue_status_mapping']: array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping'])?$ini_setting['tracker_mapping']:array();
+	$role_mapping = isset($ini_setting['role_mapping'])?$ini_setting['role_mapping']: array();
+	$form = array();
+	$header = array(
+									'components' => t("Components"),
+									'note' => t('Note'),
+									);
+	$options = array(
+									'wiki' => array(
+										'components' => t("Wiki"),
+										'note' => t('Chili wiki pages'),
+									),
+									'task' => array(
+										'components' => t("Tasks"),
+										'note' => t('Chili issues'),
+									),
+									'settings' => array(
+										'components' => t("Settings"),
+										'note' => t('Task statuses, types, categories, priorities, and workflow settings'),
+									),
+									'all_except_users' => array(
+										'components' => t("All except users"),
+										'note' => t('Spaces, Sections, Tasks, Wikis, and settings'),
+									),
+									'all' => array(
+										'components' => t("All"),
+										'note' => t('Spaces, Sections, Tasks, Wikis, Users, and settings'),
+									),
+	);
+
+  $form['mode']=array(
+    '#type' => 'tableselect',
+		'#header' => $header,
+		'#options' => $options,
+		'#multiple' => FAlSE,
+		'#required' => TRUE,
+    '#title' => "What do you want to remove? ",
+	);
+
+  $form['action-submit']=array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+    '#attributes' => array('onclick' => 'return confirm("You are going to delete data from OA. This operation is not reversible. Are you sure you wish to continue?");'),
+  );
+
+  if ($form_state['clicked_button']['#id'] == 'edit-action-submit') {
+  	//drupal_set_message(_dump( $form_state, 'purple', TRUE));
+		$mode = $form_state['values']['mode'];
+		$components = array();
+		switch($mode){
+			case 'wiki':
+			$components[] = $wiki_node_type;
+			break;
+			case 'task':
+			$components[] = $task_node_type;
+			break;
+			case 'settings':
+			$components[] = 'settings';
+			break;
+			case 'all_except_users':
+			$components = array($wiki_node_type, $task_node_type, 'oa_section', 'oa_space', 'settings') ;
+			break;
+			case 'all':
+			$components = array($wiki_node_type, $task_node_type, 'oa_section', 'oa_space', 'settings', 'user') ;
+			break;
+		}
+		com_remove_chiliproject_data_batch_setting($components);
+	}
+	return $form;
+}
+
+function com_remove_chiliproject_data_batch_setting($components){
+	
+	global $ini_setting;
+  $temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+  $task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping'])?$ini_setting['issue_status_mapping']: array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping'])?$ini_setting['tracker_mapping']:array();
+	$role_mapping = isset($ini_setting['role_mapping'])?$ini_setting['role_mapping']: array();
+	//drupal_set_message(_dump($components, 'purple', TRUE));
+	$operations = array();
+	$ids_to_delete = array();
+	foreach($components as $component){
+		$ids = array();
+		$entity_type = '';
+		$content_type = '';
+		if($component == 'settings'){
+			$ids = array(
+													'oa_worktracker_allowed_values_priority',
+													'oa_worktracker_allowed_values_task_category',
+													'oa_worktracker_allowed_values_task_status',
+													'oa_worktracker_allowed_values_task_type',
+													'oa_worktracker_allowed_values_task_subcategory',
+													'oa_worktracker_closed_task_statuses',
+													'nhpd_oa_task_category_allowed_values_setting',
+													'nhpd_oa_task_custom_fields_allowed_values_setting',
+													'nhpd_oa_task_status_allowed_values_setting',
+													'nhpd_oa_task_type_allowed_values_setting',
+													
+												);
+			$entity_type = 'settings';
+			$content_type = null;
+		}
+		else if ($component == 'user'){
+			$chili_sql = "select login from $chili_db.users";
+			$entity_type = 'user';
+			$result = db_query($chili_sql);
+			$wiki_ids = array();
+			while($rc = $result->fetchObject()){
+				$wiki_ids[] = $rc -> login;
+			}
+			$sql = new EntityFieldQuery();
+			$sql->entityCondition('entity_type', 'user')
+					-> propertyCondition('name', $wiki_ids, 'IN');
+			$result2 = $sql->execute();
+			unset($result2[$entity_type][0]); // keep the admin user
+			$ids = array_keys($result2[$entity_type]);
+		}
+		else{
+			switch($component) {
+				case $wiki_node_type:
+					$chili_sql = "select id from $chili_db.wiki_pages";
+					$entity_type = 'node';
+					$condition_field = 'field_chili_id';
+				break;
+				case $task_node_type:
+					$chili_sql = "select id from $chili_db.issues";
+					$entity_type = 'node';
+					$condition_field = 'field_chili_id';
+				break;
+				case 'oa_section':
+				case 'oa_space':
+					$chili_sql = "select id from $chili_db.projects";
+					$entity_type = 'node';
+					$condition_field = 'field_chili_project_id';
+				break;
+			}
+			$result = db_query($chili_sql);
+			$wiki_ids = array();
+			while($rc = $result->fetchObject()){
+				$wiki_ids[] = $rc -> id;
+			}
+			//drupal_set_message(_dump($wiki_ids, 'purple', TRUE));
+			$sql = new EntityFieldQuery();
+			$sql->entityCondition('entity_type', $entity_type)
+				->entityCondition('bundle', $component)
+				->fieldCondition($condition_field, 'value', $wiki_ids, 'IN');
+			$result2 = $sql->execute();
+			if (isset($result2[$entity_type]))$ids = array_keys($result2[$entity_type]);
+
+		}
+		//$ids_to_delete = array_merge($ids_to_delete, $ids);
+		if(!empty($ids)) $ids_to_delete[$component] = $ids;
+		$total_rows = count($ids);
+		if($total_rows > 0 ) $operations[] = array('com_remove_chiliproject_data_batch', array($entity_type, $component, $total_rows));
+	}
+	$batch = array(
+		'operations' => $operations,
+		'finished' => 'com_batch_op_finished',
+		// We can define custom messages instead of the default ones.
+		'title' => t('Removing chili data'),
+		'init_message' => t('Starting...'),
+		//'progress_message' => t('Processed @current out of @total steps.'),
+		'error_message' => t('Migrating has encountered an error.'),
+	);
+	variable_set('chili_oa_migration_ids_to_delete', $ids_to_delete);
+	//drupal_set_message(_dump($operations, 'purple', TRUE));
+	//drupal_set_message(_dump($GLOBALS, 'purple', TRUE));
+	batch_set($batch);
+	batch_process();
+}
+function com_remove_chiliproject_data_batch($entity_type, $content_type, $total_rows,&$context){
+	global $ini_setting;
+  $task_node_type = $ini_setting['task_node_type'];
+	// Prepare the sandbox.
+	$ids_to_delete = variable_get('chili_oa_migration_ids_to_delete', array());
+	$slice_size = 20;
+	if (count($ids_to_delete[$content_type]) < $slice_size) $slice_size = count($ids_to_delete[$content_type]);
+	//drupal_set_message(_dump($ids_to_delete, 'purple', TRUE));
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['max'] = $total_rows;
+    $context['results']['log'] = array();
+  }
+	$slice_to_delete = array_splice($ids_to_delete[$content_type], 0, $slice_size);
+	if (count($ids_to_delete)) {
+    if ($entity_type == 'settings'){
+			foreach($slice_to_delete as $id_to_delete){
+				variable_del($id_to_delete);
+			}
+		}
+		else{
+			entity_delete_multiple($entity_type, $slice_to_delete);
+			// delete watchers. Not necessary, hook_node_delete in oa_watchers deals with it. 
+			/*if ($entity_type == $task_node_type){
+				foreach($slice_to_delete as $task_nid){
+					delete_all_watchers_for_a_task($task_nid);
+				}
+			}*/
+		}
+    
+		//drupal_set_message(_dump( "deleting $content_type:$id_to_delete" , 'purple', TRUE));
+		//usleep(100);
+ 		variable_set('chili_oa_migration_ids_to_delete', $ids_to_delete);
+
+    // Provide an estimation of the completion level we've reached.
+    $context['sandbox']['progress'] += $slice_size;
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+    $context['message'] = t('Removing @content_type. Processed @current out of @total', array('@content_type' => $content_type, '@current' => $context['sandbox']['progress'], '@total' => $context['sandbox']['max']));
+  }
+
+  if (!count($ids_to_delete[$content_type]) || $context['finished'] === 1) {
+    // All done. Provide a status message to the user.
+    $context['results']['log'][] = t('Performed %operation on @items.', array(
+      '%operation' => $content_type,
+      '@items' => format_plural($context['sandbox']['progress'], '1 item', '@count items'),
+    ));
+  }
+}
+
+function com_load_chiliproject_wiki_data_form(&$form_state = NULL){
+  global $ini_setting;
+  $temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+  $task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping'])?$ini_setting['issue_status_mapping']: array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping'])?$ini_setting['tracker_mapping']:array();
+	$role_mapping = isset($ini_setting['role_mapping'])?$ini_setting['role_mapping']: array();
+	$form = array();
+
+  $mapping = isset($form_state['values']['mapping_chili_project_id']) ? $form_state['values']['mapping_chili_project_id'] : 0;
+  /*$form['mapping_chili_project_id']=array(
+    '#type' => 'checkbox',
+    '#default_value' => $mapping,
+    '#title' => "Map chili project id to the Wiki sections? ",
+	);*/
+  $round2 = isset($form_state['values']['round2']) ? $form_state['values']['round2'] : 0;
+	$form['round2']=array(
+    '#type' => 'checkbox',
+    '#default_value' => $round2,
+    '#title' => "Round2 only?",
+	);
+ $test = isset($form_state['values']['test']) ? $form_state['values']['test'] : 0;
+	$form['test']=array(
+    '#type' => 'checkbox',
+    '#default_value' => $test,
+    '#title' => "Testing? (first " . TEST_RECORDS . " record)",
+	);
+  $reload = isset($form_state['values']['reload']) ? $form_state['values']['reload'] : 0;
+	$form['reload']=array(
+    '#type' => 'checkbox',
+    '#default_value' => $reload,
+    '#title' => "Reload data?",
+	);
+  $form['action-submit']=array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+    '#attributes' => array('onclick' => 'return confirm("You are going to migrate all issues from chiliporject to OA. Are you sure you wish to continue?");'),
+  );
+
+  if ($form_state['clicked_button']['#id'] == 'edit-action-submit') {
+  	if ($mapping){
+			drupal_set_message("Stating mapping chili porject id to the Task sections...");
+	    com_mapping_chili_project_id_to_task_sections($wiki_section_name);
+	    drupal_set_message("Mapping chili porject id to the Task sections is done.");
+		}
+    $sql = "select id from " . $chili_db. ".wiki_pages order by id";
+		if ($test) $sql = "select id from " . $chili_db. ".wiki_pages order by id limit " . TEST_RECORDS;
+		$result = db_query($sql);
+		$operations = array();
+		if(!$round2){
+			while ($rc = $result ->fetchObject()){
+				$id = $rc -> id;
+		    $operations[] = array('com_load_chiliproject_wiki_data_batch', array($id, $reload, 1));
+			}
+		}
+    $result = db_query($sql);
+    while ($rc = $result ->fetchObject()){
+			$id = $rc -> id;
+			$round = 2;
+	    $operations[] = array('com_load_chiliproject_wiki_data_batch', array($id, $reload, $round));
+		}
+	  $batch = array(
+	    'operations' => $operations,
+	    'finished' => 'batch_op_finished',
+	    // We can define custom messages instead of the default ones.
+	    'title' => t('Migrating chili Wiki'),
+	    'init_message' => t('Migrating starting...'),
+	    'progress_message' => t('Processed @current out of @total steps.'),
+	    'error_message' => t('Migrating has encountered an error.'),
+	  );
+	  batch_set($batch);
+	  batch_process();
+    //drupal_set_message(_dump($operations, 'purple', TRUE));
+
+	}
+
+	return $form;
+}
+function com_load_chiliproject_wiki_data_batch($id, $reload,$round, $content){
+  //drupal_set_message(_dump("$id, $testing,$round", 'purple', TRUE));
+	$message = '';
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['max'] = 1;
+  }
+	if ($round == 2) {
+		com_load_chiliproject_wiki_data_2($id);
+	}
+	else{
+    com_load_chiliproject_wiki_data($id, $reload);
+	}
+  // Inform the batch engine that we are not finished,
+  // and provide an estimation of the completion level we reached.
+	$context['sandbox']['progress'] += 1;
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+}
+/**
+ *$reload: 1 - reloads wiki text from chiliproject; 0 - changes viki text from OA2
+ */
+
+function com_load_chiliproject_wiki_data($id, $reload=0){
+  global $ini_setting;
+  $temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+  $task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping'])?$ini_setting['issue_status_mapping']: array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping'])?$ini_setting['tracker_mapping']:array();
+	$role_mapping = isset($ini_setting['role_mapping'])?$ini_setting['role_mapping']: array();
+  $wiki_filter_name = isset($ini_setting['wiki_filter_name'])?$ini_setting['wiki_filter_name']:'nhpd_wiki';
+	$sql = "select w.*, wp.*, wc.*, au.login as author,  p.name as project_name from  ". $chili_db. ".wikis w LEFT JOIN ". $chili_db. ".wiki_pages wp on w.id=wp.wiki_id LEFT JOIN ". $chili_db. ".wiki_contents wc on wp.id=wc.page_id LEFT JOIN ". $chili_db. ".users au on wc.author_id=au.id LEFT JOIN ". $chili_db. ".projects p on w.project_id=p.id where wp.id=:id";
+  //drupal_set_message(_dump($sql, 'purple', TRUE));
+//return;
+	if (!$id) return;
+	$result = db_query($sql, array(':id' => $id));
+	if ($result->rowCount() < 1){
+    drupal_set_message("Chili issue $id cannot be found. Skipped");
+		return;
+	}
+
+
+	while ($rc = $result->fetchObject()){
+	  //drupal_set_message(_dump($rc, 'purple', TRUE));
+
+		$project_id = $rc -> project_id;
+	  $project_name = $rc -> project_name;
+		$start_page = $rc -> start_page;
+		$title = $rc -> title;
+    $created_on = $rc -> created_on;
+		$protected = $rc -> protected;
+    $author = $rc -> author;
+		$text = $rc -> text;
+    $updated_on = $rc -> updated_on;
+		$parent_id = $rc -> parent_id;
+		$page_id = $rc -> page_id;
+    //drupal_set_message(_dump($page_id, 'purple', TRUE));
+    //drupal_set_message(_dump($title, 'purple', TRUE));
+
+		if(!$title) continue;
+
+
+		//oa wiki
+		$sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', $wiki_node_type)
+	    ->fieldCondition('field_chili_id', 'value', $page_id, '=');
+	  $result2 = $sql->execute();
+		$wiki_node = null;
+
+		if ($result2){
+			$wiki_node = node_load(array_shift((array_keys($result2['node']))));
+		  if (!$reload){
+						$text = $wiki_node->field_wiki_page['und'][0]['value'];
+			}
+		}
+		else{
+			$wiki_node =  entity_create('node', array('type' => $wiki_node_type));
+		}
+    $wiki_wrapper = entity_metadata_wrapper('node',$wiki_node);
+		//return;
+	   // oa_section_ref
+    $tid = array_shift(taxonomy_get_term_by_name($wiki_section_name, 'section_type')) -> tid;
+	  $sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', 'oa_section')
+	    ->fieldCondition('field_chili_project_id', 'value', $project_id, '=')
+			->fieldCondition('field_oa_section', 'tid', $tid, '=');
+	  $result2 = $sql->execute();
+		if ($result2){
+	    $section_nid = array_shift((array_keys($result2['node'])));
+	  	$wiki_wrapper -> oa_section_ref = $section_nid;
+		}
+		else{
+	    drupal_set_message("Task section under $project_name ($project_id) cannot be found. The issue is skipped.");
+			continue;
+		}
+		//return;
+	  // oa_group_ref
+		$space = com_node_load_by_title($project_name, 'oa_space');
+		if ($space){
+	    $wiki_wrapper -> og_group_ref = $space -> nid;
+		}
+		else{
+	    drupal_set_message("Space $project_name cannot be found. og_group_ref is not assined.");
+		}
+
+		//procesing TOC - {{toc}}
+		// Parses {{toc}} to [toc title] of drupla toc filter
+		$pattern = '/h1\..+\n/';
+		$matches = array();
+    preg_match($pattern, $text, $matches);
+		if (!empty($matches)){
+			$h1 = trim(str_replace('h1.', '', $matches[0]));
+		}
+		$text = str_replace('{{toc}}', "[toc $h1]", $text);
+
+
+    //procesing image link - !{attributes}img.png!
+		// Parses !img.png! to !system/files/img.png
+		$pattern = '/\![^\!]+\!/';
+		$matches = array();
+    preg_match_all($pattern, $text, $matches);
+		$appended = 'system/files/its';
+		foreach ($matches[0] as $match){
+			if(preg_match('/^\!system\/files\/its\//', $match)) continue; // skips parsed img links
+			$pattern = '/\{.+\}/';
+			$matches2 = array();
+      //drupal_set_message(_dump($match, 'purple', TRUE));
+      preg_match($pattern, $match, $matches2);
+      //drupal_set_message(_dump($matches2, 'purple', TRUE));
+			$file_name = '';
+			$attributes = '';
+			if($matches2[0]){
+				$attributes = $matches2[0];
+				$file_name = str_replace('!', '', str_replace($attributes, '', $match));
+        //drupal_set_message(_dump($match, 'purple', TRUE));
+
+			}
+			else{
+        $file_name = str_replace('!', '', $match);
+			}
+			//drupal_set_message(_dump($file_name, 'purple', TRUE));
+			$sql = "select * from " . $chili_db . ".attachments where container_type = 'WikiPage' and container_id = :container_id and filename=:filename";
+
+      $result_img = db_query($sql, array(':container_id' => $page_id, ':filename' => $file_name));
+
+			while ($rc_img = $result_img -> fetchObject()){
+				$filename = $rc_img -> filename;
+	      $disk_filename = $rc_img -> disk_filename;
+	      $filesize = $rc_img -> filesize;
+	      $content_type = $rc_img -> content_type;
+	      $created_on = $rc_img -> created_on;
+	      $description = $rc_img -> description;
+
+				$tmp_uri = $temp_attachment_file_folder . $disk_filename;
+        $uri = $officail_attachment_file_folder . $disk_filename;
+        //drupal_set_message(_dump(drupal_realpath($uri), 'purple', TRUE));
+        $file_temp = file_get_contents(drupal_realpath($tmp_uri));
+        $doc = file_save_data($file_temp, $uri, FILE_EXISTS_REPLACE);
+				$link = "!$attributes" . "$appended/$disk_filename($filename)!";
+        //drupal_set_message(_dump($link, 'purple', TRUE));
+        $text = str_replace($match, $link, $text);
+			}
+
+		}
+
+	  $wiki_wrapper -> title = $title;
+		$wiki_wrapper -> language = LANGUAGE_NONE;
+		$wiki_wrapper -> field_wiki_page = array('value' => $text, 'text_processing' => 1, 'format' => $wiki_filter_name);
+	  $wiki_wrapper -> created = strtotime($created_on);
+	  $wiki_wrapper -> status = 1;
+	  $wiki_wrapper -> field_chili_id = $page_id;
+		if (str_replace(' ', '_', $start_page) == $title){
+      $wiki_wrapper -> field_is_first_page = 1;
+		}
+
+		$author_id = user_load_by_name($author) -> uid;
+		if ($author_id){
+	    $wiki_wrapper -> author = $author_id;
+		}
+		else{
+			drupal_set_message("User $author cannot be found. Author is not assigned.");
+		}
+    //drupal_set_message(_dump((array)$wiki_wrapper, 'purple', TRUE));
+    $wiki_wrapper -> save();
+
+    drupal_set_message("Wiki ($page_id) has been successfully transferred.");
+
+ }
+}
+
+function com_load_chiliproject_wiki_data_2($id){
+  global $ini_setting;
+  $temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+  $task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping'])?$ini_setting['issue_status_mapping']: array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping'])?$ini_setting['tracker_mapping']:array();
+	$role_mapping = isset($ini_setting['role_mapping'])?$ini_setting['role_mapping']: array();
+  $wiki_filter_name = isset($ini_setting['wiki_filter_name'])?$ini_setting['wiki_filter_name']:'nhpd_wiki';
+	if (!$id) return;
+	$sql = "select wp.*, wc.* from  " . $chili_db . ".wiki_pages wp LEFT JOIN ". $chili_db . ".wiki_contents wc on wp.id=wc.page_id  where wp.id=:id";
+  //drupal_set_message(_dump($sql, 'purple', TRUE));
+
+	//return;
+	$result = db_query($sql, array(':id' => $id));
+	if ($result->rowCount() < 1){
+    drupal_set_message("Chili wiki $id cannot be found. Skipped");
+		return;
+	}
+
+	while ($rc = $result->fetchObject()){
+		$title = $rc -> title;
+    $created_on = $rc -> created_on;
+		$protected = $rc -> protected;
+		//$text = $rc -> text;
+    $updated_on = $rc -> updated_on;
+		$parent_id = $rc -> parent_id;
+		$page_id = $rc -> page_id;
+		$wiki_id = $rc -> wiki_id;
+
+
+    //drupal_set_message(_dump($page_id, 'purple', TRUE));
+    //drupal_set_message(_dump($wiki_id, 'purple', TRUE));
+		//oa wiki
+		$sql = new EntityFieldQuery();
+	  $sql->entityCondition('entity_type', 'node')
+	  	->entityCondition('bundle', $wiki_node_type)
+	    ->fieldCondition('field_chili_id', 'value', $page_id, '=');
+	  $result2 = $sql->execute();
+		$wiki_node = null;
+
+		if (!$result2){
+			drupal_set_message("Wiki node wiht $title ($page_id) could not be found.");
+			continue;
+		}
+
+    $wiki_node = node_load(array_shift((array_keys($result2['node']))));
+		$text = $wiki_node->field_wiki_page['und'][0]['value'];
+    //drupal_set_message(_dump((array)$text, 'purple', TRUE));
+    $wiki_wrapper = entity_metadata_wrapper('node',$wiki_node);
+
+		// parses internal links [[wiki title]]to freelinling syntax [[nid:n]]
+    //$pattern = '/[^!]\[\[[\w\s\d\/\-]+\]\]/';
+    $pattern = '/[^!]\[\[[^\[^\]]+\]\]/';
+		$matches = array();
+
+    preg_match_all($pattern, $text, $matches);
+    //drupal_set_message(_dump($matches, 'purple', TRUE));
+		foreach($matches[0] as $match){
+			$linked_page_id = null;
+      $likined_wiki_nid = null;
+			$match = preg_replace('/^.\[\[/', '[[', $match);
+			$linked_text = str_replace(']]', '', str_replace('[[', '', $match));
+			if(preg_match('/^nid:\d+/', $linked_text)) continue; //skips parsed links
+      $linked_title = com_titleize($linked_text);
+      //drupal_set_message(_dump($match, 'purple', TRUE));
+      //drupal_set_message(_dump($linked_text, 'purple', TRUE));
+			$sql3 = "select wp.id from " . $chili_db . ".wiki_pages wp where  wp.wiki_id = :wiki_id and wp.title = :title ";
+      $result3 = db_query($sql3, array(':wiki_id'=>$wiki_id, ':title'=> $linked_title));
+			$rc3 = $result3 ->fetchObject();
+      //drupal_set_message(_dump($sql3, 'purple', TRUE));
+      //drupal_set_message(_dump($linked_title, 'purple', TRUE));
+
+			if ($rc3){
+        $linked_page_id = $rc3 -> id;
+			}
+			else{ // check wiki_redirects
+
+
+				$sql5 = "select wp.id as page_id, wp.title as title  from "  . $chili_db . ".wiki_pages wp JOIN, " . $chili_db . ".wiki_redirects wr on wp.wiki_id = wr.wiki_id and wp.title= wr.redirects_to where wr.wiki_id = :wiki_id and wr.title = :title ";
+	      //drupal_set_message(_dump($sql5, 'purple', TRUE));
+	      //drupal_set_message(_dump($wiki_id, 'purple', TRUE));
+	      //drupal_set_message(_dump($linked_title, 'purple', TRUE));
+				$result5 = db_query($sql3, array(':wiki_id'=>$wiki_id, ':title'=> $linked_title));
+				$rc5 = $result ->fetchObject();
+	      //drupal_set_message(_dump($rc5, 'purple', TRUE));
+				if ($rc5){
+					$linked_title=$rc5->title;
+					$linked_page_id = $rc5 -> page_id;
+	        $linked_text = str_replace('_', ' ', $rc5 -> title);
+				}
+     }
+      $sql4 = new EntityFieldQuery();
+		  $sql4->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', $wiki_node_type)
+		    ->fieldCondition('field_chili_id', 'value', $linked_page_id, '=');
+		  $result4 = $sql4->execute();
+      $likined_wiki_nid =  array_shift((array_keys($result4['node'])));
+      //drupal_set_message(_dump($likined_wiki_nid, 'purple', TRUE));
+			if ($likined_wiki_nid){
+				$link = "[[nid:$likined_wiki_nid|$linked_text]]";
+				$text = str_replace($match, $link, $text);
+			}
+
+		}
+    //drupal_set_message(_dump((array)$text, 'purple', TRUE));
+
+    // parses issue links #issue_id to freelinling syntax [[nid:n]]
+		$pattern = '/#\d+/';
+		$matches = array();
+    preg_match_all($pattern, $text, $matches);
+		foreach($matches[0] as $match){
+			$issue_id = trim(str_replace('#', '', $match));
+      $sql = new EntityFieldQuery();
+		  $sql->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', $task_node_type)
+		    ->fieldCondition('field_chili_id', 'value', $issue_id, '=');
+		  $result6 = $sql->execute();
+			$task_node_id = array_shift((array_keys($result6['node'])));
+      //drupal_set_message(_dump($match, 'purple', TRUE));
+      //drupal_set_message(_dump($task_node_id, 'purple', TRUE));
+			if ($task_node_id){
+				$link = "[[nid:$task_node_id|$task_node_id]]";
+        $text = str_replace($match, $link, $text);
+			}
+      //drupal_set_message(_dump((array)$text, 'purple', TRUE));
+		}
+    $wiki_wrapper -> field_wiki_page = array('value' => $text, 'text_processing' => 1, 'format' => $wiki_filter_name);
+    //drupal_set_message(_dump($page_id, 'purple', TRUE));
+    //drupal_set_message(_dump((array)$text, 'purple', TRUE));
+
+		//parent pages
+		/*
+		$sql = "select subpages.id as subpage_id, subpages.wiki_id  as subpage_wiki_id, subpages.title as subpage_title from ". $chili_db . ".wiki_pages subpages where parent_id=:parent_id";
+    $result_subpage = db_query($sql, array(':parent_id' => $page_id));
+    //drupal_set_message(_dump($page_id, 'purple', TRUE));
+    //drupal_set_message(_dump($sql, 'purple', TRUE));
+		while ($rc_subpage = $result_subpage -> fetchObject()){
+			$subpage_id = $rc_subpage -> subpage_id;
+      $subpage_wiki_id = $rc_subpage -> subpage_wiki_id;
+      $subpage_title = $rc_subpage -> subpage_title;
+      //drupal_set_message(_dump($subpage_title, 'purple', TRUE));
+      //drupal_set_message(_dump($subpage_wiki_id, 'purple', TRUE));
+      //drupal_set_message(_dump($subpage_id, 'purple', TRUE));
+			//redirect
+      $sql = "select wp.id as page_id  from "  . $chili_db . ".wiki_pages wp JOIN " . $chili_db . ".wiki_redirects wr on wp.wiki_id = wr.wiki_id and wp.title= wr.redirects_to where wr.wiki_id = :wiki_id and wr.title = :title ";
+      //drupal_set_message(_dump($sql, 'purple', TRUE));
+			$result_subpage3 = db_query($sql, array(':wiki_id'=>$subpage_wiki_id, ':title'=> $subpage_title));
+			$rc_subpage3 = $result_subpage3 ->fetchObject();
+      //drupal_set_message(_dump($rc_subpage3, 'purple', TRUE));
+			if ($rc_subpage3){
+				$subpage_id = $rc_subpage3 -> page_id;
+			}
+      $sql = new EntityFieldQuery();
+		  $sql->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', $wiki_node_type)
+		    ->fieldCondition('field_chili_id', 'value', $subpage_id, '=');
+		  $result_subpage2 = $sql->execute();
+      $subpage_node = null;
+			if ($result_subpage2){
+				$subpage_node = node_load(array_shift((array_keys($result_subpage2['node']))));
+        $subpages = $wiki_wrapper -> field_subpage -> value(array('identifier' => TRUE));
+		    if (!in_array($subpage_node -> nid, $subpages)){
+					$wiki_wrapper -> field_subpage ->offsetSet( $wiki_wrapper -> field_subpage ->count(), $subpage_node);
+				}
+			}
+      else {
+	      drupal_set_message("Subpage (page_id: $subpage_id) could not found.");
+			}
+		}
+		*/
+    //drupal_set_message(_dump($parent_id, 'purple', TRUE));
+    if ($parent_id){
+	    $sql = new EntityFieldQuery();
+		  $sql->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', $wiki_node_type)
+		    ->fieldCondition('field_chili_id', 'value', $parent_id, '=');
+			  $result2 = $sql->execute();
+				$parent_node = null;
+				if ($result2){
+					$parent_node = node_load(array_shift((array_keys($result2['node']))));
+					$wiki_wrapper -> field_parent_page -> set($parent_node);
+				}
+				else{
+		      drupal_set_message("Parent task($parent_id) for $subject ($project_id) cannot be found. The issue is skipped.");
+					return;
+				}
+		}
+    $wiki_wrapper -> save();
+    //drupal_set_message(_dump((array)$wiki_wrapper, 'purple', TRUE));
+    drupal_set_message("Wiki  ($page_id) has been successfully updated.");
+
+ }
+
+}
+
+/**
+ * Based on http://drupal.stackexchange.com/a/34400
+ */
+
+/**
+ * Helper function; Load node by title
+ */
+
+ function com_node_load_by_title($title, $node_type) {
+  $query = new EntityFieldQuery();
+  $entities = $query->entityCondition('entity_type', 'node')
+    ->propertyCondition('type', $node_type)
+    ->propertyCondition('title', $title)
+    ->propertyCondition('status', 1)
+    ->range(0,1)
+    ->execute();
+  if(isset($entities['node'])) {
+    return node_load(array_shift(array_keys($entities['node'])));
+  }
+}
+/**
+ *
+ *
+ */
+function com_custom_field_control_workflow_mapping(){
+	global $ini_setting;
+	$temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+	$task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping'])?$ini_setting['issue_status_mapping']: array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping'])?$ini_setting['tracker_mapping']:array();
+	$role_mapping = isset($ini_setting['role_mapping'])?$ini_setting['role_mapping']: array();
+	$chili_custom_field_id_oa_field_name_mapping = com_chili_custom_field_id_oa_field_name_mapping();
+	
+	$tid = array_shift(taxonomy_get_term_by_name($task_section_name, 'section_type')) -> tid;
+	// custom field control
+	drupal_set_message('Setting custom field control...');
+	$setting = variable_get('nhpd_oa_task_custom_fields_allowed_values_setting', array());
+	foreach($chili_custom_field_id_oa_field_name_mapping as $chili_custom_field_id => $oa_custom_field_name){
+    //drupal_set_message(_dump( "$chili_custom_field_id => $oa_custom_field_name", 'purple', TRUE));
+		// add to all custom fields
+		$setting['all_custom_fields'][$oa_custom_field_name] = $oa_custom_field_name;
+		// if custom field is for all project, skip
+		$sql = 'select is_for_all from ' . $chili_db . '.custom_fields where id = :id';
+		$result =db_query($sql, array(':id' => $chili_custom_field_id));
+		if($result->fetchColumn(0)){
+			continue;
+		}
+		
+		// mapping custom field to section nid
+		$sql = 'select * from ' . $chili_db . '.custom_fields_projects where custom_field_id=:id';
+		$result = db_query($sql, array(':id' => $chili_custom_field_id));
+		while ($rc = $result -> fetchObject()){
+			$project_id = $rc -> project_id;
+			$sql = new EntityFieldQuery();
+		  $sql->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', 'oa_section')
+        ->fieldCondition('field_chili_project_id', 'value', $project_id, '=')
+	      ->fieldCondition('field_oa_section', 'tid', $tid, '=');
+		  $result2 = $sql->execute();
+			$section_node = null;
+			if ($result2){
+				$section_id = array_shift((array_keys($result2['node'])));
+        $setting['sections'][$section_id][$oa_custom_field_name] = $oa_custom_field_name;
+				
+			}
+			
+		}
+		// mapping custom field to task types
+		$sql = 'select * from ' . $chili_db . '.custom_fields_trackers ft, ' . $chili_db . '.trackers t where t.id = ft.tracker_id and custom_field_id=:id';
+		$result = db_query($sql, array(':id' => $chili_custom_field_id));
+		$options_values = array();
+		while ($rc = $result -> fetchObject()){
+			$tracker_name = $rc -> name;
+			$task_type = $tracker_name;
+			if (isset($tracker_mapping[$tracker_name])){
+				$task_type = $tracker_mapping[$tracker_name];
+			}
+			$setting['task_types'][$task_type][$oa_custom_field_name] = $oa_custom_field_name;
+ 		}
+		variable_set('nhpd_oa_task_custom_fields_allowed_values_setting', $setting);
+	}
+	//workflow
+	
+	drupal_set_message('Setting workflow...');
+	$setting = variable_get('nhpd_oa_task_status_allowed_values_setting', array());
+	$sql = "select * from $chili_db.workflows";
+	$result = db_query($sql);
+	while ($rc = $result -> fetchObject()){
+		//drupal_set_message(_dump($rc, 'purple', TRUE));
+		$workflow_id = $rc -> id;
+		$tracker_id = $rc -> tracker_id;
+		$old_status_id = $rc -> old_status_id;
+		$new_status_id = $rc -> new_status_id;
+		$role_id = $rc -> role_id;
+		$assignee = $rc -> assignee;
+		$author = $rc -> author;
+		$sql_tracker =  "select name from  $chili_db.trackers where id = :tracker_id";
+		$tracker_name =  db_query($sql_tracker, array(':tracker_id' => $tracker_id)) -> fetchObject() -> name;
+		//drupal_set_message(_dump($sql_tracker, 'purple', TRUE));
+		if(isset($tracker_mapping[$tracker_name])) $tracker_name = $tracker_mapping[$tracker_name];
+		$sql_status =  "select name from  $chili_db.issue_statuses where id = :status_id";
+		$current_status =  db_query($sql_status, array(':status_id' => $old_status_id)) -> fetchObject() -> name;
+		
+		$current_status = strtolower($current_status);
+		if(isset($issue_status_mapping[$current_status])) $current_status = $issue_status_mapping[$current_status];
+		$result_status = db_query($sql_status, array(':status_id' => $new_status_id));
+		$allowed_status = $result_status->rowCount() >= 1  ?  $result_status -> fetchObject() -> name : null;
+		//drupal_set_message(_dump($sql_status, 'purple', TRUE));
+		//drupal_set_message(_dump($new_status_id, 'purple', TRUE));
+		$allowed_status = strtolower($allowed_status);
+		if(isset($issue_status_mapping[$allowed_status])) $allowed_status = $issue_status_mapping[$allowed_status];
+		$sql_role =  "select name from  $chili_db.roles where id = :role_id";
+		$role_name =  db_query($sql_role, array(':role_id' => $role_id)) -> fetchObject() -> name;
+		//drupal_set_message(_dump($role_name, 'purple', TRUE));
+		if(isset($role_mapping[$role_name])) $role_name = $role_mapping[$role_name];
+		$og_rid = array_search($role_name, og_roles('node', 'oa_space'));
+		//drupal_set_message(_dump("$new_status_id ", 'purple', TRUE));
+		//drupal_set_message(_dump("$workflow_id: $tracker_name , $og_rid , $current_status , $allowed_status", 'purple', TRUE));
+		if ($tracker_name && $og_rid && $current_status && $allowed_status){
+			$setting[$tracker_name][$og_rid]['all_options']['general_setting'][$current_status][$allowed_status] = TRUE;
+			$setting[$tracker_name][$og_rid]['setting']['allowed_statuses'][] = $allowed_status;
+			$setting[$tracker_name][$og_rid]['setting']['allowed_statuses'][] = $current_status;
+			$setting[$tracker_name][$og_rid]['setting']['allowed_statuses'] = array_unique($setting[$tracker_name][$og_rid]['setting']['allowed_statuses']); 
+			$setting[$tracker_name][$og_rid]['all_options']['assignee_setting'] = array();
+			if($assignee){
+				$setting[$tracker_name][$og_rid]['all_options']['assignee_setting'][$current_status][$allowed_status] = TRUE;
+			}
+			$setting[$tracker_name][$og_rid]['all_options']['author_setting'] = array();
+			if ($author){
+				$setting[$tracker_name][$og_rid]['all_options']['author_setting'][$current_status][$allowed_status] = TRUE;
+			}
+		}
+		else{
+			drupal_set_message("Warning: workflow: $workflow_id cannot be mapped.");
+		}
+		
+	}
+	variable_set('nhpd_oa_task_status_allowed_values_setting', $setting);
+
+}
+/*
+** This set the panelizer of section page based on taxonomy term id
+**
+*/
+function com_set_panelizer($nid, $tid){
+	//drupal_set_message(_dump($tid, 'purple', TRUE));
+	
+	$term = taxonomy_term_load($tid);
+	$term_wrapper = entity_metadata_wrapper('taxonomy_term', $term);
+	$layout = $term_wrapper->field_oa_section_layout ->value();
+	//drupal_set_message(_dump($term, 'purple', TRUE));
+	//drupal_set_message(_dump($layout, 'purple', TRUE));
+	//Get the panel-info
+  $p_defaults = db_select('panelizer_defaults', 'd')
+    ->fields('d')
+    ->condition('d.name', $layout, '=')
+    ->execute()
+    ->fetchAssoc();
+		//drupal_set_message(_dump($p_defaults, 'purple', TRUE));
+		if (empty($p_defaults)){
+			drupal_set_message('Panelizer_default for $layout cannot be fetched. Please re-save this layout.', 'warning');
+			return;
+		}
+  //Remove fields that are node in the panelizer_entity
+  unset($p_defaults['pnid'], $p_defaults['title'], $p_defaults['panelizer_type'], $p_defaults['panelizer_key'], $p_defaults['access']);
+	//Update panelizer_entity
+    $u_query = db_update('panelizer_entity')
+      ->fields($p_defaults)
+      ->condition('entity_type', 'node')
+      ->condition('entity_id', $nid);
+    $u_query->execute();
+}
+
+/*
+** This mapping is not required if custom module oa_worktracher_task_custom_fields_workflow_xontrol is enabled.
+**
+*/
+function com_custom_fields_conditional_field_mapping(){
+  global $ini_setting;
+  $temp_attachment_file_folder = $ini_setting['temp_attachment_file_folder'];
+	$official_attachment_file_folder = $ini_setting['official_attachment_file_folder'];
+	$chili_db = $ini_setting['chili_db'];
+	$custom_fields_mapping = $ini_setting['custom_field_mapping'];
+  $task_section_name = $ini_setting['task_section_name'];
+	$wiki_section_name = $ini_setting['wiki_section_name'];
+	$task_node_type = $ini_setting['task_node_type'];
+	$wiki_node_type = $ini_setting['wiki_node_type'];
+	$issue_status_mapping = isset($ini_setting['issue_status_mapping'])?$ini_setting['issue_status_mapping']: array();
+	$tracker_mapping = isset($ini_setting['tracker_mapping'])?$ini_setting['tracker_mapping']:array();
+	$role_mapping = isset($ini_setting['role_mapping'])?$ini_setting['role_mapping']: array();
+	$chili_custom_field_id_oa_field_name_mapping = com_chili_custom_field_id_oa_field_name_mapping();
+  $dependencies = conditional_fields_load_dependencies('node', $task_node_type);
+  $tid = array_shift(taxonomy_get_term_by_name($task_section_name, 'section_type')) -> tid;
+	// depdendee: oa_section_ref
+  $dependee_instance = field_read_instance('node', 'oa_section_ref', $task_node_type);
+	$dependee_id = $dependee_instance['id'];
+	$basic_options = conditional_fields_dependency_default_options();
+	$basic_options['values_set'] = 3;
+  $basic_options['value_form'] = '_none';
+  drupal_set_message('Setting conditional field dependencies...');
+	foreach($chili_custom_field_id_oa_field_name_mapping as $chili_custom_field_id => $oa_custom_field_name){
+    //drupal_set_message(_dump( "$chili_custom_field_id => $oa_custom_field_name", 'purple', TRUE));
+		// if custom field is for all project, skip
+		$sql = 'select is_for_all from ' . $chili_db . '.custom_fields where id = :id';
+		$result =db_query($sql, array(':id' => $chili_custom_field_id));
+		if($result->fetchColumn(0)){
+			continue;
+		}
+
+    $dependent_instance = field_read_instance('node', $oa_custom_field_name, $task_node_type);
+		$dependent_id = $dependent_instance['id'];
+		$sql = 'select * from ' . $chili_db . '.custom_fields_projects where custom_field_id=:id';
+		$result = db_query($sql, array(':id' => $chili_custom_field_id));
+		$options_values = array();
+    $options_values[] = 0; // in case the custom field is not used for any project, it should be visible to project nid 0, which does not exist.
+		while ($rc = $result -> fetchObject()){
+			$project_id = $rc -> project_id;
+      $sql = new EntityFieldQuery();
+		  $sql->entityCondition('entity_type', 'node')
+		  	->entityCondition('bundle', 'oa_section')
+        ->fieldCondition('field_chili_project_id', 'value', $project_id, '=')
+	      ->fieldCondition('field_oa_section', 'tid', $tid, '=');
+		  $result2 = $sql->execute();
+			$section_node = null;
+			if ($result2){
+				$section_id = array_shift((array_keys($result2['node'])));
+        $options_values[] = $section_id;
+			}
+		}
+		$dependency_id = null;
+		$options = array();
+		$result_options = db_select('conditional_fields', 'cf')
+    ->fields('cf', array('id', 'dependee', 'dependent', 'options'))
+    ->condition('dependee', $dependee_id)
+    ->condition('dependent', $dependent_id)
+    ->execute()
+    ->fetchAssoc();
+		if ($result_options){
+      $options = unserialize($result_options['options']);
+      $dependency_id = $result_options['id'];
+		}
+    $options['values'] = $options_values;
+
+    if ($dependency_id){
+			$dependency = array(
+			'id'        => $dependency_id,
+			'dependee'  => $dependee_id,
+	    'dependent' => $dependent_id,
+	    'options'   => $options + $basic_options,
+	  	);
+	    //drupal_set_message(_dump( $dependency, 'purple', TRUE));
+	    drupal_write_record('conditional_fields', $dependency, 'id');
+		}
+		else{
+      $dependency = array(
+			'dependee'  => $dependee_id,
+	    'dependent' => $dependent_id,
+	    'options'   => $options + $basic_options,
+	  	);
+	    //drupal_set_message(_dump( $dependency, 'purple', TRUE));
+	    drupal_write_record('conditional_fields', $dependency);
+		}
+	}
+
+  // depdendee: field_oa_worktracker_task_type
+  $dependee_instance = field_read_instance('node', 'field_oa_worktracker_task_type', $task_node_type);
+	$dependee_id = $dependee_instance['id'];
+	reset($chili_custom_field_id_oa_field_name_mapping);
+	foreach($chili_custom_field_id_oa_field_name_mapping as $chili_custom_field_id => $oa_custom_field_name){
+    //drupal_set_message(_dump( $oa_custom_field_name, 'purple', TRUE));
+    	// if custom field is for all project, skip
+		$sql = 'select is_for_all from ' . $chili_db . '.custom_fields where id = :id';
+		$result =db_query($sql, array(':id' => $chili_custom_field_id));
+		if($result->fetchColumn(0)){
+			continue;
+		}
+    $dependent_instance = field_read_instance('node', $oa_custom_field_name, $task_node_type);
+		$dependent_id = $dependent_instance['id'];
+		$sql = 'select * from ' . $chili_db . '.custom_fields_trackers ft, ' . $chili_db . '.trackers t where t.id = ft.tracker_id and custom_field_id=:id';
+		$result = db_query($sql, array(':id' => $chili_custom_field_id));
+		$options_values = array();
+		while ($rc = $result -> fetchObject()){
+			$options_values[] = $rc -> name;
+ 		}
+		$dependency_id = null;
+		$options = array();
+		$result_options = db_select('conditional_fields', 'cf')
+    ->fields('cf', array('id', 'dependee', 'dependent', 'options'))
+    ->condition('dependee', $dependee_id)
+    ->condition('dependent', $dependent_id)
+    ->execute()
+    ->fetchAssoc();
+		if ($result_options){
+      $options = unserialize($result_options['options']);
+      $dependency_id = $result_options['id'];
+		}
+    $options['values'] = $options_values;
+    if ($dependency_id){
+			$dependency = array(
+			'id'        => $dependency_id,
+			'dependee'  => $dependee_id,
+	    'dependent' => $dependent_id,
+	    'options'   => $options + $basic_options,
+	  	);
+	    //drupal_set_message(_dump( $dependency, 'purple', TRUE));
+	    drupal_write_record('conditional_fields', $dependency, 'id');
+		}
+		else{
+      $dependency = array(
+			'dependee'  => $dependee_id,
+	    'dependent' => $dependent_id,
+	    'options'   => $options + $basic_options,
+	  	);
+	    //drupal_set_message(_dump( $dependency, 'purple', TRUE));
+	    drupal_write_record('conditional_fields', $dependency);
+		}
+	}
+  drupal_set_message('Setting conditional field dependencies is done.');
+}
+
+function com_get_oa_custom_field_name($chili_custom_field_id){
+	$chili_custom_field_id_oa_field_name_mapping = com_chili_custom_field_id_oa_field_name_mapping();
+
+	return $chili_custom_field_id_oa_field_name_mapping[$chili_custom_field_id];
+}
+function com_chili_custom_field_id_oa_field_name_mapping(){
+	global $ini_setting;
+  $custom_field_mapping = $ini_setting['custom_field_mapping'];
+	return $custom_field_mapping;
+}
+
+/***
+ *Conver text to redmine wiki title
+ *Translated from Wiki.titleize
+ *PeijunZhang
+ */
+
+function com_titleize($text){
+	$title = str_replace(' ', '_', $text);
+	//$unwanted_chars = preg_quote(',./?;|:');
+	$title = ucfirst(preg_replace('/[,;\.\?\|\:\/]/', '', $title));
+	return $title;
+}
+
+function com_read_ini_setting(){
+  $ini_array = parse_ini_file(TOOL_ROOT . "/chili_oa_migration_tool.ini");
+	return $ini_array;
+}
+
+function _dump($data, $color='blue', $return = FALSE, $show_caller = TRUE, $use_devel = TRUE) {
+  $out = "<div style='color:$color;'>";
+	if ($use_devel && module_exists('devel') && user_access('access devel information')){
+     $out = $out . kprint_r($data, TRUE);
+     $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+     $out = $out . "--File: " . $backtrace[0]['file'] . "\n";
+	   $out = $out . "--Line: " . $backtrace[0]['line'] . "\n";
+	}
+	else{
+		$out = $out . "<pre>";
+	  //print var_name($data);
+	  $out =  $out . print_r($data, TRUE);
+		if ($show_caller){
+			$backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+	    $out = $out . "\nCaller:\n";
+	    //$out = $out . "--Function: " . $backtrace[0]['function'] . "\n";
+	    $out = $out . "--File: " . $backtrace[0]['file'] . "\n";
+	    $out = $out . "--Line: " . $backtrace[0]['line'] . "\n";
+		}
+	  $out = $out . "</pre>";
+	}
+  $out = $out . "</div>";
+  if ($return) {
+    return $out;
+  }
+  print $out;
+}
+/*
+ini_set('display_errors', TRUE);
+// We prepare a minimal bootstrap for the update requirements check to avoid
+// reaching the PHP memory limit.
+require_once DRUPAL_ROOT . '/includes/bootstrap.inc';
+require_once DRUPAL_ROOT . '/includes/update.inc';
+require_once DRUPAL_ROOT . '/includes/common.inc';
+require_once DRUPAL_ROOT . '/includes/file.inc';
+require_once DRUPAL_ROOT . '/includes/entity.inc';
+require_once DRUPAL_ROOT . '/includes/unicode.inc';
+include_once DRUPAL_ROOT . '/includes/batch.inc';
+//update_prepare_d7_bootstrap();
+
+
+// Determine if the current user has access to run update.php.
+drupal_bootstrap(DRUPAL_BOOTSTRAP_FULL);
+drupal_maintenance_theme();
+
+// read .ini file
+$ini_array = parse_ini_file(TOOL_ROOT . "/chili_oa_migration_tool.ini");
+$temp_attachment_file_folder = $ini_array['temp_attachment_file_folder'];
+$official_attachment_file_folder = $ini_array['official_attachment_file_folder'];
+$chili_db = $ini_array['chili_db'];
+$custom_fields_mapping = $ini_array['custom_field_mapping'];
+
+//print _dump($temp_attachment_file_folder, 'purple', TRUE);
+//print _dump($official_attachment_file_folder, 'purple', TRUE);
+//print _dump($chili_db, 'purple', TRUE);
+//print _dump($custom_fields_mapping, 'purple', TRUE);
+//$output = _dump($ini_array, 'purple', TRUE);
+// Only allow the requirements check to proceed if the current user has access
+// to run updates (since it may expose sensitive information about the site's
+// configuration).
+
+drupal_set_title('Migrating Chiliproject to OA');
+
+$output=chili_oa_migration_selection_page();
+
+if (isset($output) && $output) {
+  // Explicitly start a session so that the update.php token will be accepted.
+  //drupal_session_start();
+  // We defer the display of messages until all updates are done.
+  //$progress_page = ($batch = batch_get()) && isset($batch['running']);
+  print theme('update_page', array('content' => $output));
+}
+
+//
+*/

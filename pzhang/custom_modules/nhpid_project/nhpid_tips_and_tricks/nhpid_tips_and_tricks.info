@@ -1,0 +1,8 @@
+; $Id: nhpid_tips_and_tricks.info,v 1.0.0 2010/07/27 15:26:16 peijun zhang $
+name = "NHPID Tips and Tricks"
+description = "This module manage tips and tricks"
+dependencies[] = popup_message
+core = "7.x"
+version = "7.x-1.0"
+
+package = NHPID

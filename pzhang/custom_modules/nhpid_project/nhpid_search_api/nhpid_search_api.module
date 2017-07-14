@@ -1,0 +1,75 @@
+<?php
+/**
+ * @file
+ * Adds Node hierarchy parent id  information to Search API index.
+ */
+
+/**
+ * Implements hook_entity_property_info_alter().
+ */
+function nhpid_search_api_entity_property_info_alter(&$info) {
+  $info['node']['properties']['nodehierarchy_parent_id'] = array(
+    'type' => 'list<integer>',
+    'label' => t('Node hierarchy parent id'),
+    'sanitized' => TRUE,
+    'getter callback' => 'nhpid_search_api_property_parent_id_getter_callback',
+		);
+	$info['node']['properties']['workflow_state_name_w_options'] = array(
+    'type' => 'text',
+    'label' => t('Workflow state name with options list'),
+    'sanitized' => TRUE,
+    'getter callback' => 'nhpid_search_api_property_workflow_state_getter_callback',
+		'options list' => 'nhpid_search_api_workflow_options_list_callback',
+    );
+}
+
+/**
+ * Getter callback 
+ */
+function nhpid_search_api_property_parent_id_getter_callback($item) {
+  //	drupal_set_message(nhpid_api_dump($item, 'red', TRUE));
+	// nodes may have multiple parents
+	$parent_ids = array();
+	if ($item->nodehierarchy_parents) {
+    // Get parent ids.
+    foreach($item->nodehierarchy_parents as $parent){
+			$parent_ids[] = $parent->pnid;
+		}
+  }
+  return $parent_ids;
+}
+/**
+ * Getter callback for workflow state defined in workflow_search_api_entity_property_info_alter.
+ */
+function nhpid_search_api_property_workflow_state_getter_callback($item) {
+  if (property_exists($item, 'workflow') && $item->workflow) {
+    // Get text value of workflow state.
+    $state = workflow_get_workflow_states_by_sid($item->workflow);
+    $state_name = $state->state;
+  }
+  else {
+    $state_name = '';
+  }
+
+  return $state_name;
+}
+function nhpid_search_api_workflow_options_list_callback($field, $instance, $entity_type) {
+	$site_name =  base_path();
+	$wid = 1;
+	if ($site_name == '/nhpid_dms/'){
+		$wid = 1;
+	}
+	elseif ($site_name == '/tpd/'){
+		$wid = 1;
+	}
+	elseif ($site_name == '/assessment_central/'){
+		$wid = 1;
+	}
+	$states_obj = workflow_get_workflow_states_by_wid($wid);	
+	foreach ($states_obj as $state_obj){
+		if ($state_obj -> state != '(creation)'){
+			$states[$state_obj -> state] = $state_obj -> state;
+		}
+	}
+	return $states;
+}

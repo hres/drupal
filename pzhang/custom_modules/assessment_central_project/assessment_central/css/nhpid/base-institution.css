@@ -1,0 +1,784 @@
+/* CLF 2.0 TEMPLATE VERSION 1.04 | VERSION 1.04 DU GABARIT NSI 2.0 */
+/* GENERAL CSS BEGINS | DEBUT DU CSS GENERAL */
+body 		  { background-color: #DDD; }
+div.colLayout { background-color: #FFF; height: 100%; }
+img { border: none; }
+/* GENERAL CSS ENDS | FIN DU CSS GENERAL */
+
+/* FIP HEADER CSS BEGINS | DEBUT DU CSS DE L'EN-TETE PCIM */
+div.fip, div.cwm	{ height: 20px; }
+div.cwm img 			{ padding-top: 0px; }
+/* FIP HEADER CSS ENDS | FIN DU CSS DE L'EN-TETE PCIM */
+
+/* INSTITUTIONAL BANNER CSS BEGINS | DEBUT DU CSS DE LA BANNIERE INSTITUTIONNELLE */
+div.banner { color: #FFF;	}
+/* INSTITUTIONAL BANNER CSS ENDS | FIN DU CSS DE LA BANNIERE INSTITUTIONNELLE */
+
+/* COMMON MENU BAR CSS BEGINS | DEBUT DU CSS DE LA BARRE DE MENU COMMUNE */
+div.fp { border-top: 1px solid #FFF; }
+/* COMMON MENU BAR CSS ENDS | FIN DU CSS DE LA BARRE DE MENU COMMUNE */
+
+/* BREAD CRUMB CSS BEGINS | DEBUT DU CSS DE LA PISTE DE NAVIGATION */
+p.breadcrumb 			{ font-size: 8.5px; padding: 2px 0px 3px 0px; }
+p.breadcrumb a 			{ text-decoration:none; color:#000; }
+p.breadcrumb a:hover	{ text-decoration:underline !important; }
+/* BREAD CRUMB CSS ENDS | FIN DU CSS DE LA PISTE DE NAVIGATION */
+
+/* SKIP NAVIGATION CSS BEGINS | DEBUT DU CSS DU SAUT DE NAVIGATION */
+div.page div.core div.navaid {
+	width: 450px;
+	padding-left: 50px;
+}
+* html div.page div.core div.navaid {
+	width: 450px;
+	padding-left: 50px;
+}
+*:first-child+html div.page div.core div.navaid {
+	width: 450px;
+	padding-left: 50px;
+}
+div.page div.core div.navaid a:hover,
+div.page div.core div.navaid a:active,
+div.page div.core div.navaid a:focus {
+	color: #000;
+	background-color: #eee;
+	border-color: #000;
+}
+/* SKIP NAVIGATION CSS ENDS | FIN DU CSS DU SAUT DE NAVIGATION */
+
+/***********START NEW************************************/
+
+/* GENERAL NAVIGATION CSS BEGINS | DEBUT DU CSS DE NAVIGATION GENERALE */
+div.left h2.nav, div.left h2.nav a:link, div.left h2.nav a:visited, div.left div.h2nav, div.left div.h2nav a:link, div.left div.h2nav a:visited, div.left p.h2nav, div.left p.h2nav a:link, div.left p.h2nav a:visited {
+	background-color: #bcced7;
+	color: #036;
+	text-decoration: none;
+}
+
+div.right h2.nav, div.right h2.nav a:link, div.right h2.nav a:visited, div.right div.h2nav, div.right div.h2nav a:link, div.right div.h2nav a:visited, div.right p.h2nav, div.right p.h2nav a:link, div.right p.h2nav a:visited {
+color: #fff;
+}
+
+div.right h2.nav, div.right h2.nav a:link, div.right h2.nav a:visited, div.right div.h2nav, div.right div.h2nav a:link, div.right div.h2nav a:visited, div.right p.h2nav, div.right p.h2nav a:link, div.right p.h2nav a:visited {
+	background-color: #069;
+}
+
+/* GENERAL NAVIGATION CSS ENDS | FIN DU CSS DE NAVIGATION GENERALE */
+
+/* SIDE MENU CSS BEGINS | DEBUT DU CSS DU MENU LATERAL */
+div ul.nav ul.nav 			{ margin:0px 0px 8px 0px; }
+div.left ul.nav ul.nav		{ min-width:148px; width:9.125em; _width: 148px;/*_ ie6 hack*/ }
+div.right ul.nav ul.nav 	{ width:193px; }
+div#temp div.right ul.nav ul.nav 	{ width:146px; }
+
+div ul.nav ul.nav2 				{ margin: 0px 0px 0px 0px; padding: 0px; list-style-type: none; }
+div.left ul.nav ul.nav2		{ min-width:146px; width:9em; _width: 146px;/*_ ie6 hack*/  }
+div.right ul.nav ul.nav2	{ width: 187px; }
+div#temp div.right ul.nav ul.nav2		{ width: 142px; }
+
+div ul.nav li, ul.nav2 li { padding:0px; margin:0px; }
+
+div.left h2.nav, div.left div.h2nav, div.left p.h2nav 	 { padding: 1px 2px; min-width:146px; width:9em; _width: 146px;/*_ ie6 hack*/ }
+div.right h2.nav, div.right div.h2nav, div.right p.h2nav { padding: 1px 2px; width:191px; }
+div#temp div.right h2.nav, div.right div.h2nav, div.right p.h2nav { width:146px; }
+
+div ul.nav li div.menucontent 			{ margin:0px 0px 8px 0px; }
+div.left 	ul.nav li div.menucontent	{ background: #069; min-width:148px; width:9.125em; _width: 148px;/*_ ie6 hack*/ padding:0px; }
+div.right ul.nav li div.menucontent { background: #bcced7; width:191px; padding:2px; }
+div#temp div.right ul.nav li div.menucontent { width:146px; }
+
+div ul.nav ul.nav a.menulink, div ul.nav div.menucontent a.menulink,
+div ul.nav ul.nav strong
+
+{
+	text-decoration: none;
+	display:block;
+	width:100%;
+	color: #fff;
+	font-weight: bold;
+	padding:2px 1px 1px 1px;
+	margin:0px 0px 0px 0px;
+	font-size: 10pt;
+}
+
+div ul.nav ul.nav2 li strong{ padding-left:4px}
+
+div.right ul.nav ul.nav a.menulink, div.right ul.nav div.menucontent a.menulink {
+	border-top: 1px solid #d0dee5;
+	border-bottom: 1px solid #a7b8c1;
+	background-color: #bcced7;
+	color: #036;
+}
+
+div.left ul.nav ul.nav a.menulink, div.left ul.nav div.menucontent a.menulink, div.left ul.nav ul.nav strong
+{
+	border-top: 1px solid #0086C6;
+	border-bottom: 1px solid #004566;
+	background-color: #069;
+}
+
+div ul.nav ul.nav ul.nav2 a.menulink {
+	line-height: 115%;
+	display:block;
+	width:100%;
+	color: #000;
+	font-weight: normal;
+	padding: 1px;
+	margin:0px 0px 0px 0px;
+	border-top: 1px solid #EEE;
+	border-bottom: 1px solid #c4c4c4;
+	border-right: 1px solid #c4c4c4;
+	border-left: 1px solid #c4c4c4;
+	background-color: #DDD;
+	font-size: 9.5pt;
+}
+
+div ul.nav ul.nav a.menulink:hover, div ul.nav div.menucontent a.menulink:hover {
+	text-decoration: none;
+	background:#036;
+	border-top: 1px solid #036;
+	border-bottom: 1px solid #036;
+}
+
+div.right ul.nav ul.nav a.menulink:hover, div.right ul.nav div.menucontent a.menulink:hover {
+	text-decoration: none;
+	background:#bcced7;
+	border-top: 1px solid #bcced7;
+	border-bottom: 1px solid #bcced7;
+}
+
+div ul.nav ul.nav ul.nav2 a.menulink:hover {
+	text-decoration: none;
+	background:#C4C4C4;
+	border-top: 1px solid #c4c4c4;
+	border-bottom: 1px solid #c4c4c4;
+}
+
+div.prodis { background-color: #bcced7; height:1.5em; min-width:150px; width:9.250em; _width: 150px;/*_ ie6 hack*/ }
+/* SIDE MENU CSS ENDS | FIN DU CSS DU MENU LATERAL */
+
+/* CONTENT CSS BEGINS | DEBUT DU CSS DU CONTENU */
+h1, .h1Size		{ font-size: 11.5pt; }
+h2, .h2Size		{ font-size: 11.5pt; }
+h3, .h3Size		{ font-size: 11pt; }
+h4, .h4Size		{ font-size: 11.0pt; }
+h5, .h5Size		{ font-size: 10.0pt; }
+h6, .h6Size		{ font-size: 10.0pt; }
+
+
+div.center h2, h3, h4, h5, h6 {color: #069;}
+
+div.colLayout div.center h1, div.core div.center h1 {
+background:#069 url(/images/ahc-asc/h1.gif) no-repeat top right; 
+color:#fff;
+padding:2px 2px 2px 3px;
+margin:0 0 20px 0;
+width:99%
+}
+
+div.center h2 {
+padding:2px 2px 2px 2px;
+background:#f0f0f0 url(/images/templates/h2.gif) no-repeat right top;
+}
+
+div.center h3 {border-bottom:#bcced7 solid 2px; padding-left:1px}
+div.center h4 {border-bottom:#bcced7 dotted 2px; padding-left:1px}
+
+div.center h6 {font-weight: normal; font-style:italic; margin:20px 0}
+
+div.center a:link {color: #069;}
+div.center a:visited {color: #036;}
+
+div.blackborder {
+	border: solid #000 1px;
+	padding-bottom:0px;
+}
+div.blackborder:after {
+	content: ""; 
+	display: block; 
+	height: 0; 
+	clear: left;
+	visibility: hidden;
+}
+
+div#subjectHeader {
+	color: #FFF;
+	background:#EEE url(/images/ahc-asc/subject-sujet-bg.gif) top; 
+	background-repeat:repeat-x;
+}
+
+div#subjectHeader strong {  
+padding:0px 20px 0 3px;
+font-family:'Palatino Linotype', 'Book Antiqua', Palatino, serif; 
+font-size:115%; 
+color:#036;
+background:#bcced7 url(/images/ahc-asc/subject-sujet.gif) no-repeat right top;
+}
+
+h1#subjectHeader {
+	padding: 3px 2px 2px 4px;
+	margin:0;
+	width:399px;
+	background:none;
+	background-color:#069;
+	width:399px
+}
+	
+#tools { padding: 3px 1px 4px 2px; font-size: 9.0pt; margin-top: 0px; vertical-align:bottom; text-align: right;  }
+#tools a 		{ text-decoration: none; color: #069; }
+#tools a:hover	{text-decoration: underline !important; }
+#tools img 		{ margin: 0px 1px;}
+
+/* CONTENT CSS ENDS | FIN DU CSS DU CONTENU */
+
+/* FOOTER CSS BEGINS | DEBUT DU CSS DU PIED DE LA PAGE */
+div.footer {
+	margin-top: 0px;
+	border-top: solid #FFF 5px;
+}
+
+div.footer div.footerline {
+	background-color: #069;
+}
+div.footer a:link, div.footer a:visited, div.center div.footer a:link, div.center div.footer a:visited, div.center div.topPage a:link, div.center div.topPage a:visited, div.center p.topPage a:link, div.center p.topPage a:visited {
+	color: #069;
+	background-color: #FFF;
+}
+
+div.topPage, p.topPage { float:none; text-align:right; }
+div.topPage a, p.topPage a { text-decoration:none;}
+div.topPage a:hover, p.topPage a:hover { text-decoration:underline !important}
+
+div.topPage img, p.topPage img {width:12px; height:12px; vertical-align:middle; padding-right:3px}
+
+/* FOOTER CSS ENDS | FIN DU CSS DU PIED DE LA PAGE */
+
+td { vertical-align: top; text-align: left; }
+th { vertical-align: top; text-align: center; font-weight: bold; }
+
+a:active, a:focus 	{ cursor: auto; }
+abbr, acronym		{ cursor: text; border-bottom:none}
+pre					{ font-family: monospace; }
+caption			{ font-weight:bold; text-align:left; padding: 8px 2px 12px 2px; }
+sup a				{ font-size:115%\9}/*target IE 6,7,8 only*/
+sub					{ vertical-align:sub; margin-bottom: 0px; }
+hr 					{ color:#000; height: 1px; }
+em					{ overflow:visible; }
+
+blockquote {padding:0 30px 0 0; margin:30px 0 0 0; border:none;  text-align:justify; background: url(/images/templates/blockquote-bg2.gif) bottom right no-repeat; }
+blockquote p {background:url(/images/templates/blockquote-bg.gif) top left no-repeat; padding:0 0 0 30px; margin:0; }
+
+div.gcinits {padding-bottom:0;}
+
+div.gcinit div {
+	width: 193px;
+	margin-bottom: 0px;
+}
+div.gcinit div span {
+	display:block;
+}
+
+div.icon-right div.gcinit div {width: 148px;}
+div.center div.icon-right div.gcinit div {margin-right: 0;}
+
+/* LIST UTILITY CSS BEGINS | DEBUT DU CSS D'UTILITE DE LISTE */
+ul.arrowBullet		{ list-style-image: url(/images/common/bullet_arrow.gif); }
+ul.subjectBullet	{ list-style-image: url(/images/ahc-asc/bullet_subject.gif); }
+ul.checkboxBullet	{ list-style-image: url(/images/common/bullet_checkbox.gif); }
+ul.checkBullet		{ list-style-image: url(/images/common/bullet_check.gif); }
+ul.xBullet			{ list-style-image: url(/images/common/bullet_x.gif); }
+ul.disc, ul.square, ul.circle {list-style-image:none;}
+
+/* ALIGNMENT UTILITY CSS BEGINS */
+.alignJustify		{ text-align: justify; }
+.alignMiddle		{ vertical-align: middle; }
+
+/* TEXT UTILITY CSS BEGINS | DEBUT DU CSS D'UTILITE DE TEXTE */
+.no-underline	{ text-decoration: none; }
+.underline		{ text-decoration: underline !important; }
+.font-inuktitut	{ font-family: Pigiarniq, Prosyl; }
+.strong-italic	{ font-style: italic; font-weight: bold; }
+.italic			{ font-style: italic; }
+.strong			{ font-weight: bold; }
+.no-strong		{ font-weight: normal; }
+.no-format		{ font-weight: normal; font-style: normal; background: none; text-decoration: none; color: #000; }
+
+/* FLOATING IMAGES, TABLES, BLOCKS */
+.floatNone			{ float: none; }
+.image-left			{ border-right:10px solid #fff }
+.image-right		{ border-left:10px solid #fff }
+.icon-right			{ border-left:10px solid #fff; width:150px; float:right; background-color:#fff}
+div.icon-right img, p.icon-right img { margin-bottom:8px}
+
+/* INDENTATION CLASS'S */
+.indent10 		{ padding-left: 10px; }
+.indent15		{ padding-left: 15px; }
+.indent20 		{ padding-left: 20px; }
+.indent30 		{ padding-left: 30px; }
+.indent40 		{ padding-left: 40px; }
+.indent45		{ padding-left: 45px; }
+.indent50		{ padding-left: 50px; }
+.indent60		{ padding-left: 60px; }
+.indentNone 	{ margin-left: 0px; padding-left: 16px;  }
+.indentQuote	{ padding-left: 10px; padding-right: 10px; font-style: italic; }
+.indentBlock    { padding-left: 10px; padding-right: 10px; }
+
+
+.bubble-info { background:#f6f6f6 url(/images/templates/bubble-info.gif) no-repeat scroll 0 0; margin:20px 10px 20px 0; padding:27px 25px 15px 40px; }
+.bubble-survey { background:#f6f6f6 url(/images/templates/bubble-survey.gif) no-repeat scroll 0 0; margin:0px 10px 20px 0; padding:27px 25px 15px 45px; }
+.bubble-warning { background:#f6f6f6 url(/images/templates/bubble-warning.gif) no-repeat scroll 0 0; margin:20px 10px 20px 0; padding:30px 25px 15px 30px; }
+.bubble-info p, .bubble-survey p, .bubble-warning p, .bubble-info ul, .bubble-survey ul, .bubble-warning ul, .bubble-info ol, .bubble-survey ol, .bubble-warning ol, .bubble-info dl, .bubble-survey dl, .bubble-warning dl{ margin:10px 0} 
+
+
+/*COLOUR CLASS'S */
+.subjectColour		{ color: #069; background-color: transparent; }
+.subjectDarkColour	{ color: #036; background-color: transparent; }
+.orange						  { color: #F30; background-color: transparent; }
+
+/*BACKGROUND COLOUR CLASS'S */
+.blackBG, table tr.blackBG td, table tr.blackBG th					{ background-color: #000; color: #FFF; }
+.redBG, table tr.redBG td, table tr.redBG th 								{ background-color: #F00; color: #FFF; }
+.darkredBG, table tr.darkredBG td, table tr.darkredBG th		{ background-color: #C33; color: #FFF; }
+.darkredBG2, table tr.darkredBG2 td, table tr.darkredBG2 th	{ background-color: #990000; color: #FFF; }
+
+.lightgreyBG, table tr.lightgreyBG td, table tr.lightgreyBG th	{ background-color: #eee; }
+.greyBG, table tr.greyBG td, table tr.greyBG th									{ background-color: #CCC; }
+.darkgreyBG, table tr.darkgreyBG td, table tr.darkgreyBG th			{ background-color: #999; color: #FFF;}
+.subjectBG, table tr.subjectBG td, table tr.subjectBG th				{ background-color: #069; color: #FFF; }
+.lightsubjectBG, table tr.lightsubjectBG td, table tr.lightsubjectBG th	{ background-color: #bcced7; color: #FFF; }
+.darksubjectBG, table tr.darksubjectBG td, table tr.darksubjectBG th		{ background-color: #036; color: #FFF; }
+.deepyellowBG, table tr.deepyellowBG td, table tr.deepyellowBG th				{ background-color: #FF0; }
+.lightyellowBG, table tr.lightyellowBG td, table tr.lightyellowBG th		{ background-color: #FFC; }
+
+/* DATA LIST CLASS'S */
+dd.inLineItem {display: inline-block !important; zoom: 1 !important; *display: inline !important;}
+dt { font-weight: bold; }
+dl.data-spacing-bottom dt { padding-top: 10pt; }
+ul.data-spacing-bottom li, ol.data-spacing-bottom li	{ padding-bottom: 10pt; }
+dl.data-spacing dd, ul.data-spacing li, ol.data-spacing li	{ padding-top: 10pt; padding-bottom: 10pt; }
+ol.data-spacing-bottom, ul.data-spacing-bottom		{ margin-bottom: -10px;}
+
+.data-spacing-bottom li ul, .data-spacing-bottom li ol 	{ padding-top:10pt; }
+.data-spacing li ul, .data-spacing li ol 				{ padding-top:10pt; }
+
+.data-spacing-bottom .data-spacing-none li 	{ padding-bottom: 0pt; }
+.data-spacing .data-spacing-none li 		{ padding-top: 0pt; padding-bottom: 0pt; }
+
+/* BORDER CLASS'S */
+.borderSolid		{ border: 1px solid #000; padding:1px; }
+.borderDashed		{ border: 1px dashed #000; padding: 1px;}
+.borderSubject		{ border: 1px solid #069; padding: 1px; }
+div.highlight, p.highlight		{ border: 1px dashed #000; background-color:#eee;  }
+div.highlight2, p.highlight2	{ background-color:#eee; padding: 4px;}
+div.redir, p.redir				{ border: 1px dashed #000; background-color:#ffc; padding: 4px;}
+div.highlightFloat, p.highlightFloat	{ 
+border: 1px solid #069; 
+background-color:#eee; 
+width:175px; 
+float:right; 
+padding:0px 4px; 
+margin-left:5px; 
+margin-bottom:0px;
+padding-top:6px;
+}
+
+div.highlightFloat ul, p.highlightFloat	ul{ 
+margin-left: 5px; 
+padding-left: 16px;
+list-style-image:url(/images/ahc-asc/bullet_subject.gif);
+margin-bottom:8px;
+margin-top:0px
+}
+
+div.highlightFloat ol, p.highlightFloat	ol{ 
+margin-left: 5px; 
+padding-left: 23px;
+margin-bottom:8px;
+margin-top:0px
+}
+
+div.highlightFloat p, p.highlightFloat	p{ 
+margin-bottom:6px;
+margin-top:0px;
+padding-left:3px;
+}
+
+
+/* MULTI-COLUMN CONTAINERS */
+div.row 			{margin: 0; padding: 0; width: 98.5%;}
+div.row-promotion 	{margin: 0; padding: 0; width: 100%; background-image:url(/images/templates/bg-grey.gif); overflow:auto; margin-bottom:-10px}
+div.cols2 			{float: left; width: 49%; margin: 0 3px 0 0; padding: 0;}
+div.cols3 			{float: left; width: 32.5%; margin: 0 3px 0 0; padding: 0;}
+div.cols4 			{float: left; width: 24%; margin: 0 3px 0 0; padding: 0;}
+
+.row-clear { clear:both; }
+
+div.cols-promotion {float: left; width: 19%; padding: 10px 3px; margin:0px; text-align:center; font-size:11px} 
+div.cols-promotion a { text-decoration:none; color:#000!important}
+div.center h2.promotion {margin-bottom:0px; padding-left:3px; color:#036; background:none; background-color:#bcced7; clear:both}
+
+.xml
+{
+	background: #F60;
+	color: #FFF;
+	border-bottom: 1px solid #3F1A01;
+	border-right: 1px solid #7D3302;
+	border-left: 1px solid #FFC8A4;
+	border-top: 1px solid #FFC8A4;
+	font-size: 9.0pt;
+	padding: 0px 1px;
+}
+
+#emailReport					{ margin-top: 0px; }
+#emailReport fieldset			{ padding: 1% 1% 0% 1%; }
+#emailReport fieldset p			{ margin: 0em 0em 0.5em 0em; }
+#emailReport fieldset textarea	{ height: 100px; }
+
+#close a { text-decoration: none; }
+
+/* FORM TAGS */
+legend 		{ font-weight: bold; background: #069; color: #FFF; padding: 2px 4px; margin-bottom:4px}
+fieldset 	{ padding: 1%; border: 1px solid #069; margin: 1% 0%; }
+textarea	{ height:120px; }
+
+fieldset.subject 		{ background: #EEE url(/images/templates/fieldset-bg.gif) repeat-x; }
+form > fieldset.subject { background: #EEE; }
+
+fieldset.subject label {margin-right: 1%;}
+
+fieldset.subject p.submit {text-align:center;}
+
+input.subject, p.submit input, #close
+{
+	background: #069;
+	border-right: 2px solid #036;
+	border-bottom: 2px solid #036;
+	border-top: 2px solid #69C;
+	border-left: 2px solid #69C;	
+	color: #FFF;
+	font-weight: bold;
+}
+
+table.subject, table.data-table {
+	border: 1px solid #AAA;
+	padding: 0px;
+	margin: 0px;
+	border-collapse:collapse;
+	width:100%;
+}
+
+table.subject td, table.subject th, table.data-table td, table.data-table th {
+	border:  1px solid #AAA;
+	padding: 2px;
+	margin:  0px;
+}
+
+table.subject th, table.data-table th {text-align: left;}
+
+table.subject td, table.data-table td {background: #fff;}
+
+table.subject tr.row-odd th, table.subject tr.row-odd td,
+table.data-table tr.row-odd th, table.data-table tr.row-odd td
+{
+	color: #000;
+	background: #EEE;
+	font-weight: normal;
+}
+table.subject tr.row-even th, table.subject tr.row-even td,
+table.data-table tr.row-even th, table.data-table tr.row-even td
+{
+	color: #000;
+	background: #E4E4E4;
+	font-weight: normal;
+}
+table.subject th a {color:#fff!important}
+
+/* In this topic style */
+div.topic{background:url(/images/templates/topic-bottom.gif) no-repeat bottom center; padding:0 0px 14px 0; margin:20px 0 0 0}
+div.topic p {background:url(/images/ahc-asc/topic-header.gif) no-repeat; height:32px; font-weight:bold; padding:4px 0 0 0px; margin:0; color:#036; text-align:center;}
+div.topic ul {list-style-type:none; margin:0; padding:0 0 7px 26px; background:url(/images/templates/topic-sides.gif) repeat-y 0px 0; list-style-image:url(/images/ahc-asc/bullet_square.gif) }
+div.topic ul li { margin:0; padding:0}
+div.topic ul li ul {padding-bottom:0px; background:url(/images/templates/topic-sides.gif) repeat-y right;}
+div.topic ul li a, div.HighlightFloat2 ul li a {text-decoration:none; font-size:90%; color:#000!important}
+div.topic ul li a:hover, div.HighlightFloat2 ul li a:hover { text-decoration:underline !important}
+
+/*Share feature style cips */
+div.share{background:url(/images/templates/topic-bottom.gif) no-repeat bottom center; padding:0 0px 10px 0; margin:20px 0 0 0; height:185px;}
+div.share p{ margin:0; padding:0 0 7px 26px; background:url(/images/templates/topic-sides.gif) repeat-y 0px 0;}
+div.share ul {list-style-type:none; margin:0; padding:0 0 7px 40px; background:url(/images/templates/topic-sides.gif) repeat-y 0px 0;}
+div.share ul li { margin:0; padding:0;}
+div.share ul li ul {padding-bottom:0px; background:url(/images/templates/topic-sides.gif) repeat-y right;}
+div.share ul li a, div.HighlightFloat2 ul li a {text-decoration:none; font-size:90%; color:#000!important}
+div.share ul li a:hover, div.HighlightFloat2 ul li a:hover { text-decoration:underline !important}
+div.share p#shareTitle {background:url(/images/ahc-asc/topic-header.gif) no-repeat; height:32px; font-weight:bold; padding:4px 0 0 0px; margin:0; color:#036; text-align:center;}
+div.share ul li#edge{margin:0; padding:0; background:url(/images/templates/topic-sides.gif) repeat-y right;}
+
+/*Share feature style  */
+div.share2  {background:#f9f9f9 url(/images/templates/share-top2.gif) no-repeat 0px 0px; padding:10px 0px 0 0px; margin:0 0 20px 0;  }
+div.share2 p.close{background:url(/images/templates/topic-bottom.gif) no-repeat bottom center; padding:0 0px 18px 15px; margin:0; font-size:80%; }
+div.share2 p { padding-left:15px; margin-bottom:10px}
+div.share2 ul { padding:10px 20px 0 0; float:right;  margin:0 0 0 0; list-style:none; margin-left:15px}
+div.share2 ul li { padding-bottom:5px }
+div.share2 img { vertical-align: bottom; margin-top:2px}
+
+/*new Share feature style  */
+div.share3  { padding:0px; margin:0 0 0px 0; border:solid 2px #eee; min-height:170px;  }
+div.share3 div.divider  {background:url(/images/templates/share-divider.gif) no-repeat 172px 35px; height:120px}
+
+div.share3 p.top{ background-color:#eee; padding:5px 3px; margin:0  }
+#shareImg {padding:0px 3px;  }
+/*div.share3 p { padding-left:0px; margin-bottom:10px}*/
+div.share3 ul {margin:0; list-style:none; padding:0}
+div.share3 ul li{padding-bottom:3px}
+div.share3 div.row { padding:2px 1px 10px 8px }
+div.share3 img { vertical-align: middle; }
+
+.share3 .cols3 a{ color:#000!important; text-decoration:none; height: auto;    text-align: left; background-color:#fff}
+div#bottom div.connect {  margin-top:7px; padding:4px; text-align:center; background-color:#eee}
+div.center { padding-bottom:0px}
+
+div.HighlightFloat2 { width:170px; float:right; border-left:solid #fff 10px; border-bottom:solid #fff 6px; background:url(/images/templates/topic-bottom.gif) no-repeat bottom; padding:0 0px 8px 0; margin:0}
+div.HighlightFloat2 p#header, div.HighlightFloat2 p.header { background:#bcced7 url(/images/ahc-asc/ql-header-top.gif) no-repeat left top;  font-weight:bold; padding:4px 4px 0 6px; margin:0 0 0 0px; color:#036; text-align:center; border:none}
+div.HighlightFloat2 p {background:#f9f9f9 url(/images/ahc-asc/ql-header-bottom.gif) no-repeat 0px 0;   padding:12px 4px 6px 8px; margin:0 0 0 0px; color:#036; border-left:solid 1px #eeeeee;}
+div.HighlightFloat2 p.second { background:none; background-color:#f9f9f9; padding:6px 4px 8px 8px; margin:0 0 0 0px; color:#036; border-left:solid 1px #eeeeee;}
+div.HighlightFloat2 ul{ list-style-type:none; margin:0; padding:12px 0 8px 26px; background:#f9f9f9 url(/images/ahc-asc/ql-header-bottom.gif) no-repeat 0px 0; border-left:solid 1px #eeeeee;   }
+div.HighlightFloat2 ul li { margin:0 0 0 0px; padding:0 0 0px 0px}
+div.HighlightFloat2 ul li ul { background-image:none; border:none; padding:0 0 0 0; margin-left:16px}
+div.HighlightFloat2 ul.second {background:none; background-color:#f9f9f9; padding:0px 0 10px 26px; margin:0 0 0 0}
+div.HighlightFloat2 p.sub { background:none; background-color:#999; padding:2px 2px 2px 8px; color:#fff; font-weight:bold; margin:0 0 0 0}
+div.HighlightFloat2 p.sub a {text-decoration:none; color:#fff!important}
+div.HighlightFloat2 p.sub a:hover {text-decoration: underline !important}
+
+/* publications */
+.pub {	width: 100%; margin:15px 0px}
+
+.next, .previous, .toc {
+	padding: 3px;
+	overflow: hidden;
+	border:1px solid #bcced7;
+	text-align:center;
+}
+
+.next a, .previous a, .toc a { text-decoration:none;}
+.next, .previous, .toc  { color: #999999}
+.next a:hover, .previous a:hover, .toc a:hover { text-decoration:underline !important}
+
+.next {
+	float: right;
+	width: 31%; 
+	margin-left: 3px;
+}
+
+.previous {
+	float: left;
+	width: 31%; 
+	margin-right: 3px;
+}
+
+.toc {height: 1%; /* IE6 fix */}
+
+/* Icons on reports and pubs index page */
+div.icon a {color:#000!important; text-decoration:none; font-size: 7.5pt;}
+
+div.icon a:hover				{text-decoration:underline !important; }
+div.icon img 					{vertical-align:middle; border-right:5px solid #fff; }
+div.icon, div.icon form  		{display:inline; vertical-align:middle}
+div.icon form p			 		{display:inline; }
+div.highlight div.icon img, div.highlight2 div.icon img {border-right:5px solid #eee; }
+
+
+/* Right Nav Quick Links */
+.quickLinks {
+	width: 150px;
+	padding: 0px 0px 7px 7px;
+	margin:0 0 10px 0;
+	background-color: #fff;
+	color: #333;
+	float:right;
+	}
+	
+.quickLinks ul {list-style:none; margin:0; padding:0; border:none; }
+.quickLinks li {margin:0 0 0 0; padding:0; display:inline; }
+
+.quickLinks li a {
+		display: block;
+		padding: 2px 2px 2px 4px;
+		background-color: #DDD;
+		color: #000!important;
+		text-decoration: none;		
+		border-top: 1px solid #EEE;
+		border-bottom: 1px solid #c4c4c4;
+		border-right: 1px solid #c4c4c4;
+		border-left: 1px solid #c4c4c4;
+}
+
+.quickLinks li a:hover {background-color: #c4c4c4; border-top: 1px solid #c4c4c4; text-decoration: underline !important;}
+.quickLinks p { color:#fff; background-color: #069; margin-bottom:0px; font-weight:bold; padding:3px 4px; }
+.quickLinks p a { color:#fff!important; background-color:#069; margin-bottom:0px; font-weight:bold; padding:3px 4px; text-decoration:none}
+.quickLinks p a:hover { text-decoration: underline !important}
+.quickLinks li p, .quickLinks p.sub { color:#fff; background-color: #999; margin-bottom:0px; margin-top:0px; padding:3px 4px; }
+
+/* index page image*/
+.img-header { margin:0px; padding:0px}
+
+/* TEMP FIX */
+div.center{ overflow:visible; }
+
+/* clearing in firefox */
+.clear:after {
+content: ".";
+display: block;
+height: 0;
+visibility: hidden;
+}
+
+/* aligning forms without tables */
+.labelWidth { width:150px; float:left;}
+.inputSpacing { margin-bottom:7px}
+
+/* archives background */
+.borderRed { padding:4px; border:solid 2px #ec240c; }
+.archive-eng {background:url(/images/common/archive-eng.gif) repeat-y scroll center 0}
+.archive-fra {background:url(/images/common/archive-fra.gif) repeat-y scroll center 0}
+.draft-eng {background:url(/images/common/draft-ebauche-eng.gif) repeat-y scroll center 0}
+.draft-fra {background:url(/images/common/draft-ebauche-fra.gif) repeat-y scroll center 0}
+
+/* top nav for applications */
+ul.topnav  {text-align:center; width:100%; margin-left:0px; padding-left:0px;  }
+ul.topnav li {float:left; border:1px solid #fff; background-color:#069; list-style-type:none; width:19.7%; }
+ul.topnav li a {text-decoration:none; color:#fff!important; display:block; width:100%; min-height:36px; padding-bottom:2px}
+ul.topnav li a:hover {text-decoration: underline !important;}
+* html ul.topnav li a {height:36px;}
+ul.topnav li a:hover {background:#9bc; color:#ffffff!important;}
+ul.topnav:after {
+	content: ""; 
+	display: block; 
+	height: 0; 
+	clear: left;
+	visibility: hidden;
+}
+
+/* fniah target identifier, above h1 */
+div.fniah {  text-align:right; font-size:85%; color: #003; margin-right:6px; }
+div.fniah strong {background-color:#AAB5BF;}
+
+/* date format */
+div.date li {font-size:70%}
+div.date li ul li {font-size:100%}
+div.date li a {font-size:135%}
+div.date li {margin-bottom:9px}
+div.date li ul { margin-top:10px}
+div.date ul {list-style-image: url(/images/ahc-asc/bullet_subject.gif);}
+
+/* hover boxes for months, a-z listing etc */
+ul.alpha {text-align:center; color: #767575; width:100%; margin-left:0px; padding-left:0px; height:16px}
+ul.alpha li {float:left; border:1px solid #eee; width:8%; list-style-type:none; }
+ul.alpha li a {text-decoration:none; color:#069!important; display:block; width:100%}
+ul.alpha li a:hover {background:#336699; color:#ffffff!important;text-decoration: underline !important;}
+
+/* container box for videos */
+div.topic_video {background-color:#f9f9f9; width:300px; border:3px solid #dddddd; float:right; margin:0 0 20px 5px; padding:4px 4px 10px 4px;}
+div.topic_video h2 {width:297px; font-size:1em; margin:0; padding:5px 0 15px 5px;}
+div.topic_video p {text-align:left; margin:0; padding:7px 3px 3px 3px;}
+
+/* disclaimer for videos */
+div#youtube { border:none}
+div#youtube div.center div.gcinit div { margin-bottom:0}
+p#help {padding:9px 0px 9px 10px; width:440px;}
+p#helpf {padding:1px 0px 1px 1px; width:449px;}
+* html p#help {width:437px;}
+* html p#helpf {width:446px;}
+
+/* rotation control for right-hand "Features" and "Government initiatives" on home page */
+li.rotation {background:url(/home-accueil/images/pacrb-dgapcr/home_page/bg_rotation_right.gif) no-repeat; margin:0; padding:0; height:16px; text-align:center; border-bottom:7px solid #FFF;}
+li.rotation div {background:url(/images/home-accueil/v2/bg-search-recherche.jpg); border-right:1px solid #99cccc; border-top:1px solid #99cccc; border-bottom:1px solid #99cccc; padding:0; margin:0; font-size:10px; font-weight:bold; float:right; cursor:pointer; color:#006699;}
+li.rotation div a {text-decoration:none; width:12px; height:14px; display:block; margin:0; padding:2px 2px 2px 2px;}
+li.rotation div a:hover {text-decoration: underline !important;}
+li.menucontentbottom {font-size: 10.0pt; vertical-align: middle; margin: 0; padding: 2px 3px 2px 12px; font-size:100%; display:block; height:68px;}
+li.menucontentbottom div.gcinit {margin-bottom:0px; display:block; height:68px;}
+li.menucontentbottominit {font-size: 10.0pt; vertical-align: middle; margin: 0; padding: 2px 3px 2px 12px; font-size:100%; display:block; height:68px;}
+li.menucontentbottominit div.gcinit {margin-bottom:0px; display:block; height:68px; }
+
+/* Online Pubs ordering System */
+
+div.tools-resources {
+	width: 152px;
+	padding: 3px;
+	margin: 0px 0px 0px 10px;
+	background: #fff;
+	color: #000;
+	float: right;
+	text-align:center;
+	border: 1px solid #069;
+}
+div.tools-resources div a {
+	color:#000!important;
+	text-decoration:none;
+}
+div.tools-resources div a:hover {text-decoration: underline !important;}
+div.tools-resources p {
+	margin: 0px;
+	padding: 0px;
+}
+div.tools-resources p img {
+	margin: 2px 0 2px 0;
+	padding:0px;
+	border: 1px solid #BBB;
+}
+div.tools-resources ul {
+	margin: 0px;
+	padding:0px;
+}
+div.tools-resources ul li {
+	padding: 0px;
+}
+div.tools-resources div.quickLinks {
+	margin: 0 0 3px 0;
+	padding: 0;
+	width:100%;
+	float:none;
+	font-size: 90%;
+}
+div.tools-resources div.quickLinks p {
+	margin: 2px 0 0 0;
+	padding: 2px;
+}
+div.tools-resources div.quickLinks a {
+	font-size: 90%;
+	padding: 2px 0px;
+}
+div.tools-resources div.target {
+	text-align:center;
+	padding:2px;
+	width:96%;
+	border: 1px dotted #069;
+	margin: 0 0 2px 0;
+	font-size: 80%;
+}
+div.tools-resources div.target div.hide {
+	color: #000;
+}
+div.tools-resources div.target div a {
+	text-decoration:underline !important;
+}
+
+
+/* STYLES For WET Stuff */
+.cn-invisible, .invisible{	position: absolute; clip: rect(1px, 1px, 1px, 1px); height: 1px !important; width: 1px !important; overflow: hidden !important; margin: 0 !important;}
+* html .cn-invisible, * html .invisible {clip: rect(1px, 1px, 1px, 1px);} /* For IE6 */
+* + html .cn-invisible, * + html .invisible {clip: rect(1px, 1px, 1px, 1px);} /* For IE7 */
+
+/*WET footnotes mods*/
+div.footnote-container { border-bottom:none!important; padding-top:10px!important; padding-bottom:0px!important; font-size:85%; margin-left:0!important; margin-right:0!important}
+div.footnote-container h2 { margin:0!important}
+div.footnote-container dl dd { width:100%}
+div.footnote-container dl dt { margin:0}
+div.footnote-container dl {  border-bottom:none!important; padding:0 0 10px 0; width:100%}
+div.footnote-container dl dd p { margin-bottom:0px!important; width:94.8%}
+table div.footnote-container dl dd p {width:94.7%}
+table div.footnote-container { border-top:none!important; padding-top:0; margin-top:0;  margin-left:5px!important;}
+div.footnote-container dl dd p{ padding-bottom:8px!important}
+a.footnote-link, div.footnote-container dl dd p.float-left a { background-color:transparent!important; border:none!important}
+
+/*form validation*/
+.formErrorMsg { color:#c00; display:block; }

@@ -1,0 +1,7 @@
+; $Id: nhpid_admin.info,v 1.0.0 2010/07/27 15:26:16 peijun zhang$
+name = NHPID Admin
+description = A modules for administrating NHPID.
+dependencies[] = nhpid_api
+core = 7.x
+package = NHPID
+version = "7.x-1.0-dev"
