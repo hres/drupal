@@ -1,0 +1,7 @@
+; $Id:   peijun zhang$
+name = Unlock Temp Locked User
+description = This module lets permmitted users to unlock temporarily locked user accounts after 5 failed logins.
+core = 7.x
+package = NHPD
+
+version = "7.x-1.0-dev"

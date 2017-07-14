@@ -1,0 +1,96 @@
+<?php
+// $Id$
+
+function nhpd_unlock_temp_locked_account_permission() {
+    return array(
+    'unlock temp locked user accounts' => array(
+      'title' => t('Unlock temp locked user accounts'),
+      'description' => t(''),
+      ),
+    
+    );
+} 
+
+
+
+/***
+ * hook_menu
+ */ 
+function nhpd_unlock_temp_locked_account_menu() {
+
+  $items = array();
+
+  $items['admin/people/unlock_temp_locked_accounts'] = array(
+    'title' => t('Unlock Temp Locked Accounts'),
+    'weight' => 100,
+    'access arguments' => array('unlock temp locked user accounts'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nhpd_unlock_temp_locked_account_form'),
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  return $items;
+}
+
+function nhpd_unlock_temp_locked_account_form($form, &$form_state){
+	$limit = variable_get('user_failed_login_user_limit', 5);
+	$form['help'] = array(
+		'#type' => 'item',
+    '#markup' => t('You can only unlock temporarily locked accounts after @limit failed logins. If you would like to unlock blocked accounts, please go to !link. ', array('@limit' => $limit, '!link' => l( t('Admin People'), 'admin/people'))),
+	);
+	
+	$accounts = db_select('users', 'u')
+						-> fields('u', array('uid', 'name'))
+						-> condition('status', 1, '=')
+						-> orderBy('u.name')
+						-> execute()
+						-> fetchAllKeyed();
+	foreach($accounts as $uid=>$name){
+		$count = db_select('flood', 'f')
+						-> fields(NULL, array('field'))
+						-> condition('event', 'failed_login_attempt_user', '=')
+						-> condition('identifier', $uid . '-%', 'like')
+						-> countQuery()
+						-> execute()
+						-> fetchField();
+		if ($count < $limit){
+			unset($accounts[$uid]);
+		}
+	}
+	$form['account'] = array(
+		'#type' => 'select',
+		'#title' => t('Account'),
+		'#options' => $accounts,
+		'#multiple' => FALSE,
+		'#required' => TRUE,
+		'#access' => !empty($accounts),
+		'#description' => t('Select one account'),
+	);
+	$form['no_locked_accounts'] = array(
+		'#type' => 'item',
+    '#markup' => t('No locked accounts found.'),
+		'#access' => empty($accounts),
+	);
+	$form['submit'] = array(
+		'#type' => 'submit',
+		'#value'  => 'Submit',
+		'#access' => !empty($accounts),
+	);
+	return $form;
+}
+function nhpd_unlock_temp_locked_account_form_submit($form, &$form_state){
+	$uid = $form_state['values']['account'];
+	$num_deleted = db_delete('flood')
+									-> condition('event', 'failed_login_attempt_user', '=')
+									-> condition('identifier', $uid . '-%', 'like')
+									-> execute();
+	$account = user_load($uid);
+	//drupal_set_message(nhpid_api_dump($account, 'blue', TRUE));
+	if ($num_deleted > 0){
+		drupal_set_message(t('Account for <em>@user</em> has been unlocked.', array('@user' => $account -> name)));
+	}
+	else{
+		drupal_set_message(t('Sorry, account for <em>@user</em> is not locked or could not been unlocked.', array('@user' => $account -> name)), 'warning');
+	}
+	
+}
